@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BTC Simulador</title>
+<style>
+:root{
+  --bg:#070c18; --panel:#0d1424; --panel2:#111a2e; --border:#1e2a44;
+  --txt:#e8edf7; --muted:#7d8aa3;
+  --avg:#22d3ee; --binance:#f7c948; --kraken:#a855f7; --coinbase:#3b82f6;
+  --green:#22c55e; --red:#ef4444; --yellow:#f7c948;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{background:var(--bg);color:var(--txt);font-family:'Segoe UI',system-ui,sans-serif;font-size:13px;overflow-x:hidden}
+.app{display:flex;flex-direction:column;min-height:100vh;padding:12px;gap:12px}
+/* header */
+header{display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px}
+.brand h1{font-size:20px;letter-spacing:.5px;font-weight:700}
+.brand p{color:var(--muted);font-size:11px;margin-top:2px}
+.status{text-align:right;font-size:11px;color:var(--muted)}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 8px var(--green);margin-right:5px;animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+.status .clock{color:var(--txt);font-size:12px;font-variant-numeric:tabular-nums}
+/* cards */
+.cards{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+.card{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:12px;position:relative;overflow:hidden}
+.card.best{border-color:var(--green);box-shadow:0 0 0 1px var(--green) inset}
+.card .top{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+.card .name{font-weight:600;font-size:12px}
+.card .brl{font-size:18px;font-weight:700;font-variant-numeric:tabular-nums}
+.card .usd{color:var(--muted);font-size:11px}
+.card .var{font-size:12px;font-weight:600;margin-top:4px}
+.card .meta-row{margin-top:8px;padding-top:8px;border-top:1px solid var(--border);font-size:11px;color:var(--muted);line-height:1.7}
+.card .meta-row b{color:var(--txt);font-variant-numeric:tabular-nums}
+.badge{position:absolute;top:8px;right:8px;background:var(--green);color:#04210f;font-size:9px;font-weight:700;padding:2px 6px;border-radius:4px;letter-spacing:.5px}
+.spark{width:34px;height:16px}
+.pos{color:var(--green)} .neg{color:var(--red)} .yel{color:var(--yellow)}
+/* main */
+.main{display:grid;grid-template-columns:1fr 320px;gap:12px;flex:1}
+.chartwrap{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:10px;display:flex;flex-direction:column;min-height:420px}
+.periods{display:flex;gap:6px;overflow-x:auto;padding-bottom:8px;margin-bottom:6px}
+.periods button{background:var(--panel2);border:1px solid var(--border);color:var(--muted);padding:5px 11px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;white-space:nowrap;flex:none}
+.periods button.active{background:var(--avg);border-color:var(--avg);color:#04212a}
+.periods button:hover:not(.active){color:var(--txt)}
+#chart{flex:1;width:100%;display:block;cursor:crosshair;border-radius:6px}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:11px;color:var(--muted);margin-top:6px}
+.legend span::before{content:'';display:inline-block;width:10px;height:2px;vertical-align:middle;margin-right:5px}
+.lg-avg::before{background:var(--avg)!important;height:2px} .lg-bin::before{background:var(--binance)!important} .lg-kra::before{background:var(--kraken)!important} .lg-coi::before{background:var(--coinbase)!important}
+/* side */
+.side{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:12px;overflow:auto}
+.side h3{font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-bottom:4px}
+.field label{display:block;font-size:11px;color:var(--muted);margin-bottom:4px}
+.field input{width:100%;background:var(--panel2);border:1px solid var(--border);color:var(--txt);padding:8px 10px;border-radius:6px;font-size:14px;font-variant-numeric:tabular-nums}
+.field input[readonly]{color:var(--avg);cursor:default}
+.slider-val{font-size:20px;font-weight:700;color:var(--avg)}
+input[type=range]{width:100%;accent-color:var(--avg);margin-top:4px}
+.mini{display:flex;justify-content:space-between;font-size:11px;color:var(--muted);padding:3px 0}
+.mini b{color:var(--txt);font-variant-numeric:tabular-nums}
+.btns{display:flex;flex-direction:column;gap:8px}
+.btns button{padding:10px;border-radius:7px;border:none;cursor:pointer;font-weight:700;font-size:13px}
+.buy-btn{background:var(--green);color:#04210f}
+.sell-btn{background:var(--yellow);color:#2a2205}
+.btns button:hover{filter:brightness(1.1)}
+.summary{background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:10px}
+.summary .mini b{font-size:13px}
+/* table */
+.tablewrap{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:12px;overflow-x:auto}
+.tablewrap h3{font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-bottom:8px}
+table{width:100%;border-collapse:collapse;font-size:12px;min-width:760px}
+th{text-align:left;color:var(--muted);font-weight:600;font-size:10px;text-transform:uppercase;letter-spacing:.5px;padding:6px 8px;border-bottom:1px solid var(--border)}
+td{padding:7px 8px;border-bottom:1px solid var(--border);font-variant-numeric:tabular-nums}
+tr.row-y td:first-child{border-left:3px solid var(--yellow)}
+tr.row-g td:first-child{border-left:3px solid var(--green)}
+tr.row-r td:first-child{border-left:3px solid var(--red)}
+.tag{display:inline-block;padding:2px 7px;border-radius:4px;font-size:10px;font-weight:700}
+.tag-buy{background:rgba(59,130,246,.18);color:#7fb4ff}
+.tag-sell{background:rgba(168,85,247,.18);color:#c99bff}
+/* tooltip + toast */
+#tooltip{position:fixed;pointer-events:none;background:#050912;border:1px solid var(--border);border-radius:7px;padding:8px 10px;font-size:11px;z-index:50;display:none;max-width:230px;line-height:1.5;box-shadow:0 6px 20px rgba(0,0,0,.6)}
+#tooltip b{color:var(--txt)}
+#toasts{position:fixed;bottom:16px;right:16px;display:flex;flex-direction:column;gap:8px;z-index:60}
+.toast{background:var(--panel2);border:1px solid var(--border);border-left-width:4px;border-radius:7px;padding:10px 14px;font-size:12px;min-width:220px;max-width:320px;animation:slidein .3s ease;box-shadow:0 6px 20px rgba(0,0,0,.5)}
+.toast.ok{border-left-color:var(--green)} .toast.warn{border-left-color:var(--yellow)} .toast.err{border-left-color:var(--red)} .toast.info{border-left-color:var(--avg)}
+@keyframes slidein{from{transform:translateX(120%);opacity:0}to{transform:none;opacity:1}}
+@media(max-width:900px){
+  .cards{grid-template-columns:repeat(2,1fr)}
+  .main{grid-template-columns:1fr}
+  .side{order:2}
+}
+@media(max-width:520px){.cards{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="brand">
+      <h1>BTC Simulador</h1>
+      <p>Cotações reais (SQL Server) • Operações simuladas • Projeção = cenário estatístico, não recomendação</p>
+    </div>
+    <div class="status">
+      <div><span class="dot"></span>Sistema ativo</div>
+      <div id="updated">Dados atualizados há 0s</div>
+      <div class="clock" id="clock">--:--:-- UTC</div>
+    </div>
+  </header>
+
+  <div class="cards" id="cards"></div>
+
+  <div class="main">
+    <div class="chartwrap">
+      <div class="periods" id="periods"></div>
+      <canvas id="chart"></canvas>
+      <div class="legend">
+        <span class="lg-avg">Média</span>
+        <span class="lg-bin">Binance</span>
+        <span class="lg-kra">Kraken</span>
+        <span class="lg-coi">Coinbase</span>
+      </div>
+    </div>
+
+    <div class="side">
+      <div class="field"><label>Valor da compra / venda</label><input id="opValue" value="R$ 55.000,00"></div>
+      <div class="field"><label>Stop manual (R$)</label><input id="stop" value="R$ 0,00"></div>
+      <div class="field"><label>Preço-alvo calculado</label><input id="target" readonly></div>
+      <div>
+        <h3>Retorno desejado</h3>
+        <div class="slider-val"><span id="retVal">5.0</span>%</div>
+        <input type="range" id="ret" min="0" max="10" step="0.1" value="5">
+        <div class="mini"><span>Lotes abertos</span><b id="openLots">0</b></div>
+        <div class="mini"><span>Preço médio ponderado</span><b id="avgPrice">—</b></div>
+        <div class="mini"><span>Lucro total projetado</span><b id="projProfit">—</b></div>
+      </div>
+      <div class="btns">
+        <button class="buy-btn" id="buyBtn">Iniciar compra simulada</button>
+        <button class="sell-btn" id="sellBtn">Agendar venda no preço-alvo</button>
+      </div>
+      <div class="summary">
+        <h3>Resumo</h3>
+        <div class="mini"><span>BTC simulado disponível</span><b id="btcAvail">0,00000000</b></div>
+        <div class="mini"><span>Lucro / prejuízo atual</span><b id="pnl">R$ 0,00</b></div>
+        <div class="mini"><span>Retorno atual</span><b id="retNow">0,00%</b></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="tablewrap">
+    <h3>Operações</h3>
+    <table>
+      <thead><tr>
+        <th>Lote/Ordem</th><th>Tipo</th><th>Data/Hora UTC</th><th>Preço (R$)</th>
+        <th>BTC</th><th>Valor (R$)</th><th>Resultado</th><th>Retorno</th>
+      </tr></thead>
+      <tbody id="opsBody"></tbody>
+    </table>
+  </div>
+</div>
+
+<div id="tooltip"></div>
+<div id="toasts"></div>
+<script src="forecast.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
