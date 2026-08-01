@@ -4,5 +4,4 @@ config.php
 *.log
 *.bak
 *.sql
-teste_sql.php
 chumbrega.php
