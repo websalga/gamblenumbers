@@ -1,0 +1,8 @@
+config.php
+.env
+.env.*
+*.log
+*.bak
+*.sql
+teste_sql.php
+chumbrega.php
