@@ -16,16 +16,24 @@ const COL  = {avg:'#22d3ee',binance:'#f7c948',kraken:'#a855f7',coinbase:'#3b82f6
 const PREMIUM = {avg:0, binance:0.0015, kraken:-0.0020, coinbase:0.0008}; // ágio/deságio vs média
 
 const PERIODS = [
-  {id:'5M',  label:'5M',  points:60,  stepMs:5*60*1000/60,      vol:0.0012, trend: 0.00004, freq:3.0},
-  {id:'10M', label:'10M', points:60,  stepMs:10*60*1000/60,     vol:0.0016, trend:-0.00003, freq:2.4},
-  {id:'20M', label:'20M', points:60,  stepMs:20*60*1000/60,     vol:0.0022, trend: 0.00005, freq:2.0},
-  {id:'30M', label:'30M', points:60,  stepMs:30*60*1000/60,     vol:0.0028, trend: 0.00002, freq:1.8},
-  {id:'1H',  label:'1H',  points:60,  stepMs:60*60*1000/60,     vol:0.0035, trend:-0.00004, freq:1.5},
-  {id:'6H',  label:'6H',  points:72,  stepMs:6*3600*1000/72,    vol:0.0060, trend: 0.00006, freq:1.2},
-  {id:'1D',  label:'1D',  points:96,  stepMs:24*3600*1000/96,   vol:0.0090, trend: 0.00003, freq:1.0},
-  {id:'7D',  label:'7D',  points:84,  stepMs:7*86400*1000/84,   vol:0.0150, trend:-0.00005, freq:0.8},
-  {id:'30D', label:'30D', points:90,  stepMs:30*86400*1000/90,  vol:0.0240, trend: 0.00008, freq:0.6},
-  {id:'1Y',  label:'1Y',  points:96,  stepMs:365*86400*1000/96, vol:0.0400, trend: 0.00010, freq:0.4},
+  {id:'5M',  label:'5M',  points:60,  stepMs:5*60*1000/60,        vol:0.0012, trend: 0.00004, freq:3.0},
+  {id:'10M', label:'10M', points:60,  stepMs:10*60*1000/60,       vol:0.0016, trend:-0.00003, freq:2.4},
+  {id:'20M', label:'20M', points:60,  stepMs:20*60*1000/60,       vol:0.0022, trend: 0.00005, freq:2.0},
+  {id:'30M', label:'30M', points:60,  stepMs:30*60*1000/60,       vol:0.0028, trend: 0.00002, freq:1.8},
+  {id:'1H',  label:'1H',  points:60,  stepMs:60*60*1000/60,       vol:0.0035, trend:-0.00004, freq:1.5},
+  {id:'6H',  label:'6H',  points:72,  stepMs:6*3600*1000/72,      vol:0.0060, trend: 0.00006, freq:1.2},
+  {id:'1D',  label:'1D',  points:96,  stepMs:24*3600*1000/96,     vol:0.0090, trend: 0.00003, freq:1.0},
+  {id:'7D',  label:'7D',  points:84,  stepMs:7*86400*1000/84,     vol:0.0150, trend:-0.00005, freq:0.8},
+  {id:'30D', label:'30D', points:90,  stepMs:30*86400*1000/90,    vol:0.0240, trend: 0.00008, freq:0.6},
+  {id:'60D', label:'60D', points:90,  stepMs:60*86400*1000/90,    vol:0.0300, trend:-0.00007, freq:0.55},
+  {id:'90D', label:'90D', points:90,  stepMs:90*86400*1000/90,    vol:0.0340, trend: 0.00009, freq:0.5},
+  {id:'120D',label:'120D',points:96,  stepMs:120*86400*1000/96,   vol:0.0380, trend:-0.00006, freq:0.48},
+  {id:'180D',label:'180D',points:96,  stepMs:180*86400*1000/96,   vol:0.0420, trend: 0.00010, freq:0.45},
+  {id:'220D',label:'220D',points:96,  stepMs:220*86400*1000/96,   vol:0.0450, trend:-0.00008, freq:0.42},
+  {id:'1Y',  label:'1Y',  points:96,  stepMs:365*86400*1000/96,   vol:0.0400, trend: 0.00010, freq:0.4},
+  {id:'2Y',  label:'2Y',  points:104, stepMs:2*365*86400*1000/104,vol:0.0520, trend: 0.00012, freq:0.32},
+  {id:'3Y',  label:'3Y',  points:108, stepMs:3*365*86400*1000/108,vol:0.0600, trend:-0.00009, freq:0.26},
+  {id:'5Y',  label:'5Y',  points:120, stepMs:5*365*86400*1000/120,vol:0.0700, trend: 0.00014, freq:0.2},
 ];
 
 const BASE = 350000; // preço base BTC em R$
@@ -317,10 +325,12 @@ function invY(y){ const y0=VIEW.h-PADB,y1=PADT; return VIEW.pMin+(y-y0)/(y1-y0)*
 function timeLabel(t){
   const p=PERIODS.find(x=>x.id===state.periodId);
   const d=new Date(t);
+  const MES=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
   if(['5M','10M','20M','30M','1H'].includes(p.id)) return pad(d.getUTCHours())+':'+pad(d.getUTCMinutes());
   if(['6H','1D'].includes(p.id)) return pad(d.getUTCHours())+'h';
-  if(['7D','30D'].includes(p.id)) return pad(d.getUTCDate())+'/'+pad(d.getUTCMonth()+1);
-  return ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'][d.getUTCMonth()];
+  if(['7D','30D','60D','90D','120D','180D','220D'].includes(p.id)) return pad(d.getUTCDate())+'/'+pad(d.getUTCMonth()+1);
+  if(['2Y','3Y','5Y'].includes(p.id)) return MES[d.getUTCMonth()]+'/'+String(d.getUTCFullYear()).slice(2);
+  return MES[d.getUTCMonth()];
 }
 
 function draw(){
@@ -617,10 +627,18 @@ function buildPeriods(){
   PERIODS.forEach(p=>{
     const b=document.createElement('button'); b.textContent=p.label;
     if(p.id===state.periodId) b.className='active';
-    b.onclick=()=>{ state.periodId=p.id; getSeries(); [...wrap.children].forEach(c=>c.classList.remove('active')); b.classList.add('active'); refreshAll(); };
+    b.onclick=()=>{
+      state.periodId=p.id;
+      delete state.series[p.id];   // descarta série cacheada; reconstrói alinhada ao state.now atual
+      getSeries();
+      [...wrap.children].forEach(c=>c.classList.remove('active'));
+      b.classList.add('active');
+      refreshAll();
+    };
     wrap.appendChild(b);
   });
 }
+
 document.getElementById('ret').addEventListener('input',e=>{
   state.ret=parseFloat(e.target.value);
   document.getElementById('retVal').textContent=state.ret.toFixed(1);
