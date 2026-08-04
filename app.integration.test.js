@@ -12,9 +12,11 @@ const { EventBus } = require('./eventbus.js');
 const { ControlPanel } = require('./controlpanel.js');
 const { OperationsController } = require('./operations.js');
 const { OperationsTable } = require('./operationstable.js');
+const { FrozenForecast } = require('./frozenforecast.js');
+const { LocalStore } = require('./storage.js');
 
 // expõe no "window" como as tags <script> fazem
-Object.assign(global, { DataStore, ExchangeCard, RealSeries, ProjectedSeries, PlotArea, EventBus, ControlPanel, OperationsController, OperationsTable }, Renderers);
+Object.assign(global, { DataStore, ExchangeCard, RealSeries, ProjectedSeries, PlotArea, EventBus, ControlPanel, OperationsController, OperationsTable, FrozenForecast, LocalStore }, Renderers);
 
 // Forecast fake (o real vem de forecast.js no navegador)
 global.Forecast = { project(hist, n) { const last = hist[hist.length - 1].avg; return Array.from({ length: n }, (_, i) => last + (i + 1) * 30); } };

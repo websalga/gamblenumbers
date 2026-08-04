@@ -21,8 +21,52 @@ class OperationsTable {
       if (sell.status !== 'cancelled' && sell.status !== 'expired') body.appendChild(this._sellRow(sell));
     }
     if (!this._ops.lots.length && !this._ops.sells.length) {
-      body.innerHTML = '<tr><td colspan="8" style="color:#7d8aa3;text-align:center;padding:20px">Nenhuma operação ainda. Clique com o botão direito no histórico para comprar.</td></tr>';
+      body.innerHTML = '<tr><td colspan="9" style="color:#7d8aa3;text-align:center;padding:20px">Nenhuma operação ainda. Clique com o botão direito no histórico para comprar.</td></tr>';
     }
+  }
+
+  /**
+   * Célula de ações: olhinho (ocultar/mostrar no gráfico) e ✕ (excluir).
+   * Para compras com saldo restante o ✕ fica desabilitado, com o motivo e o
+   * saldo no title (hint) — a regra é: só compra consolidada pode ser apagada.
+   */
+  _actionsCell(kind, op) {
+    const td = this._doc.createElement('td');
+    td.className = 'ops-actions';
+
+    const olho = this._doc.createElement('button');
+    olho.className = 'opbtn';
+    olho.textContent = op.hidden ? '\u{1F441}\u200D\u{1F5E8}' : '\u{1F441}';
+    olho.title = op.hidden ? 'Mostrar no gráfico' : 'Ocultar do gráfico';
+    olho.onclick = () => { if (typeof this._ops.toggleVisible === 'function') this._ops.toggleVisible(kind, op.id); };
+    if (op.hidden && olho.style) olho.style.opacity = '0.45';
+    td.appendChild(olho);
+
+    const x = this._doc.createElement('button');
+    x.className = 'opbtn opbtn-del';
+    x.textContent = '\u2715';
+    let bloqueio = null;
+    if (kind === 'lot') {
+      const check = (typeof this._ops.canDeleteLot === 'function')
+        ? this._ops.canDeleteLot(op)
+        // fallback: mesma regra, caso o controller não exponha o método
+        : { ok: !(op.remaining > 1e-10), reason: 'Compra ainda com saldo restante.' };
+      if (!check.ok) bloqueio = check.reason;
+    }
+    if (bloqueio) {
+      x.title = bloqueio;                       // hint com o saldo restante
+      x.disabled = true;
+      if (x.style) { x.style.opacity = '0.35'; x.style.cursor = 'not-allowed'; }
+      x.onclick = () => { if (typeof this._ops._toast === 'function') this._ops._toast('warn', bloqueio); };
+    } else {
+      x.title = kind === 'lot' ? 'Excluir compra' : 'Excluir venda';
+      x.onclick = () => {
+        if (kind === 'lot') { if (this._ops.deleteLot) this._ops.deleteLot(op.id); }
+        else if (this._ops.deleteSell) this._ops.deleteSell(op.id);
+      };
+    }
+    td.appendChild(x);
+    return td;
   }
 
   _lotRow(lot) {
@@ -41,6 +85,8 @@ class OperationsTable {
       `<td>${this._fmt.utc(new Date(lot.time))}</td><td>${this._fmt.brl(lot.price)}</td>` +
       `<td>${this._fmt.btc(lot.qty)}<br><span style="color:#7d8aa3;font-size:10px">rest. ${this._fmt.btc(lot.remaining)}</span></td>` +
       `<td>${this._fmt.brl(lot.brl)}</td><td>${result}</td><td>${ret}</td>`;
+    tr.appendChild(this._actionsCell('lot', lot));
+    if (lot.hidden && tr.style) tr.style.opacity = '0.5';
     return tr;
   }
 
@@ -61,6 +107,8 @@ class OperationsTable {
     tr.innerHTML = `<td><b>${label}</b></td><td><span class="tag tag-sell">Venda</span></td>` +
       `<td>${this._fmt.utc(new Date(when))}</td><td>${this._fmt.brl(price)}</td>` +
       `<td>${this._fmt.btc(qty)}</td><td>${this._fmt.brl(value)}</td><td>${result}</td><td>${ret}</td>`;
+    tr.appendChild(this._actionsCell('sell', sell));
+    if (sell.hidden && tr.style) tr.style.opacity = '0.5';
     return tr;
   }
 }

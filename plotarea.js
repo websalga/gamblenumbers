@@ -42,6 +42,7 @@ class PlotArea {
 
     this.w = 0; this.h = 0;                         // dimensões CSS (px lógicos)
     this.tMin = 0; this.tMax = 1;                   // limites tempo
+    this._forcedWindow = null;                      // janela fixada pelo pan
     this.pMin = 0; this.pMax = 1;                   // limites preço
     this.resize();
   }
@@ -95,9 +96,36 @@ class PlotArea {
     if (!Number.isFinite(pMin) || !Number.isFinite(pMax)) return this;
     const pad = (pMax - pMin) * padFrac || 1;
     this.pMin = pMin - pad; this.pMax = pMax + pad;
-    this.tMin = tMin; this.tMax = (tMax === tMin) ? tMin + 1 : tMax;
+    // Se uma janela de tempo foi forçada (pan/rolagem), ela manda: o eixo X
+    // deixa de ser "o que os pontos cobrem" e passa a ser o trecho que o
+    // usuário está olhando. O eixo Y continua automático pelos pontos.
+    if (this._forcedWindow) {
+      this.tMin = this._forcedWindow.tMin;
+      this.tMax = this._forcedWindow.tMax;
+    } else {
+      this.tMin = tMin; this.tMax = (tMax === tMin) ? tMin + 1 : tMax;
+    }
     return this;
   }
+
+  /**
+   * Fixa a janela de tempo visível (usada pelo pan/rolagem). Enquanto
+   * definida, setBoundsFromPoints não sobrescreve o eixo X.
+   * @param {number} tMin
+   * @param {number} tMax
+   */
+  setTimeWindow(tMin, tMax) {
+    if (!(tMax > tMin)) return this;
+    this._forcedWindow = { tMin: tMin, tMax: tMax };
+    this.tMin = tMin; this.tMax = tMax;
+    return this;
+  }
+
+  /** Volta a derivar o eixo X dos próprios pontos. */
+  clearTimeWindow() { this._forcedWindow = null; return this; }
+
+  /** Janela de tempo forçada atual (ou null). */
+  get timeWindow() { return this._forcedWindow || null; }
 
   /** Define limites manualmente (usado em teste ou casos especiais). */
   setBounds(tMin, tMax, pMin, pMax) {

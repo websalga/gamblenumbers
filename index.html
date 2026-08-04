@@ -90,6 +90,27 @@ tr.row-r td:first-child{border-left:3px solid var(--red)}
   .side{order:2}
 }
 @media(max-width:520px){.cards{grid-template-columns:1fr}}
+
+.backnow{position:absolute;right:12px;top:44px;z-index:5;background:#1b2740;color:#e8edf7;
+  border:1px solid #2b3a5c;border-radius:6px;padding:4px 10px;font-size:11px;cursor:pointer;
+  font-family:inherit;opacity:.92}
+.backnow:hover{background:#243252}
+.chartwrap{position:relative}
+
+.trailstat{position:absolute;left:12px;bottom:26px;z-index:4;font-size:10px;
+  font-family:monospace;opacity:.85;pointer-events:none}
+
+.ops-actions{white-space:nowrap;text-align:center}
+.opbtn{background:transparent;border:1px solid #2b3a5c;color:#e8edf7;border-radius:4px;
+  padding:2px 6px;margin:0 2px;cursor:pointer;font-size:11px;line-height:1.2}
+.opbtn:hover:not(:disabled){background:#243252}
+.opbtn-del:hover:not(:disabled){background:#5b1f1f;border-color:#8b2f2f}
+.opsbar{display:flex;align-items:center;gap:8px;margin:0 0 8px 0;flex-wrap:wrap}
+.opclear{background:#1b2740;color:#e8edf7;border:1px solid #2b3a5c;border-radius:6px;
+  padding:4px 10px;font-size:11px;cursor:pointer;font-family:inherit}
+.opclear:hover{background:#243252}
+.opclear-all:hover{background:#5b1f1f;border-color:#8b2f2f}
+.opshint{color:#7d8aa3;font-size:10px}
 </style>
 </head>
 <body>
@@ -111,7 +132,9 @@ tr.row-r td:first-child{border-left:3px solid var(--red)}
   <div class="main">
     <div class="chartwrap">
       <div class="periods" id="periods"></div>
+      <button id="backNow" class="backnow" hidden>&#8635; Voltar ao AGORA</button>
       <canvas id="chart"></canvas>
+      <div class="trailstat" id="trailStat" hidden></div>
       <div class="legend">
         <span class="lg-avg">Média</span>
         <span class="lg-bin">Binance</span>
@@ -147,10 +170,16 @@ tr.row-r td:first-child{border-left:3px solid var(--red)}
 
   <div class="tablewrap">
     <h3>Operações</h3>
+    <div class="opsbar">
+      <button id="clearSells" class="opclear">Limpar vendas</button>
+      <button id="clearLots" class="opclear">Limpar compras</button>
+      <button id="clearAll" class="opclear opclear-all">Limpar tudo</button>
+      <span class="opshint">Compras com saldo restante não são excluídas</span>
+    </div>
     <table>
       <thead><tr>
         <th>Lote/Ordem</th><th>Tipo</th><th>Data/Hora UTC</th><th>Preço (R$)</th>
-        <th>BTC</th><th>Valor (R$)</th><th>Resultado</th><th>Retorno</th>
+        <th>BTC</th><th>Valor (R$)</th><th>Resultado</th><th>Retorno</th><th>Ações</th>
       </tr></thead>
       <tbody id="opsBody"></tbody>
     </table>
@@ -159,16 +188,18 @@ tr.row-r td:first-child{border-left:3px solid var(--red)}
 
 <div id="tooltip"></div>
 <div id="toasts"></div>
-<script src="eventbus.js"></script>
-<script src="datastore.js"></script>
-<script src="forecast.js"></script>
-<script src="series.js"></script>
-<script src="exchangecard.js"></script>
-<script src="plotarea.js"></script>
-<script src="renderers.js"></script>
-<script src="controlpanel.js"></script>
-<script src="operations.js"></script>
-<script src="operationstable.js"></script>
-<script src="app.js"></script>
+<script src="eventbus.js?v=1785808860"></script>
+<script src="datastore.js?v=1785808860"></script>
+<script src="forecast.js?v=1785808860"></script>
+<script src="storage.js?v=1785808860"></script>
+<script src="frozenforecast.js?v=1785808860"></script>
+<script src="series.js?v=1785808860"></script>
+<script src="exchangecard.js?v=1785808860"></script>
+<script src="plotarea.js?v=1785808860"></script>
+<script src="renderers.js?v=1785808860"></script>
+<script src="controlpanel.js?v=1785808860"></script>
+<script src="operations.js?v=1785808860"></script>
+<script src="operationstable.js?v=1785808860"></script>
+<script src="app.js?v=1785808860"></script>
 </body>
 </html>

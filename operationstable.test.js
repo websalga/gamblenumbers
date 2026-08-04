@@ -1,7 +1,7 @@
 'use strict';
 const { OperationsTable } = require('./operationstable.js');
 
-function node() { return { innerHTML: '', className: '', children: [], appendChild(x) { this.children.push(x); return x; } }; }
+function node() { return { innerHTML: '', className: '', textContent: '', title: '', disabled: false, style: {}, onclick: null, children: [], appendChild(x) { this.children.push(x); return x; } }; }
 const body = node();
 const doc = { getElementById: id => id === 'opsBody' ? body : null, createElement: () => node() };
 const operations = {

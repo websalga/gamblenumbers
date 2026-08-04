@@ -61,7 +61,15 @@ class ProjectedSeries {
     this._real = deps.real;
     this._forecast = deps.forecast;
     this._premium = deps.premium || { avg: 0, binance: 0, kraken: 0, coinbase: 0 };
+    // Fonte CONGELADA opcional. Quando presente, a projeção não é recriada a
+    // cada render: o frozen mantém a linha-mestra (que só cresce pela borda) e
+    // aqui apenas recortamos a janela. É o que impede as vendas marcadas sobre
+    // a projeção de "descolar" quando o usuário troca de escala.
+    this._frozen = deps.frozen || null;
   }
+
+  /** Liga/atualiza a fonte congelada depois de construída. */
+  setFrozen(frozen) { this._frozen = frozen || null; return this; }
 
   /**
    * Pontos projetados para DEPOIS de endT, na escala do período.
@@ -79,6 +87,16 @@ class ProjectedSeries {
     if (!hist.length) return [];
     const end = hist[hist.length - 1].t;
 
+    // ---- Caminho CONGELADO (preferido quando ha frozen) ----
+    // O frozen garante cobertura ate end+span, complementando so a borda
+    // faltante; aqui apenas recortamos o que ja existe.
+    if (this._frozen) {
+      const span = n * period.stepMs;
+      this._frozen.ensure(hist, end + span, period.stepMs);
+      return this._frozen.slice(end + period.stepMs, end + span, period.stepMs);
+    }
+
+    // ---- Caminho DINAMICO (legado / testes) ----
     const projAvg = this._forecast.project(hist, n, this._premium);
     if (!Array.isArray(projAvg) || !projAvg.length) return [];
 

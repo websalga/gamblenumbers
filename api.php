@@ -7,6 +7,10 @@
  * Endpoints:
  *   api.php?acao=cotacoes&limite=1500  -> últimos N snapshots (crescente)
  *   api.php?acao=atual                 -> snapshot mais recente
+ *   api.php?acao=intervalo&desde=<ms>&ate=<ms>&max=<n>
+ *                                      -> snapshots no intervalo [desde,ate] (UTC ms),
+ *                                         reduzidos (downsample) a no máx. `max` pontos
+ *                                         por bucket temporal. Crescente por tempo.
  */
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store');
@@ -54,6 +58,58 @@ try {
     $row = $pdo->query($sql)->fetch(PDO::FETCH_ASSOC);
     if (!$row) { http_response_code(404); echo json_encode(['ok'=>false,'error'=>'Sem dados.']); exit; }
     echo json_encode(['ok'=>true,'data'=>mapRow($row)]);
+    exit;
+  }
+
+  if ($acao === 'intervalo') {
+    // janela temporal explícita em epoch ms (UTC); downsample por bucket
+    $desde = isset($_GET['desde']) ? (float)$_GET['desde'] : 0.0;
+    $ate   = isset($_GET['ate'])   ? (float)$_GET['ate']   : 0.0;
+    $maxN  = isset($_GET['max'])   ? (int)$_GET['max']     : 1200;
+    if ($maxN < 2)    $maxN = 2;
+    if ($maxN > 4000) $maxN = 4000;         // teto de pontos devolvidos
+    if ($ate <= 0)    $ate = round(microtime(true) * 1000);
+    if ($desde <= 0)  $desde = $ate - 30.0 * 86400.0 * 1000.0;
+    if ($desde >= $ate) { echo json_encode(['ok'=>true,'count'=>0,'data'=>[]]); exit; }
+
+    // converte ms -> datetime UTC para o WHERE (a coluna é datetime UTC)
+    $desdeDt = gmdate('Y-m-d H:i:s', (int)floor($desde / 1000));
+    $ateDt   = gmdate('Y-m-d H:i:s', (int)floor($ate   / 1000));
+
+    // largura do bucket em segundos para caber em ~maxN pontos.
+    $spanSec = max(1.0, ($ate - $desde) / 1000.0);
+    $bucketSec = (int)max(1, ceil($spanSec / $maxN));
+
+    // Downsample: agrupa por faixa de tempo (bucket) e pega, de cada bucket,
+    // a linha mais recente (via ROW_NUMBER). Índice em ts_utc cobre o range scan.
+    $sql = "
+      WITH src AS (
+        SELECT ts_utc, price_brl,
+               price_brl_binance, price_brl_kraken, price_brl_coinbase,
+               btc_usd, usd_brl,
+               DATEDIFF_BIG(SECOND, '1970-01-01', ts_utc) / :bkt AS bucket
+        FROM dbo.snapshots
+        WHERE ok = 1 AND price_brl IS NOT NULL
+          AND ts_utc >= :d0 AND ts_utc <= :d1
+      ),
+      ranked AS (
+        SELECT *, ROW_NUMBER() OVER (PARTITION BY bucket ORDER BY ts_utc DESC) AS rn
+        FROM src
+      )
+      SELECT ts_utc, price_brl,
+             price_brl_binance, price_brl_kraken, price_brl_coinbase,
+             btc_usd, usd_brl
+      FROM ranked
+      WHERE rn = 1
+      ORDER BY ts_utc ASC";
+    $stmt = $pdo->prepare($sql);
+    $stmt->bindValue(':bkt', $bucketSec, PDO::PARAM_INT);
+    $stmt->bindValue(':d0', $desdeDt);
+    $stmt->bindValue(':d1', $ateDt);
+    $stmt->execute();
+    $out = [];
+    while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) $out[] = mapRow($row);
+    echo json_encode(['ok'=>true,'count'=>count($out),'bucketSec'=>$bucketSec,'data'=>$out]);
     exit;
   }
 

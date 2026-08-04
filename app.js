@@ -47,24 +47,45 @@
       this.store = new DataStore({});
       this.periodId = '1H';
       this.real = new RealSeries({ store: this.store });
-      this.projected = new ProjectedSeries({ real: this.real, forecast: window.Forecast, premium: PREMIUM });
+      // Projeção CONGELADA: nasce uma vez e só cresce pela borda direita.
+      // Trocar de escala não regenera nada — as vendas marcadas sobre ela
+      // continuam coerentes no tempo e no preço.
+      this.frozen = new FrozenForecast({ forecast: window.Forecast, premium: PREMIUM });
+      this.projected = new ProjectedSeries({
+        real: this.real, forecast: window.Forecast, premium: PREMIUM, frozen: this.frozen,
+      });
+      // Persistência local (IndexedDB) da projeção e das operações.
+      this.localStore = new LocalStore({});
+      this._saveTimer = null;
+      // ---- Pan / rolagem horizontal ----
+      // Deslocamento (ms) da janela visível em relação ao "agora" real.
+      // 0 = janela ancorada no agora (comportamento padrão).
+      // >0 = olhando para o FUTURO (projeção); <0 = olhando para o PASSADO.
+      this.panMs = 0;
+      this._drag = null;
       this.cards = Object.keys(EXCH).map(k => new ExchangeCard(k, {
         store: this.store, meta: { label: EXCH[k], color: COL[k], premium: PREMIUM[k] },
       }));
 
       this.canvas = doc.getElementById('chart');
-      this.plot = new PlotArea({ canvas: this.canvas, colors: Object.assign({}, COL) });
+      this.plot = new PlotArea({
+        canvas: this.canvas,
+        colors: Object.assign({}, COL, { trail: 'rgba(232,237,247,0.40)' }),
+      });
       this.renderers = {
         projBg: new ProjectionBgRenderer(), priceAxis: new PriceAxisRenderer({ lines: 4 }),
         timeAxis: new TimeAxisRenderer({ ticks: 6 }), series: new SeriesRenderer(),
         target: new TargetLineRenderer(), now: new NowDividerRenderer(),
         lots: new LotMarkerRenderer(), sells: new SellMarkerRenderer(), cursor: new CursorRenderer(),
+        trail: new TrailRenderer(),
       };
       this.panel = new ControlPanel({ doc, bus: this.bus, defaults: { opValue: 55000, stop: 0, ret: 5.0 } });
       this.operations = new OperationsController({
         doc, bus: this.bus, canvas: this.canvas, plot: this.plot, panel: this.panel,
         now: () => this.store.latestT() || 0,
         getSeries: () => this.seriesData(), getPeriod: () => this.period(),
+        getFrozen: () => this.frozen,
+        isClickVetoed: () => { const v = this._suppressClick; this._suppressClick = false; return !!v; },
         fmt: { brl: BRL, btc: BTC },
       });
       this.operationsTable = new OperationsTable({
@@ -77,10 +98,204 @@
 
     period() { return PERIODS.find(p => p.id === this.periodId); }
     spanMs() { const p = this.period(); return p.points * p.stepMs; }
+
+    /**
+     * Garante que o store cobre a janela do período atual, buscando sob
+     * demanda (lazy) o intervalo necessário. A âncora final é o "agora"
+     * real (último dado). Pede ao backend ~ (points) pontos já reduzidos
+     * por bucket, então faixas longas vêm com dado espalhado, não platô.
+     * Idempotente: só busca o que ainda falta cobrir.
+     */
+    async ensureData() {
+      // Sempre busca o intervalo da faixa selecionada. loadRange é idempotente
+      // (ingest deduplica por timestamp), então rebuscar é barato e garante que
+      // a janela fique DENSAMENTE coberta — nada de adivinhar cobertura por um
+      // ponto esparso antigo, que era o que deixava o histórico achatado.
+      const ate = this.store.latestT() || Date.now();
+      const desde = ate - this.spanMs();
+      // pede pontos suficientes para a resolução do período (2x os pontos da grade)
+      const maxPts = Math.min(4000, Math.max(200, (this.period().points | 0) * 2));
+      const n = await this.store.loadRange(desde, ate, maxPts);
+      return n > 0;
+    }
+
+    /** Troca de período com carga lazy e re-render. */
+    async selectPeriod(id) {
+      this.periodId = id;
+      this.panMs = 0; // nova escala começa ancorada no AGORA
+      try { await this.ensureData(); } catch (e) { /* mantém o que já há */ }
+      this.renderCards(); this.renderChart(); this.renderSidePanel(); this.operationsTable.render();
+      // a troca de escala pode ter COMPLEMENTADO a borda da projeção
+      this._persist();
+    }
+    /**
+     * Janela de tempo visível: [fim - span, fim], onde `fim` é o agora real
+     * deslocado pelo pan. É isto que o usuário está olhando.
+     */
+    viewWindow() {
+      const nowT = this.store.latestT();
+      if (nowT == null) return null;
+      const span = this.spanMs();
+      // A janela cobre `span` de passado + `span` de futuro em torno do AGORA
+      // (é o que o gráfico sempre mostrou). O pan desliza esse conjunto.
+      const foco = nowT + this.panMs;
+      return { tMin: foco - span, tMax: foco + span, nowT: nowT };
+    }
+
     seriesData() {
       const endT = this.store.latestT();
       if (endT == null) return { hist: [], fut: [] };
+      // As séries continuam ancoradas no AGORA real (o histórico termina nele
+      // e a projeção começa nele). O pan não muda os dados, só a janela pela
+      // qual olhamos — por isso as marcas nunca "descolam" ao rolar.
       return { hist: this.real.points(this.period(), endT), fut: this.projected.points(this.period(), endT) };
+    }
+
+    /** Move a janela em N pixels de tela (converte px -> tempo). */
+    panByPixels(px) {
+      const r = this.plot.plotRect;
+      if (!r || r.w <= 0) return;
+      const span = this.plot.tMax - this.plot.tMin;
+      this.panMs -= (px / r.w) * span;
+      this._clampPan();
+      this.renderChart();
+    }
+
+    /** Move a janela por uma fração do span visível (roda/botões). */
+    panByFraction(frac) {
+      const span = this.plot.tMax - this.plot.tMin;
+      this.panMs += frac * span;
+      this._clampPan();
+      this.renderChart();
+    }
+
+    /** Recentraliza no AGORA. */
+    resetPan() { this.panMs = 0; this.renderChart(); }
+
+    /**
+     * Limita a rolagem ao que existe: para trás, o início do histórico real;
+     * para frente, a borda da projeção congelada. Evita rolar para o vazio.
+     */
+    _clampPan() {
+      const nowT = this.store.latestT();
+      if (nowT == null) return;
+      const span = this.spanMs();
+      const firstT = this.store.coverageStartT();
+      const edgeT = this.frozen && this.frozen.edgeT;
+      // limite à esquerda: não passar do começo do histórico
+      if (firstT != null) {
+        const minPan = (firstT + span) - nowT;
+        if (this.panMs < minPan) this.panMs = minPan;
+      }
+      // limite à direita: não passar da borda da projeção
+      if (edgeT != null) {
+        const maxPan = edgeT - nowT;
+        if (this.panMs > maxPan) this.panMs = maxPan;
+      }
+    }
+
+    /** Salva projeção congelada + operações no IndexedDB (debounced). */
+    _persist() {
+      if (this._saveTimer) clearTimeout(this._saveTimer);
+      this._saveTimer = setTimeout(async () => {
+        try {
+          await this.localStore.set('forecast', this.frozen.toJSON());
+          await this.localStore.set('operations', {
+            lots: this.operations.lots, sells: this.operations.sells,
+            lotSeq: this.operations.lotSeq, sellSeq: this.operations.sellSeq,
+          });
+        } catch (e) { /* persistência é best-effort */ }
+      }, 400);
+    }
+
+    /** Recupera projeção congelada + operações salvas (se houver). */
+    async _restore() {
+      try {
+        const fc = await this.localStore.get('forecast');
+        if (fc && Array.isArray(fc.master) && fc.master.length) this.frozen.fromJSON(fc);
+        const ops = await this.localStore.get('operations');
+        if (ops) {
+          if (Array.isArray(ops.lots)) this.operations.lots = ops.lots;
+          if (Array.isArray(ops.sells)) this.operations.sells = ops.sells;
+          if (ops.lotSeq != null) this.operations.lotSeq = ops.lotSeq;
+          if (ops.sellSeq != null) this.operations.sellSeq = ops.sellSeq;
+        }
+      } catch (e) { /* sem persistência, segue em memória */ }
+    }
+
+    /**
+     * Liga a navegação horizontal: arrastar com o mouse, roda e teclado.
+     * IMPORTANTE: o canvas já tem clique para marcar venda (operations.js).
+     * Por isso o arraste só "vira pan" depois de passar de um limiar de
+     * pixels — e, quando isso acontece, o clique seguinte é suprimido para
+     * o usuário não marcar uma venda sem querer ao terminar de rolar.
+     */
+    _wirePan() {
+      const cv = this.canvas; if (!cv || !cv.addEventListener) return;
+      const LIMIAR = 4; // px
+
+      cv.addEventListener('mousedown', e => {
+        this._drag = { x0: e.clientX, lastX: e.clientX, moved: false };
+      });
+
+      cv.addEventListener('mousemove', e => {
+        if (!this._drag) return;
+        const dx = e.clientX - this._drag.lastX;
+        if (!this._drag.moved && Math.abs(e.clientX - this._drag.x0) < LIMIAR) return;
+        this._drag.moved = true;
+        this._drag.lastX = e.clientX;
+        if (cv.style) cv.style.cursor = 'grabbing';
+        this.panByPixels(dx);
+      });
+
+      const soltar = () => {
+        if (this._drag && this._drag.moved) this._suppressClick = true;
+        this._drag = null;
+        if (cv.style) cv.style.cursor = '';
+      };
+      cv.addEventListener('mouseup', soltar);
+      cv.addEventListener('mouseleave', soltar);
+
+      // roda do mouse = rolagem horizontal no tempo
+      cv.addEventListener('wheel', e => {
+        const d = (e.deltaX !== 0) ? e.deltaX : e.deltaY;
+        if (!d) return;
+        if (e.preventDefault) e.preventDefault();
+        this.panByFraction(d > 0 ? 0.08 : -0.08);
+      }, { passive: false });
+
+      // clique-duplo volta ao AGORA
+      cv.addEventListener('dblclick', () => this.resetPan());
+
+      // botão "voltar ao AGORA"
+      const btn = this.doc.getElementById('backNow');
+      if (btn) btn.onclick = () => this.resetPan();
+
+      // setas do teclado
+      if (typeof window !== 'undefined' && window.addEventListener) {
+        window.addEventListener('keydown', e => {
+          if (e.key === 'ArrowLeft') this.panByFraction(-0.15);
+          else if (e.key === 'ArrowRight') this.panByFraction(0.15);
+          else if (e.key === 'Home') this.resetPan();
+        });
+      }
+    }
+
+    /** Botões de limpeza em massa da lista de operações. */
+    _wireClear() {
+      const liga = (id, scope, pergunta) => {
+        const b = this.doc.getElementById(id);
+        if (!b) return;
+        b.onclick = () => {
+          const confirmar = (typeof window !== 'undefined' && window.confirm)
+            ? window.confirm(pergunta) : true;
+          if (!confirmar) return;
+          this.operations.clearOperations(scope);
+        };
+      };
+      liga('clearSells', 'sells', 'Remover todas as vendas?');
+      liga('clearLots', 'lots', 'Remover as compras consolidadas? (as que ainda têm saldo serão mantidas)');
+      liga('clearAll', 'all', 'Remover todas as operações? (compras com saldo restante serão mantidas)');
     }
 
     _wire() {
@@ -93,6 +308,7 @@
       this.bus.on('control:stop', () => {});
       this.bus.on('operations:changed', () => {
         this.renderCards(); this.renderChart(); this.renderSidePanel(); this.operationsTable.render();
+        this._persist();
       });
       this.bus.on('chart:mouse', mouse => { this.mouse = mouse; this.renderChart(); });
       this.bus.on('toast', data => this.toast(data.type, data.message));
@@ -119,22 +335,44 @@
         .concat(this.operations.lots.map(l => l.price))
         .concat(this.operations.sells.filter(s => s.status === 'pending').map(s => s.markPrice));
       this.plot.resize();
-      this.plot.setBoundsFromPoints(all, { extraPrices });
+      // Janela visível (com pan). Quando panMs = 0 o comportamento é o de
+      // sempre; com pan, o eixo X passa a mostrar o trecho navegado e o
+      // AGORA acompanha naturalmente (os renderers usam plot.X(nowT)).
+      const win = this.viewWindow();
+      if (win) this.plot.setTimeWindow(win.tMin, win.tMax); else this.plot.clearTimeWindow();
+      // O eixo de preço deve refletir o que está VISÍVEL: ao rolar, a escala
+      // vertical acompanha o trecho em tela em vez de ficar presa ao conjunto
+      // inteiro (que deixaria a curva achatada num canto).
+      const visiveis = win ? all.filter(p => p.t >= win.tMin && p.t <= win.tMax) : all;
+      this.plot.setBoundsFromPoints(visiveis.length ? visiveis : all, { extraPrices });
       this.plot.clear();
       const data = {
         points: all, hist, fut, nowT: endT, target, fmtBRL: BRL,
         labelFor: t => timeLabel(t, this.periodId), lots: this.operations.lots,
         sells: this.operations.sells, mouse: this.mouse,
+        // rastro: o que a projeção previu para o trecho que já virou passado
+        trail: this.frozen ? this.frozen.pastTrail(endT, this.period().stepMs) : [],
       };
       this.renderers.projBg.draw(this.plot, data);
       this.renderers.priceAxis.draw(this.plot, data);
       this.renderers.timeAxis.draw(this.plot, data);
+      this.renderers.trail.draw(this.plot, data);   // por baixo das séries
       this.renderers.series.draw(this.plot, data);
       this.renderers.target.draw(this.plot, data);
       this.renderers.now.draw(this.plot, data);
       this.renderers.lots.draw(this.plot, data);
       this.renderers.sells.draw(this.plot, data);
       this.renderers.cursor.draw(this.plot, data);
+      this._updatePanUI();
+    }
+
+    /** Mostra o botão de voltar só quando a visão está deslocada. */
+    _updatePanUI() {
+      const btn = this.doc.getElementById('backNow');
+      if (!btn) return;
+      const deslocado = Math.abs(this.panMs) > 1;
+      if ('hidden' in btn) btn.hidden = !deslocado;
+      if (btn.style) btn.style.display = deslocado ? '' : 'none';
     }
 
     renderSidePanel() {
@@ -173,10 +411,9 @@
         const b = this.doc.createElement('button'); b.textContent = p.label;
         if (p.id === this.periodId) b.className = 'active';
         b.onclick = () => {
-          this.periodId = p.id;
           Array.from(wrap.children).forEach(c => c.classList.remove('active'));
           b.classList.add('active');
-          this.renderCards(); this.renderChart(); this.renderSidePanel(); this.operationsTable.render();
+          this.selectPeriod(p.id);
         };
         wrap.appendChild(b);
       }
@@ -185,6 +422,30 @@
     updateStatus() {
       const upd = this.doc.getElementById('updated');
       if (upd) upd.textContent = this.store.latestT() ? 'Dados atualizados' : 'Sem dados';
+      this._updateTrailStats();
+    }
+
+    /**
+     * Compara a projeção já vencida com o que de fato aconteceu e mostra o
+     * desvio médio. É a leitura prática do rastro: quanto a forecast errou.
+     */
+    _updateTrailStats() {
+      const el = this.doc.getElementById('trailStat');
+      if (!el || !this.frozen) return;
+      const nowT = this.store.latestT();
+      const err = this.frozen.trailError(nowT, t => {
+        const snap = this.store.nearest(t);
+        return snap ? snap.avg : null;
+      });
+      if (!err || err.n < 3) {
+        if ('hidden' in el) el.hidden = true;
+        if (el.style) el.style.display = 'none';
+        return;
+      }
+      if ('hidden' in el) el.hidden = false;
+      if (el.style) { el.style.display = ''; el.style.color = err.mape < 2 ? '#22c55e' : (err.mape < 5 ? '#f7c948' : '#ef4444'); }
+      const sinal = err.bias >= 0 ? 'acima' : 'abaixo';
+      el.textContent = `Desvio da projeção: ${err.mape.toFixed(2)}% (${sinal} do real) • ${err.n} pontos`;
     }
     startClock() {
       const tick = () => {
@@ -196,8 +457,23 @@
 
     async init() {
       this.buildPeriods(); this.panel.mount(); this.operations.mount(); this.startClock();
-      try { await this.store.load(1500); }
+      this._wirePan();
+      this._wireClear();
+      // Carga inicial: primeiro o "agora" (para ancorar o tempo), depois o
+      // intervalo do período atual (lazy, já reduzido no servidor). Sem número
+      // fixo de linhas — a faixa selecionada define a janela buscada.
+      try {
+        await this.store.refresh();               // pega o snapshot mais recente
+        await this.ensureData();                  // cobre a janela do período atual
+        if (!this.store.ready || this.store.length === 0) {
+          // fallback: se o intervalo veio vazio, tenta a janela padrão do período
+          const ate = this.store.latestT() || Date.now();
+          await this.store.loadRange(ate - this.spanMs(), ate, 1500);
+        }
+      }
       catch (e) { const upd = this.doc.getElementById('updated'); if (upd) upd.textContent = 'Falha ao conectar ao backend'; return; }
+      // Persistência: abre o IndexedDB e recupera projeção/operações salvas.
+      try { await this.localStore.open(); await this._restore(); } catch (e) { /* segue sem persistir */ }
       this.renderCards(); this.renderChart(); this.renderSidePanel(); this.operationsTable.render(); this.updateStatus();
       setInterval(() => { this.store.refresh(); }, 8000);
       if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') window.addEventListener('resize', () => this.renderChart());
