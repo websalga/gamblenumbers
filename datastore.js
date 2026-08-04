@@ -186,20 +186,120 @@ class DataStore {
     if (end == null) return [];
     const start = end - n * step;
     const out = [];
-    let prev = null;
+    // Dois casos MUITO diferentes, que antes eram tratados igual (null):
+    //  (a) a grade é mais fina que a cadência de coleta (escalas curtas):
+    //      há dado real dos dois lados -> INTERPOLA (curva suave e contínua).
+    //  (b) não existe histórico naquele trecho (faixa maior que a cobertura,
+    //      ou coleta interrompida) -> null, e o renderer quebra a linha.
+    // O limite entre (a) e (b) é a folga abaixo: um buraco só é considerado
+    // ausência real quando passa de várias vezes a cadência típica dos dados.
+    const cad = this.cadenceMs() || step;
+    const maxGap = Math.max(step * 2, cad * 4);
     for (let i = 0; i < n; i++) {
       const t = start + i * step;
-      const snap = this.nearest(t);
-      if (snap) {
-        const pt = { t, avg: snap.avg, binance: snap.binance, kraken: snap.kraken, coinbase: snap.coinbase };
-        out.push(pt); prev = pt;
-      } else if (prev) {
-        out.push({ ...prev, t });
-      } else {
-        out.push({ t, avg: 0, binance: 0, kraken: 0, coinbase: 0 });
-      }
+      const pt = this._interpAt(t, maxGap);
+      out.push(pt || { t, avg: null, binance: null, kraken: null, coinbase: null });
     }
     return out;
+  }
+
+  /**
+   * Cadência típica (ms) entre snapshots reais — mediana dos intervalos.
+   * Usada para distinguir "grade fina" de "buraco real" na reamostragem.
+   * @returns {number|null}
+   */
+  cadenceMs() {
+    const r = this._rows;
+    if (r.length < 3) return null;
+    if (this._cadCache && this._cadCache.len === r.length) return this._cadCache.v;
+    const gaps = [];
+    const passo = Math.max(1, Math.floor(r.length / 200)); // amostra, não varre tudo
+    for (let i = passo; i < r.length; i += passo) gaps.push(r[i].t - r[i - passo].t);
+    if (!gaps.length) return null;
+    gaps.sort((a, b) => a - b);
+    const med = gaps[gaps.length >> 1] / passo;
+    const v = med > 0 ? med : null;
+    this._cadCache = { len: r.length, v };
+    return v;
+  }
+
+  /**
+   * Valor no instante t, interpolado suavemente entre os snapshots reais
+   * vizinhos. Usa Hermite cúbica MONOTÔNICA (Fritsch–Carlson): a curva fica
+   * lisa mas nunca inventa picos nem ultrapassa os valores reais — o traço
+   * continua fiel ao dado, só sem os degraus da amostragem.
+   * @param {number} t
+   * @param {number} maxGap buraco máximo (ms) ainda considerado contínuo
+   * @returns {object|null}
+   */
+  _interpAt(t, maxGap) {
+    const r = this._rows;
+    if (!r.length) return null;
+    // fora da cobertura real: não inventa nada
+    if (t < r[0].t || t > r[r.length - 1].t) {
+      const borda = (t < r[0].t) ? r[0] : r[r.length - 1];
+      if (Math.abs(borda.t - t) > maxGap) return null;
+      return { t, avg: borda.avg, binance: borda.binance, kraken: borda.kraken, coinbase: borda.coinbase };
+    }
+    // acha o intervalo [i, i+1] que contém t
+    let lo = 0, hi = r.length - 1;
+    while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (r[mid].t <= t) lo = mid; else hi = mid; }
+    const a = r[lo], b = r[hi];
+    if (b.t - a.t > maxGap) return null;         // buraco real: quebra a linha
+    if (b.t === a.t) return { t, avg: a.avg, binance: a.binance, kraken: a.kraken, coinbase: a.coinbase };
+    const h = b.t - a.t;
+    const u = (t - a.t) / h;
+    const out = { t };
+    for (const k of ['avg', 'binance', 'kraken', 'coinbase']) {
+      out[k] = hermiteMono(r, lo, hi, k, u, h);
+    }
+    return out;
+  }
+
+  /**
+   * Como nearest(), mas devolve null se o snapshot mais próximo estiver a mais
+   * de `tol` ms do instante pedido. É o que permite ao gráfico NÃO inventar
+   * linha onde não há dado real (faixas maiores que o histórico disponível).
+   * @param {number} t epoch ms
+   * @param {number} tol tolerância em ms
+   * @returns {object|null}
+   */
+  _nearestWithin(t, tol) {
+    const snap = this.nearest(t);
+    if (!snap) return null;
+    return Math.abs(snap.t - t) <= tol ? snap : null;
+  }
+
+  /** Instante (ms) do início da cobertura real (snapshot mais antigo), ou null. */
+  coverageStartT() { const r = this._rows; return r.length ? r[0].t : null; }
+
+  /**
+   * Carga sob demanda por janela temporal [desde, ate] (epoch ms, UTC).
+   * Usa o endpoint acao=intervalo, que já reduz (downsample) no servidor a
+   * ~maxPts pontos por bucket. Faz merge incremental no vetor (ingest), então
+   * pode ser chamado várias vezes ao trocar de faixa sem recarregar tudo.
+   * @param {number} desde epoch ms
+   * @param {number} ate epoch ms
+   * @param {number} [maxPts] teto de pontos a pedir (default 1500)
+   * @returns {Promise<number>} quantas linhas novas entraram
+   */
+  async loadRange(desde, ate, maxPts = 1500) {
+    const d0 = Math.floor(desde), d1 = Math.floor(ate);
+    if (!(d1 > d0)) return 0;
+    const m = encodeInt(maxPts, 2, 4000);
+    const url = `${this._apiBase}?acao=intervalo&desde=${d0}&ate=${d1}&max=${m}`;
+    let j;
+    try { j = await this._fetchFn(url); }
+    catch (e) { this._lastError = e; return 0; }
+    if (!j || !j.ok || !Array.isArray(j.data)) {
+      this._lastError = new Error((j && j.error) || 'intervalo: dado inválido.');
+      return 0;
+    }
+    const n = this.ingest(j.data);
+    this._loadedOnce = true;
+    this._lastError = null;
+    if (n) this._emit('range');
+    return n;
   }
 
   /**
@@ -272,6 +372,35 @@ function num(v) {
   if (v == null) return null;
   const n = +v;
   return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * Hermite cúbica monotônica (Fritsch–Carlson) entre r[lo] e r[hi] na chave k.
+ * As tangentes são limitadas para preservar a monotonicidade do trecho, o que
+ * evita "barrigas" e picos falsos que uma spline comum criaria.
+ */
+function hermiteMono(r, lo, hi, k, u, h) {
+  const y0 = +r[lo][k], y1 = +r[hi][k];
+  if (!Number.isFinite(y0) || !Number.isFinite(y1)) return null;
+  const d = (y1 - y0) / h;                        // inclinação do trecho
+  // inclinações vizinhas (para estimar as tangentes nas pontas)
+  const prev = r[lo - 1], next = r[hi + 1];
+  const dPrev = (prev && Number.isFinite(+prev[k])) ? (y0 - +prev[k]) / (r[lo].t - prev.t || 1) : d;
+  const dNext = (next && Number.isFinite(+next[k])) ? (+next[k] - y1) / (next.t - r[hi].t || 1) : d;
+  // tangentes por média, zeradas em extremos locais (garante monotonicidade)
+  let m0 = (dPrev * d <= 0) ? 0 : (dPrev + d) / 2;
+  let m1 = (d * dNext <= 0) ? 0 : (d + dNext) / 2;
+  // limitador de Fritsch–Carlson
+  if (d === 0) { m0 = 0; m1 = 0; }
+  else {
+    const a = m0 / d, b = m1 / d;
+    const sq = a * a + b * b;
+    if (sq > 9) { const tau = 3 / Math.sqrt(sq); m0 = tau * a * d; m1 = tau * b * d; }
+  }
+  const u2 = u * u, u3 = u2 * u;
+  const h00 = 2 * u3 - 3 * u2 + 1, h10 = u3 - 2 * u2 + u;
+  const h01 = -2 * u3 + 3 * u2, h11 = u3 - u2;
+  return h00 * y0 + h10 * h * m0 + h01 * y1 + h11 * h * m1;
 }
 
 function encodeInt(v, min, max) {

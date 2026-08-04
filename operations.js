@@ -15,6 +15,11 @@ class OperationsController {
     this._now = deps.now || (() => 0);
     this._series = deps.getSeries || (() => ({ hist: [], fut: [] }));
     this._period = deps.getPeriod || (() => ({ stepMs: 1 }));
+    // acesso à projeção congelada (para ancorar vendas no preço projetado)
+    this._frozen = deps.getFrozen || (() => null);
+    // Veto de clique: durante/logo após um arraste (pan), o clique não deve
+    // virar uma venda marcada sem intenção.
+    this._clickVetoed = deps.isClickVetoed || (() => false);
     this._fmt = Object.assign({
       brl: n => 'R$ ' + Number(n).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
       btc: n => Number(n).toLocaleString('pt-BR', { minimumFractionDigits: 8, maximumFractionDigits: 8 }),
@@ -46,6 +51,94 @@ class OperationsController {
     const weighted = this.weightedAvg();
     const base = weighted > 0 ? weighted : this.currentAvg();
     return base * (1 + this._panel.ret / 100);
+  }
+
+  /* ============ Remoção / visibilidade de operações ============ */
+
+  /**
+   * Uma compra só pode ser apagada quando está CONSOLIDADA: todo o BTC dela já
+   * foi vendido (remaining ~ 0). Enquanto sobrar saldo, apagá-la corromperia o
+   * saldo disponível e o preço médio — por isso é bloqueada, e o usuário pode
+   * apenas ocultá-la do gráfico.
+   * @param {object} lot
+   * @returns {{ok:boolean, reason?:string, remaining?:number}}
+   */
+  canDeleteLot(lot) {
+    if (!lot) return { ok: false, reason: 'Lote inexistente.' };
+    if (lot.remaining > 1e-10) {
+      return {
+        ok: false, remaining: lot.remaining,
+        reason: `Compra com saldo restante de ${this._fmt.btc(lot.remaining)} BTC. ` +
+                `Só é possível excluir compras totalmente vendidas — você pode ocultá-la do gráfico.`,
+      };
+    }
+    return { ok: true };
+  }
+
+  /** Remove uma compra consolidada. Respeita canDeleteLot(). */
+  deleteLot(id) {
+    const i = this.lots.findIndex(l => l.id === id);
+    if (i < 0) return false;
+    const check = this.canDeleteLot(this.lots[i]);
+    if (!check.ok) { this._toast('warn', check.reason); return false; }
+    const [rm] = this.lots.splice(i, 1);
+    this._toast('ok', `Compra ${rm.id} excluída.`);
+    this._changed('lot:deleted', rm);
+    return true;
+  }
+
+  /**
+   * Remove uma venda. Se estiver pendente, libera a reserva de BTC antes
+   * (equivale a cancelar); executadas apenas saem da lista.
+   */
+  deleteSell(id) {
+    const i = this.sells.findIndex(x => x.id === id);
+    if (i < 0) return false;
+    const sell = this.sells[i];
+    if (sell.status === 'pending') sell.reserved = 0;
+    this.sells.splice(i, 1);
+    this._toast('ok', `Venda ${sell.id} excluída.`);
+    this._changed('sell:deleted', sell);
+    return true;
+  }
+
+  /** Alterna a visibilidade de uma operação no gráfico (não apaga nada). */
+  toggleVisible(kind, id) {
+    const arr = kind === 'lot' ? this.lots : this.sells;
+    const op = arr.find(o => o.id === id);
+    if (!op) return false;
+    op.hidden = !op.hidden;
+    this._changed(kind + ':visibility', op);
+    return true;
+  }
+
+  /**
+   * Limpeza em massa. scope: 'sells' | 'lots' | 'all'.
+   * Compras com saldo restante NÃO são apagadas (regra de consolidação);
+   * o retorno informa quantas ficaram para trás.
+   */
+  clearOperations(scope) {
+    let apagadas = 0, mantidas = 0;
+    if (scope === 'sells' || scope === 'all') {
+      for (const s of this.sells) if (s.status === 'pending') s.reserved = 0;
+      apagadas += this.sells.length;
+      this.sells = [];
+    }
+    if (scope === 'lots' || scope === 'all') {
+      const restantes = [];
+      for (const l of this.lots) {
+        if (this.canDeleteLot(l).ok) apagadas++;
+        else { restantes.push(l); mantidas++; }
+      }
+      this.lots = restantes;
+    }
+    this._changed('operations:cleared', { scope, apagadas, mantidas });
+    if (mantidas > 0) {
+      this._toast('warn', `${apagadas} operação(ões) removida(s). ${mantidas} compra(s) mantida(s) por ainda terem saldo.`);
+    } else {
+      this._toast('ok', `${apagadas} operação(ões) removida(s).`);
+    }
+    return { apagadas, mantidas };
   }
 
   doBuy(price, atTime) {
@@ -143,7 +236,16 @@ class OperationsController {
     const sell = this._doc.getElementById('sellBtn');
     if (sell) sell.onclick = () => {
       if (this.freeBTC() <= 1e-10) { this._toast('err', 'Saldo totalmente reservado.'); return; }
-      this.scheduleSell(this.targetPrice(), this._now() + this._period().stepMs * 8);
+      // Horizonte ABSOLUTO (48h à frente), independente da escala em que o
+      // usuário estiver. Antes usava stepMs*8, que mudava com a faixa e fazia
+      // a marca "descolar" ao trocar de escala.
+      const HORIZON_MS = 48 * 3600 * 1000;
+      const t = this._now() + HORIZON_MS;
+      // O preço vem da projeção congelada naquele instante (é sobre ela que a
+      // venda é marcada). Sem frozen, cai no preço-alvo calculado.
+      const fz = this._frozen();
+      const projected = fz && typeof fz.priceAt === 'function' ? fz.priceAt(t) : null;
+      this.scheduleSell(projected != null && projected > 0 ? projected : this.targetPrice(), t);
     };
     return this;
   }
@@ -166,6 +268,7 @@ class OperationsController {
     if (best) this.doBuy(best.avg, best.t);
   }
   _onClick(e) {
+    if (this._clickVetoed()) return;   // veio de um arraste: não marca venda
     const { x, y } = this._coords(e), t = this._plot.invX(x), price = this._plot.invY(y);
     if (t <= this._now()) return;
     for (const sell of this.sells.filter(s => s.status === 'pending')) {

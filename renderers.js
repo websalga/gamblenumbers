@@ -72,15 +72,23 @@ class SeriesRenderer {
     const { hist, fut } = data;
     for (const k of this._keys) {
       const col = plot.color(k);
-      // histórico contínuo
+      // histórico: linha quebrada em lacunas (pontos sem dado real = null),
+      // para não desenhar segmento reto atravessando períodos sem cobertura.
       ctx.beginPath(); ctx.strokeStyle = col; ctx.lineWidth = (k === 'avg') ? 2 : 1.3; ctx.setLineDash([]);
-      hist.forEach((pt, i) => { const x = plot.X(pt.t), y = plot.Y(pt[k]); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+      let penDown = false;
+      let lastValid = null;
+      for (const pt of hist) {
+        const v = pt[k];
+        if (v == null || !Number.isFinite(+v)) { penDown = false; continue; }
+        const x = plot.X(pt.t), y = plot.Y(v);
+        if (penDown) ctx.lineTo(x, y); else { ctx.moveTo(x, y); penDown = true; }
+        lastValid = pt;
+      }
       ctx.stroke();
-      // projeção pontilhada, começando no último ponto real
-      if (fut && fut.length && hist.length) {
+      // projeção pontilhada, ancorada no ÚLTIMO ponto real válido do histórico.
+      if (fut && fut.length && lastValid) {
         ctx.beginPath(); ctx.setLineDash([4, 4]); ctx.globalAlpha = 0.85;
-        const lastH = hist[hist.length - 1];
-        ctx.moveTo(plot.X(lastH.t), plot.Y(lastH[k]));
+        ctx.moveTo(plot.X(lastValid.t), plot.Y(lastValid[k]));
         fut.forEach(pt => ctx.lineTo(plot.X(pt.t), plot.Y(pt[k])));
         ctx.stroke(); ctx.globalAlpha = 1; ctx.setLineDash([]);
       }
@@ -127,12 +135,39 @@ class CursorRenderer {
   }
 }
 
+/* RASTRO da projeção vencida: o que a forecast previu para o trecho que
+ * já virou passado, desenhado bem fino e pontilhado por cima do real.
+ * Permite ver a olho nu o quanto a previsão acertou ou desviou. */
+class TrailRenderer {
+  draw(plot, data) {
+    const ctx = plot.ctx; if (!ctx) return;
+    const trail = data.trail;
+    if (!trail || trail.length < 2) return;
+    ctx.save();
+    ctx.strokeStyle = plot.color('trail') || 'rgba(232,237,247,0.45)';
+    ctx.lineWidth = 0.7;                 // bem fina, para não competir com o real
+    ctx.setLineDash([2, 3]);
+    ctx.beginPath();
+    let pen = false;
+    for (const p of trail) {
+      const v = p.avg;
+      if (v == null || !Number.isFinite(+v) || !plot.inViewT(p.t)) { pen = false; continue; }
+      const x = plot.X(p.t), y = plot.Y(v);
+      if (pen) ctx.lineTo(x, y); else { ctx.moveTo(x, y); pen = true; }
+    }
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.restore();
+  }
+}
+
 /* Marcadores de lotes (compras) — bolinhas com rótulo. Só desenha
  * os que estão na janela de tempo visível. */
 class LotMarkerRenderer {
   draw(plot, data) {
     const ctx = plot.ctx; if (!ctx) return;
     for (const l of (data.lots || [])) {
+      if (l.hidden) continue;                       // ocultada pelo usuário (olhinho)
       if (!plot.inViewT(l.time)) continue;
       const x = plot.X(l.time), y = plot.Y(l.price);
       let color = plot.color('binance'), suffix = '';
@@ -150,6 +185,7 @@ class SellMarkerRenderer {
   draw(plot, data) {
     const ctx = plot.ctx; if (!ctx) return;
     for (const v of (data.sells || [])) {
+      if (v.hidden) continue;                       // ocultada pelo usuário (olhinho)
       const t = v.status === 'executed' ? v.execTime : v.markTime;
       const p = v.status === 'executed' ? v.execPrice : v.markPrice;
       if (t == null || !plot.inViewT(t)) continue;
@@ -172,6 +208,7 @@ class SellMarkerRenderer {
 const Renderers = {
   ProjectionBgRenderer, PriceAxisRenderer, TimeAxisRenderer, SeriesRenderer,
   TargetLineRenderer, NowDividerRenderer, CursorRenderer, LotMarkerRenderer, SellMarkerRenderer,
+  TrailRenderer,
 };
 
 if (typeof module !== 'undefined' && module.exports) module.exports = Renderers;
