@@ -16,7 +16,7 @@ function db() {
   ]);
 }
 
-const IDIOMAS_DISPONIVEIS = ['pt-BR', 'en-US', 'es-ES'];
+const IDIOMAS_DISPONIVEIS = ['pt-BR', 'en-US', 'es-ES', 'fr-FR', 'de-DE', 'it-IT', 'ja-JP', 'nl-NL', 'ru-RU', 'tr-TR'];
 
 try {
   $idioma = $_GET['idioma'] ?? 'pt-BR';
