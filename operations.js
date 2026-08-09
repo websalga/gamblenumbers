@@ -83,7 +83,7 @@ class OperationsController {
     const check = this.canDeleteLot(this.lots[i]);
     if (!check.ok) { this._toast('warn', check.reason); return false; }
     const [rm] = this.lots.splice(i, 1);
-    this._toast('ok', `Compra ${rm.id} excluída.`);
+    this._toast('ok', this._t('toast_compra_excluida', { id: rm.id }));
     this._changed('lot:deleted', rm);
     return true;
   }
@@ -98,7 +98,7 @@ class OperationsController {
     const sell = this.sells[i];
     if (sell.status === 'pending') sell.reserved = 0;
     this.sells.splice(i, 1);
-    this._toast('ok', `Venda ${sell.id} excluída.`);
+    this._toast('ok', this._t('toast_venda_excluida', { id: sell.id }));
     this._changed('sell:deleted', sell);
     return true;
   }
@@ -135,16 +135,16 @@ class OperationsController {
     }
     this._changed('operations:cleared', { scope, apagadas, mantidas });
     if (mantidas > 0) {
-      this._toast('warn', `${apagadas} operação(ões) removida(s). ${mantidas} compra(s) mantida(s) por ainda terem saldo.`);
+      this._toast('warn', this._t('toast_limpeza_parcial', { apagadas, mantidas }));
     } else {
-      this._toast('ok', `${apagadas} operação(ões) removida(s).`);
+      this._toast('ok', this._t('toast_limpeza_total', { apagadas }));
     }
     return { apagadas, mantidas };
   }
 
   doBuy(price, atTime) {
     const value = this._panel.opValue;
-    if (value <= 0) { this._toast('warn', 'Informe um valor de compra válido.'); return null; }
+    if (value <= 0) { this._toast('warn', this._t('toast_valor_invalido')); return null; }
     if (!(price > 0)) return null;
     const qty = value / price;
     const seq = ++this.lotSeq;
@@ -160,7 +160,7 @@ class OperationsController {
 
   scheduleSell(markPrice, markTime) {
     const free = this.freeBTC();
-    if (free <= 1e-10) { this._toast('err', 'Saldo totalmente reservado. Nenhuma venda possível.'); return null; }
+    if (free <= 1e-10) { this._toast('err', this._t('toast_saldo_reservado_venda')); return null; }
     const value = this._panel.opValue;
     let qty = value / markPrice;
     let adjusted = false;
@@ -215,11 +215,11 @@ class OperationsController {
       if (current >= sell.markPrice - 1e-9) {
         const exec = Math.max(current, sell.markPrice);
         this.executeSell(sell, exec);
-        if (exec > sell.markPrice + 1e-6) this._toast('ok', `Venda ${sell.id} executada e elevada para a cotação atual ${this._fmt.brl(exec)}`);
-        else this._toast('ok', `Venda ${sell.id} executada @ ${this._fmt.brl(exec)}`);
+        if (exec > sell.markPrice + 1e-6) this._toast('ok', this._t('toast_venda_executada_elevada', { id: sell.id, preco: this._fmt.brl(exec) }));
+        else this._toast('ok', this._t('toast_venda_executada', { id: sell.id, preco: this._fmt.brl(exec) }));
       } else {
         sell.status = 'expired';
-        this._toast('err', `Venda ${sell.id} expirada • cotação-alvo ${this._fmt.brl(sell.markPrice)} não atingida`);
+        this._toast('err', this._t('toast_venda_expirada', { id: sell.id, preco: this._fmt.brl(sell.markPrice) }));
         this._changed('sell:expired', sell);
       }
     }
@@ -264,7 +264,7 @@ class OperationsController {
   _onContextMenu(e) {
     if (e.preventDefault) e.preventDefault();
     const { x } = this._coords(e), t = this._plot.invX(x);
-    if (t > this._now()) { this._toast('warn', 'Compras só são permitidas no histórico.'); return; }
+    if (t > this._now()) { this._toast('warn', this._t('toast_compra_so_historico')); return; }
     const best = this._nearestHistorical(t);
     if (best) this.doBuy(best.avg, best.t);
   }
