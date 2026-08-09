@@ -54,7 +54,8 @@ class PlotArea {
     const rect = this._canvas.getBoundingClientRect
       ? this._canvas.getBoundingClientRect()
       : { width: this._canvas.width || 0, height: this._canvas.height || 0 };
-    this.w = rect.width; this.h = rect.height;
+    const availH = window.innerHeight - rect.top - 4;
+    this.w = rect.width; this.h = (availH > 120 && availH < rect.height) ? availH : rect.height;
     if (this._ctx && 'width' in this._canvas) {
       this._canvas.width = Math.max(1, Math.round(rect.width * this._dpr));
       this._canvas.height = Math.max(1, Math.round(rect.height * this._dpr));
