@@ -77,6 +77,9 @@
       });
       // Persistência local (IndexedDB) da projeção e das operações.
       this.localStore = new LocalStore({ moeda: this.moeda, moedaExibicao: this.moedaExibicao });
+      // cofre das OPERACOES: separado so por carteira (moeda), nao por
+      // moeda de exibicao - trocar R$/US$/etc nao esconde as operacoes.
+      this.opsStore = new LocalStore({ moeda: this.moeda, soOperacoes: true });
       this._saveTimer = null;
       // ---- Pan / rolagem horizontal ----
       // Deslocamento (ms) da janela visível em relação ao "agora" real.
@@ -115,6 +118,8 @@
         isClickVetoed: () => { const v = this._suppressClick; this._suppressClick = false; return !!v; },
         fmt: { brl: BRL, btc: BTC },
         moeda: this.moeda,
+        moedaExibicao: this.moedaExibicao,
+        getRates: () => this.store.latestRates(),
       });
       this.operationsTable = new OperationsTable({
         doc, operations: this.operations, now: () => this.store.latestT() || 0,
@@ -228,7 +233,7 @@
       this._saveTimer = setTimeout(async () => {
         try {
           await this.localStore.set('forecast', this.frozen.toJSON());
-          await this.localStore.set('operations', {
+          await this.opsStore.set('operations', {
             lots: this.operations.lots, sells: this.operations.sells,
             lotSeq: this.operations.lotSeq, sellSeq: this.operations.sellSeq,
           });
@@ -241,7 +246,7 @@
       try {
         const fc = await this.localStore.get('forecast');
         if (fc && Array.isArray(fc.master) && fc.master.length) this.frozen.fromJSON(fc);
-        const ops = await this.localStore.get('operations');
+        const ops = await this.opsStore.get('operations');
         if (ops) {
           if (Array.isArray(ops.lots)) this.operations.lots = ops.lots;
           if (Array.isArray(ops.sells)) this.operations.sells = ops.sells;
@@ -409,8 +414,8 @@
       const { hist, fut } = this.seriesData(), all = hist.concat(fut);
       const target = this.operations.targetPrice();
       const extraPrices = [target]
-        .concat(this.operations.lots.map(l => l.price))
-        .concat(this.operations.sells.filter(s => s.status === 'pending').map(s => s.markPrice));
+        .concat(this.operations.lots.map(l => this.operations.precoOp(l)))
+        .concat(this.operations.sells.filter(s => s.status === 'pending').map(s => this.operations.precoOp(s)));
       this.plot.resize();
       // Janela visível (com pan). Quando panMs = 0 o comportamento é o de
       // sempre; com pan, o eixo X passa a mostrar o trecho navegado e o
@@ -425,8 +430,16 @@
       this.plot.clear();
       const data = {
         points: all, hist, fut, nowT: endT, target, fmtBRL: BRL,
-        labelFor: t => timeLabel(t, this.periodId), lots: this.operations.lots,
-        sells: this.operations.sells, mouse: this.mouse,
+        labelFor: t => timeLabel(t, this.periodId),
+        // marcadores desenhados com preco ja convertido para a moeda de
+        // exibicao atual (uma operacao pode ter sido feita numa moeda
+        // diferente da que esta selecionada agora).
+        lots: this.operations.lots.map(l => Object.assign({}, l, { price: this.operations.precoOp(l) })),
+        sells: this.operations.sells.map(s => Object.assign({}, s, {
+          markPrice: this.operations.converterPreco(s.markPrice, s.moedaExib),
+          execPrice: s.execPrice != null ? this.operations.converterPreco(s.execPrice, s.moedaExib) : s.execPrice,
+        })),
+        mouse: this.mouse,
         // rastro: o que a projeção previu para o trecho que já virou passado
         trail: this.frozen ? this.frozen.pastTrail(endT, this.period().stepMs) : [],
       };
@@ -464,11 +477,11 @@
       setText('btcAvail', BTC(remain));
       const realized = this.operations.lots.reduce((sum, l) => sum + l.realized, 0);
       const current = this.operations.currentAvg();
-      const unreal = this.operations.openLots().reduce((sum, l) => sum + l.remaining * (current - l.price), 0);
+      const unreal = this.operations.openLots().reduce((sum, l) => sum + l.remaining * (current - this.operations.precoOp(l)), 0);
       const pnl = realized + unreal;
       const pnlEl = this.doc.getElementById('pnl');
       if (pnlEl) { pnlEl.textContent = BRL(pnl); pnlEl.className = ''; pnlEl.style.color = pnl >= 0 ? '#22c55e' : '#ef4444'; }
-      const cost = this.operations.openLots().reduce((sum, l) => sum + l.remaining * l.price, 0);
+      const cost = this.operations.openLots().reduce((sum, l) => sum + l.remaining * this.operations.precoOp(l), 0);
       const ret = cost > 0 ? unreal / cost * 100 : 0;
       const retEl = this.doc.getElementById('retNow');
       if (retEl) { retEl.textContent = PCT(ret); retEl.style.color = ret >= 0 ? '#22c55e' : '#ef4444'; }
@@ -557,8 +570,13 @@
       }
       catch (e) { const upd = this.doc.getElementById('updated'); if (upd) upd.textContent = window.I18N ? I18N.t('falha_backend') : 'Falha ao conectar ao backend'; return; }
       // Persistência: abre o IndexedDB e recupera projeção/operações salvas.
-      try { await this.localStore.open(); await this._restore(); } catch (e) { /* segue sem persistir */ }
+      try { await this.localStore.open(); await this.opsStore.open(); await this._restore(); } catch (e) { /* segue sem persistir */ }
       this.renderCards(); this.renderChart(); this.renderSidePanel(); this.operationsTable.render(); this.updateStatus();
+      // Rerender defensivo: em alguns casos (ex: taxas de cambio ainda nao
+      // totalmente assentadas no primeiro ciclo) o painel lateral pode
+      // calcular lucro/prejuizo com fallback incorreto na primeira pintura.
+      // Uma segunda passada, idempotente, corrige sem custo perceptivel.
+      setTimeout(() => { this.renderSidePanel(); this.renderChart(); }, 600);
       setInterval(() => { this.store.refresh(); }, 8000);
       if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') window.addEventListener('resize', () => this.renderChart());
     }

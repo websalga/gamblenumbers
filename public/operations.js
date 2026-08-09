@@ -13,12 +13,14 @@ class OperationsController {
     this._panel = deps.panel;
     this._doc = deps.doc;
     this._moeda = deps.moeda || 'BTC';
+    this._moedaExib = deps.moedaExibicao || 'BRL';
     this._t = (k, vars) => (window.I18N ? I18N.t(k, vars) : k);
     this._now = deps.now || (() => 0);
     this._series = deps.getSeries || (() => ({ hist: [], fut: [] }));
     this._period = deps.getPeriod || (() => ({ stepMs: 1 }));
     // acesso à projeção congelada (para ancorar vendas no preço projetado)
     this._frozen = deps.getFrozen || (() => null);
+    this._getRates = deps.getRates || (() => null);
     // Veto de clique: durante/logo após um arraste (pan), o clique não deve
     // virar uma venda marcada sem intenção.
     this._clickVetoed = deps.isClickVetoed || (() => false);
@@ -36,9 +38,32 @@ class OperationsController {
 
   snapshot() { return { lots: this.lots, sells: this.sells }; }
   openLots() { return this.lots.filter(l => l.remaining > 1e-12); }
+
+  /**
+   * Converte um valor de preco da moeda em que a operacao foi feita
+   * (op.moedaExib) para a moeda de exibicao ATUAL da sessao, usando USD
+   * como moeda-ponte (rates traz usd_brl/usd_eur/usd_gbp; USD=1).
+   * Se faltar taxa ou a moeda ja for a mesma, devolve o valor original -
+   * mais seguro que travar a UI por falta de dado de cambio.
+   */
+  converterPreco(valor, moedaOrigem) {
+    const origem = String(moedaOrigem || this._moedaExib).toUpperCase();
+    const atual = String(this._moedaExib).toUpperCase();
+    if (origem === atual || !(valor > 0)) return valor;
+    const rates = this._getRates();
+    if (!rates) return valor;
+    const taxa = { USD: 1, BRL: rates.usd_brl, EUR: rates.usd_eur, GBP: rates.usd_gbp };
+    const tOrigem = taxa[origem], tAtual = taxa[atual];
+    if (!(tOrigem > 0) || !(tAtual > 0)) return valor;
+    return (valor / tOrigem) * tAtual;
+  }
+
+  /** Preco de um lote/venda ja convertido para a moeda de exibicao atual. */
+  precoOp(op) { return this.converterPreco(op.price != null ? op.price : op.markPrice, op.moedaExib); }
+
   weightedAvg() {
     let qty = 0, cost = 0;
-    for (const l of this.openLots()) { qty += l.remaining; cost += l.remaining * l.price; }
+    for (const l of this.openLots()) { qty += l.remaining; cost += l.remaining * this.precoOp(l); }
     return qty > 0 ? cost / qty : 0;
   }
   totalRemainingBTC() { return this.openLots().reduce((sum, l) => sum + l.remaining, 0); }
@@ -151,6 +176,7 @@ class OperationsController {
     const lot = {
       id: 'LT' + seq, seq, time: atTime || this._now(), price, brl: value,
       qty, remaining: qty, sold: 0, realized: 0, status: 'open',
+      moedaExib: this._moedaExib,
     };
     this.lots.push(lot);
     this._toast('ok', this._t('toast_compra_registrada', { id: lot.id, qtd: this._fmt.btc(qty), moeda: this._moeda, preco: this._fmt.brl(price) }));
@@ -166,7 +192,7 @@ class OperationsController {
     let adjusted = false;
     if (qty > free) { qty = free; adjusted = true; }
     const seq = ++this.sellSeq;
-    const sell = { id: 'V' + seq, seq, markTime, markPrice, qty, reserved: qty, status: 'pending', origVal: value };
+    const sell = { id: 'V' + seq, seq, markTime, markPrice, qty, reserved: qty, status: 'pending', origVal: value, moedaExib: this._moedaExib };
     this.sells.push(sell);
     if (adjusted) this._toast('warn', this._t('toast_ordem_ajustada', { id: sell.id, qtd: this._fmt.btc(qty), moeda: this._moeda }));
     else this._toast('ok', this._t('toast_venda_agendada', { id: sell.id, qtd: this._fmt.btc(qty), moeda: this._moeda, preco: this._fmt.brl(markPrice) }));
@@ -184,22 +210,27 @@ class OperationsController {
   }
 
   executeSell(sell, execPrice) {
+    // execPrice ja chega na moeda de exibicao ATUAL (vem de currentAvg()).
+    // lot.price pode ter sido gravado numa moeda diferente (lote comprado
+    // antes de trocar o par) - converte antes de calcular o PnL.
     let qty = sell.qty, orderPnl = 0, orderCost = 0, orderQty = 0;
     const lots = this.lots.filter(l => l.remaining > 1e-12).sort((a, b) => a.seq - b.seq);
     for (const lot of lots) {
       if (qty <= 1e-12) break;
       const take = Math.min(lot.remaining, qty);
-      const pnl = take * (execPrice - lot.price);
+      const precoLote = this.precoOp(lot);
+      const pnl = take * (execPrice - precoLote);
       lot.remaining -= take;
       lot.sold += take;
       lot.realized += pnl;
       if (lot.remaining <= 1e-10) { lot.remaining = 0; lot.status = 'closed'; }
-      orderPnl += pnl; orderCost += take * lot.price; orderQty += take; qty -= take;
+      orderPnl += pnl; orderCost += take * precoLote; orderQty += take; qty -= take;
     }
     sell.status = 'executed';
     sell.execPrice = execPrice;
     sell.execTime = this._now();
     sell.reserved = 0;
+    sell.moedaExib = this._moedaExib; // resultado calculado na moeda atual
     sell._profit = orderPnl;
     sell._pnl = orderPnl;
     sell._value = orderQty * execPrice;
@@ -212,14 +243,15 @@ class OperationsController {
     const now = this._now();
     for (const sell of this.sells.filter(x => x.status === 'pending' && x.markTime <= now)) {
       const current = this.currentAvg();
-      if (current >= sell.markPrice - 1e-9) {
-        const exec = Math.max(current, sell.markPrice);
+      const markPriceAtual = this.precoOp(sell);
+      if (current >= markPriceAtual - 1e-9) {
+        const exec = Math.max(current, markPriceAtual);
         this.executeSell(sell, exec);
-        if (exec > sell.markPrice + 1e-6) this._toast('ok', this._t('toast_venda_executada_elevada', { id: sell.id, preco: this._fmt.brl(exec) }));
+        if (exec > markPriceAtual + 1e-6) this._toast('ok', this._t('toast_venda_executada_elevada', { id: sell.id, preco: this._fmt.brl(exec) }));
         else this._toast('ok', this._t('toast_venda_executada', { id: sell.id, preco: this._fmt.brl(exec) }));
       } else {
         sell.status = 'expired';
-        this._toast('err', this._t('toast_venda_expirada', { id: sell.id, preco: this._fmt.brl(sell.markPrice) }));
+        this._toast('err', this._t('toast_venda_expirada', { id: sell.id, preco: this._fmt.brl(markPriceAtual) }));
         this._changed('sell:expired', sell);
       }
     }
