@@ -78,7 +78,17 @@
 
       // histórico sintético = real + projeção já congelada, para o forecast
       // continuar coerente de onde parou (emenda contínua na borda).
-      const seedHist = hist.concat(this._master.map(function (m) { return { avg: m.avg }; }));
+      //
+      // IMPORTANTE: hist vem espacado no passo do PERIODO ATUAL (o que o
+      // usuario esta vendo agora), que pode ser bem diferente do passo
+      // CONGELADO (this._stepMs, fixado na 1a chamada de ensure()). Se
+      // projetarmos direto, o forecast calibra volatilidade/drift por
+      // passo do hist (ex: 15min) mas os aplicamos em passos do tempo
+      // congelado (ex: 1min) - superestimando a volatilidade em ate
+      // (passo_hist/passo_congelado)x. Por isso reamostramos o hist para
+      // o passo congelado antes de projetar, mantendo a calibracao correta.
+      const histNoPassoCongelado = resampleParaPasso(hist, this._stepMs);
+      const seedHist = histNoPassoCongelado.concat(this._master.map(function (m) { return { avg: m.avg }; }));
       const raw = this._forecast.project(seedHist, missing, this._premium);
       this._appendFromRaw(raw, edge, this._stepMs);
       return missing;
@@ -184,6 +194,36 @@
       const pick = (Math.abs(a.t - t) <= Math.abs(b.t - t)) ? a : b;
       return Math.abs(pick.t - t) <= tol ? pick : null;
     }
+  }
+
+  /**
+   * Reamostra hist (array {t,avg,...}, ordenado por t) para pontos
+   * igualmente espacados de `passoMs` em passoMs, via interpolacao
+   * linear. Existe so para recalibrar a volatilidade/drift do forecast
+   * ao passo realmente usado na extensao da projecao congelada.
+   */
+  function resampleParaPasso(hist, passoMs) {
+    if (!Array.isArray(hist) || hist.length < 2 || !(passoMs > 0)) return hist;
+    const t0 = hist[0].t, t1 = hist[hist.length - 1].t;
+    if (!(t1 > t0)) return hist;
+    const n = Math.max(2, Math.floor((t1 - t0) / passoMs) + 1);
+    // nao expande via interpolacao para alem do que faz sentido (evita
+    // 'inventar' resolucao muito mais fina do que o hist realmente tem)
+    if (n > hist.length * 20) return hist;
+    const out = [];
+    let idx = 0;
+    for (let i = 0; i < n; i++) {
+      const t = t0 + i * passoMs;
+      while (idx < hist.length - 2 && hist[idx + 1].t < t) idx++;
+      const a = hist[idx], b = hist[Math.min(idx + 1, hist.length - 1)];
+      const span = (b.t - a.t) || 1;
+      const u = Math.max(0, Math.min(1, (t - a.t) / span));
+      out.push({
+        t: t,
+        avg: a.avg + (b.avg - a.avg) * u,
+      });
+    }
+    return out;
   }
 
   function computeSpread(hist) {

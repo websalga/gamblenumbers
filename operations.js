@@ -12,6 +12,8 @@ class OperationsController {
     this._plot = deps.plot;
     this._panel = deps.panel;
     this._doc = deps.doc;
+    this._moeda = deps.moeda || 'BTC';
+    this._t = (k, vars) => (window.I18N ? I18N.t(k, vars) : k);
     this._now = deps.now || (() => 0);
     this._series = deps.getSeries || (() => ({ hist: [], fut: [] }));
     this._period = deps.getPeriod || (() => ({ stepMs: 1 }));
@@ -68,8 +70,7 @@ class OperationsController {
     if (lot.remaining > 1e-10) {
       return {
         ok: false, remaining: lot.remaining,
-        reason: `Compra com saldo restante de ${this._fmt.btc(lot.remaining)} BTC. ` +
-                `Só é possível excluir compras totalmente vendidas — você pode ocultá-la do gráfico.`,
+        reason: this._t('toast_compra_saldo_restante', { qtd: this._fmt.btc(lot.remaining), moeda: this._moeda }),
       };
     }
     return { ok: true };
@@ -152,7 +153,7 @@ class OperationsController {
       qty, remaining: qty, sold: 0, realized: 0, status: 'open',
     };
     this.lots.push(lot);
-    this._toast('ok', `Compra registrada • ${lot.id} • ${this._fmt.btc(qty)} BTC @ ${this._fmt.brl(price)}`);
+    this._toast('ok', this._t('toast_compra_registrada', { id: lot.id, qtd: this._fmt.btc(qty), moeda: this._moeda, preco: this._fmt.brl(price) }));
     this._changed('buy', lot);
     return lot;
   }
@@ -167,8 +168,8 @@ class OperationsController {
     const seq = ++this.sellSeq;
     const sell = { id: 'V' + seq, seq, markTime, markPrice, qty, reserved: qty, status: 'pending', origVal: value };
     this.sells.push(sell);
-    if (adjusted) this._toast('warn', `Ordem ajustada ao saldo final • ${sell.id} • ${this._fmt.btc(qty)} BTC`);
-    else this._toast('ok', `Venda agendada • ${sell.id} • ${this._fmt.btc(qty)} BTC @ ${this._fmt.brl(markPrice)}`);
+    if (adjusted) this._toast('warn', this._t('toast_ordem_ajustada', { id: sell.id, qtd: this._fmt.btc(qty), moeda: this._moeda }));
+    else this._toast('ok', this._t('toast_venda_agendada', { id: sell.id, qtd: this._fmt.btc(qty), moeda: this._moeda, preco: this._fmt.brl(markPrice) }));
     this._changed('sell:scheduled', sell);
     return sell;
   }
@@ -177,7 +178,7 @@ class OperationsController {
     const sell = this.sells.find(x => x.id === id && x.status === 'pending');
     if (!sell) return false;
     sell.status = 'cancelled';
-    this._toast('info', `Venda ${id} cancelada • ${this._fmt.btc(sell.reserved)} BTC liberados`);
+    this._toast('info', this._t('toast_venda_cancelada', { id: id, qtd: this._fmt.btc(sell.reserved), moeda: this._moeda }));
     this._changed('sell:cancelled', sell);
     return true;
   }
@@ -235,7 +236,7 @@ class OperationsController {
     if (buy) buy.onclick = () => this.doBuy(this.currentAvg(), this._now());
     const sell = this._doc.getElementById('sellBtn');
     if (sell) sell.onclick = () => {
-      if (this.freeBTC() <= 1e-10) { this._toast('err', 'Saldo totalmente reservado.'); return; }
+      if (this.freeBTC() <= 1e-10) { this._toast('err', this._t('toast_saldo_reservado')); return; }
       // Horizonte ABSOLUTO (48h à frente), independente da escala em que o
       // usuário estiver. Antes usava stepMs*8, que mudava com a faixa e fazia
       // a marca "descolar" ao trocar de escala.

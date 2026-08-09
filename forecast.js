@@ -52,9 +52,14 @@ window.Forecast = (function(){
     const sma=mean(prices.slice(-win));
     const reversion=0.02; // força de reversão à média por passo
 
-    // amplitude do ciclo detectado (baseada na volatilidade real)
-    const cycAmp = cycle.strength>0.1 ? vol*cycle.strength*2.2 : 0;
-    const cycLag = cycle.lag>0 ? cycle.lag : 12;
+    // amplitude do ciclo detectado (baseada na volatilidade real).
+    // Exige lag>=6: ciclos mais curtos que isso tendem a ser ruido/alias
+    // (poucos pontos por periodo para a autocorrelacao ser confiavel),
+    // e nesse caso o seno oscila quase a cada passo, produzindo um
+    // zigue-zague caotico em vez de um ciclo plausivel - mais visivel
+    // em janelas longas (120D/220D) onde cada passo vale dezenas de horas.
+    const cycAmp = (cycle.strength>0.1 && cycle.lag>=6) ? vol*cycle.strength*2.2 : 0;
+    const cycLag = cycle.lag>=6 ? cycle.lag : 12;
 
     // gerador pseudo-aleatório determinístico (mesma projeção entre frames)
     let seed=Math.floor(last)%99991 + rets.length;

@@ -1,28 +1,84 @@
 <?php
 /*
- * BTC Simulador — API PHP (PDO_SQLSRV)
- * Lê bitcoin.dbo.snapshots e devolve JSON para o dashboard.
- * Credenciais via variáveis de ambiente (config.php). Nunca coloque senha aqui.
+ * Simulador — API PHP (PDO_SQLSRV)
+ * Le bitcoin.dbo.snapshots (BTC) ou bitcoin.dbo.BCH_Snapshots (BCH) e
+ * devolve JSON para o dashboard.
+ * Credenciais em ../private/config.php - FORA da raiz publicada pelo Nginx.
  *
- * Endpoints:
- *   api.php?acao=cotacoes&limite=1500  -> últimos N snapshots (crescente)
- *   api.php?acao=atual                 -> snapshot mais recente
+ * Parametros novos (Fase 2):
+ *   moeda=BTC|BCH            -> qual carteira/ativo consultar (default BTC)
+ *   moeda_exibicao=BRL|USD|EUR|GBP -> em qual moeda exibir os precos (default BRL)
+ *
+ * As colunas price_eur/price_gbp/price_<moeda>_<exchange> ja vem
+ * PRE-CALCULADAS no banco (coletores gravam tudo pronto) - aqui so
+ * escolhemos quais colunas ler, sem fazer conta nenhuma em PHP.
+ *
+ * Endpoints (inalterados, aceitam os 2 parametros novos opcionais):
+ *   api.php?acao=cotacoes&limite=1500
+ *   api.php?acao=atual
  *   api.php?acao=intervalo&desde=<ms>&ate=<ms>&max=<n>
- *                                      -> snapshots no intervalo [desde,ate] (UTC ms),
- *                                         reduzidos (downsample) a no máx. `max` pontos
- *                                         por bucket temporal. Crescente por tempo.
  */
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store');
 
-require __DIR__ . '/config.php'; // define $DB_SERVER, $DB_DATABASE, $DB_USER, $DB_PASSWORD, $DB_PORT
+require __DIR__ . '/../private/config.php';
 
 function db() {
   global $DB_SERVER, $DB_DATABASE, $DB_USER, $DB_PASSWORD, $DB_PORT;
-  $dsn = "sqlsrv:Server={$DB_SERVER},{$DB_PORT};Database={$DB_DATABASE};Encrypt=1;TrustServerCertificate=1";  
+  $dsn = "sqlsrv:Server={$DB_SERVER},{$DB_PORT};Database={$DB_DATABASE};Encrypt=1;TrustServerCertificate=1";
   return new PDO($dsn, $DB_USER, $DB_PASSWORD, [
     PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
   ]);
+}
+
+// --- Whitelist de moeda cripto (carteira) -> tabela ---
+// NUNCA aceitar nome de tabela vindo direto do usuario.
+const MOEDAS = [
+  'BTC' => 'dbo.snapshots',
+  'BCH' => 'dbo.BCH_Snapshots',
+];
+
+// --- Whitelist de moeda de exibicao (fiat) ---
+const MOEDAS_EXIBICAO = ['BRL', 'USD', 'EUR', 'GBP'];
+
+function moedaSelecionada(): string {
+  $m = strtoupper($_GET['moeda'] ?? 'BTC');
+  return array_key_exists($m, MOEDAS) ? $m : 'BTC';
+}
+
+function moedaExibicaoSelecionada(): string {
+  $m = strtoupper($_GET['moeda_exibicao'] ?? 'BRL');
+  return in_array($m, MOEDAS_EXIBICAO, true) ? $m : 'BRL';
+}
+
+/**
+ * Monta os nomes de coluna (ja validados via whitelist, seguro para
+ * interpolar no SQL) para a moeda/exibicao escolhidas, e os aliasa de
+ * volta para os nomes que o frontend ja conhece (price_brl,
+ * price_brl_binance, etc) - o contrato JSON nao muda, so o CONTEUDO.
+ */
+function colunas(string $moeda, string $moedaExibicao): array {
+  $tabela = MOEDAS[$moeda];
+  $sufixo = strtolower($moedaExibicao); // brl|usd|eur|gbp
+
+  // media: agora vem sempre da coluna dedicada media_exchanges_<moeda>,
+  // calculada e gravada pelos coletores como a media literal das 3
+  // exchanges mostradas na tela (Binance/Kraken/Coinbase) - nunca fica
+  // fora do intervalo min/max delas, em ambas as tabelas (BTC e BCH).
+  $colAvg = "media_exchanges_{$sufixo}";
+
+  // referencia USD "pura" (campo auxiliar 'btc_usd' do contrato JSON,
+  // mantido para compatibilidade) - tambem usa a media dedicada.
+  $colUsdRef = 'media_exchanges_usd';
+
+  return [
+    'tabela'     => $tabela,
+    'avg'        => $colAvg,
+    'binance'    => "price_{$sufixo}_binance",
+    'kraken'     => "price_{$sufixo}_kraken",
+    'coinbase'   => "price_{$sufixo}_coinbase",
+    'usd_ref'    => $colUsdRef,
+  ];
 }
 
 // converte 'YYYY-MM-DD HH:MM:SS' (UTC) em epoch ms
@@ -46,59 +102,62 @@ function mapRow($r) {
 
 try {
   $acao = $_GET['acao'] ?? 'cotacoes';
+  $moeda = moedaSelecionada();
+  $moedaExibicao = moedaExibicaoSelecionada();
+  $col = colunas($moeda, $moedaExibicao);
   $pdo = db();
 
+  // monta o SELECT dinamico (colunas ja validadas via whitelist acima -
+  // seguro interpolar; nada aqui vem direto de $_GET sem passar pelas
+  // funcoes moedaSelecionada()/moedaExibicaoSelecionada())
+  $selectCols = "ts_utc,
+              {$col['avg']}      AS price_brl,
+              {$col['binance']}  AS price_brl_binance,
+              {$col['kraken']}   AS price_brl_kraken,
+              {$col['coinbase']} AS price_brl_coinbase,
+              {$col['usd_ref']}  AS btc_usd,
+              usd_brl";
+
   if ($acao === 'atual') {
-    $sql = "SELECT TOP 1 ts_utc, price_brl,
-              price_brl_binance, price_brl_kraken, price_brl_coinbase,
-              btc_usd, usd_brl
-            FROM dbo.snapshots
-            WHERE ok = 1 AND price_brl IS NOT NULL
+    $sql = "SELECT TOP 1 {$selectCols}
+            FROM {$col['tabela']}
+            WHERE ok = 1 AND {$col['avg']} IS NOT NULL
             ORDER BY ts_utc DESC";
     $row = $pdo->query($sql)->fetch(PDO::FETCH_ASSOC);
     if (!$row) { http_response_code(404); echo json_encode(['ok'=>false,'error'=>'Sem dados.']); exit; }
-    echo json_encode(['ok'=>true,'data'=>mapRow($row)]);
+    echo json_encode(['ok'=>true,'moeda'=>$moeda,'moeda_exibicao'=>$moedaExibicao,'data'=>mapRow($row)]);
     exit;
   }
 
   if ($acao === 'intervalo') {
-    // janela temporal explícita em epoch ms (UTC); downsample por bucket
     $desde = isset($_GET['desde']) ? (float)$_GET['desde'] : 0.0;
     $ate   = isset($_GET['ate'])   ? (float)$_GET['ate']   : 0.0;
     $maxN  = isset($_GET['max'])   ? (int)$_GET['max']     : 1200;
     if ($maxN < 2)    $maxN = 2;
-    if ($maxN > 4000) $maxN = 4000;         // teto de pontos devolvidos
+    if ($maxN > 4000) $maxN = 4000;
     if ($ate <= 0)    $ate = round(microtime(true) * 1000);
     if ($desde <= 0)  $desde = $ate - 30.0 * 86400.0 * 1000.0;
     if ($desde >= $ate) { echo json_encode(['ok'=>true,'count'=>0,'data'=>[]]); exit; }
 
-    // converte ms -> datetime UTC para o WHERE (a coluna é datetime UTC)
     $desdeDt = gmdate('Y-m-d H:i:s', (int)floor($desde / 1000));
     $ateDt   = gmdate('Y-m-d H:i:s', (int)floor($ate   / 1000));
 
-    // largura do bucket em segundos para caber em ~maxN pontos.
     $spanSec = max(1.0, ($ate - $desde) / 1000.0);
     $bucketSec = (int)max(1, ceil($spanSec / $maxN));
 
-    // Downsample: agrupa por faixa de tempo (bucket) e pega, de cada bucket,
-    // a linha mais recente (via ROW_NUMBER). Índice em ts_utc cobre o range scan.
     $sql = "
       WITH src AS (
-        SELECT ts_utc, price_brl,
-               price_brl_binance, price_brl_kraken, price_brl_coinbase,
-               btc_usd, usd_brl,
+        SELECT {$selectCols},
                DATEDIFF_BIG(SECOND, '1970-01-01', ts_utc) / :bkt AS bucket
-        FROM dbo.snapshots
-        WHERE ok = 1 AND price_brl IS NOT NULL
+        FROM {$col['tabela']}
+        WHERE ok = 1 AND {$col['avg']} IS NOT NULL
           AND ts_utc >= :d0 AND ts_utc <= :d1
       ),
       ranked AS (
         SELECT *, ROW_NUMBER() OVER (PARTITION BY bucket ORDER BY ts_utc DESC) AS rn
         FROM src
       )
-      SELECT ts_utc, price_brl,
-             price_brl_binance, price_brl_kraken, price_brl_coinbase,
-             btc_usd, usd_brl
+      SELECT ts_utc, price_brl, price_brl_binance, price_brl_kraken, price_brl_coinbase, btc_usd, usd_brl
       FROM ranked
       WHERE rn = 1
       ORDER BY ts_utc ASC";
@@ -109,7 +168,7 @@ try {
     $stmt->execute();
     $out = [];
     while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) $out[] = mapRow($row);
-    echo json_encode(['ok'=>true,'count'=>count($out),'bucketSec'=>$bucketSec,'data'=>$out]);
+    echo json_encode(['ok'=>true,'moeda'=>$moeda,'moeda_exibicao'=>$moedaExibicao,'count'=>count($out),'bucketSec'=>$bucketSec,'data'=>$out]);
     exit;
   }
 
@@ -118,13 +177,10 @@ try {
   if ($limite < 1) $limite = 1;
   if ($limite > 5000) $limite = 5000;
 
-  // TOP com parâmetro: usa subquery ordenada desc e reinverte para asc
   $sql = "SELECT * FROM (
-            SELECT TOP ($limite) ts_utc, price_brl,
-              price_brl_binance, price_brl_kraken, price_brl_coinbase,
-              btc_usd, usd_brl
-            FROM dbo.snapshots
-            WHERE ok = 1 AND price_brl IS NOT NULL
+            SELECT TOP ($limite) {$selectCols}
+            FROM {$col['tabela']}
+            WHERE ok = 1 AND {$col['avg']} IS NOT NULL
             ORDER BY ts_utc DESC
           ) q
           ORDER BY ts_utc ASC";
@@ -132,11 +188,10 @@ try {
   $out = [];
   while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) $out[] = mapRow($row);
 
-  echo json_encode(['ok'=>true,'count'=>count($out),'data'=>$out]);
+  echo json_encode(['ok'=>true,'moeda'=>$moeda,'moeda_exibicao'=>$moedaExibicao,'count'=>count($out),'data'=>$out]);
 
 } catch (Throwable $e) {
   http_response_code(500);
-  // não vaza detalhe interno ao cliente
   error_log('api.php erro: ' . $e->getMessage());
   echo json_encode(['ok'=>false,'error'=>'Falha ao consultar o banco.']);
 }

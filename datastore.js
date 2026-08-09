@@ -37,10 +37,18 @@ class DataStore {
     this._byT = new Set();         // índice de timestamps p/ evitar duplicá-los
     this._apiBase = opts.apiBase || 'api.php';
     this._maxLen = opts.maxLen || 5000;
+    // Fase 2: qual carteira (BTC/BCH) e em qual moeda de exibicao
+    // (BRL/USD/EUR/GBP) buscar. Default mantem o comportamento anterior.
+    this.moeda = (opts.moeda || 'BTC').toUpperCase();
+    this.moedaExibicao = (opts.moedaExibicao || 'BRL').toUpperCase();
     this._fetchFn = opts.fetchFn || DataStore._defaultFetch;
     this._listeners = [];          // callbacks avisados quando os dados mudam
     this._lastError = null;
     this._loadedOnce = false;
+  }
+
+  _moedaQS() {
+    return `&moeda=${encodeURIComponent(this.moeda)}&moeda_exibicao=${encodeURIComponent(this.moedaExibicao)}`;
   }
 
   /* ---------- alimentação (entrada) ---------- */
@@ -51,7 +59,7 @@ class DataStore {
    * @returns {Promise<number>} quantidade de linhas carregadas.
    */
   async load(limite = 1500) {
-    const url = `${this._apiBase}?acao=cotacoes&limite=${encodeInt(limite, 1, this._maxLen)}`;
+    const url = `${this._apiBase}?acao=cotacoes&limite=${encodeInt(limite, 1, this._maxLen)}${this._moedaQS()}`;
     const j = await this._fetchFn(url);
     if (!j || !j.ok || !Array.isArray(j.data)) {
       throw new Error((j && j.error) || 'Backend não retornou dados válidos.');
@@ -75,7 +83,7 @@ class DataStore {
    * @returns {Promise<boolean>} true se algo novo entrou.
    */
   async refresh() {
-    const url = `${this._apiBase}?acao=atual`;
+    const url = `${this._apiBase}?acao=atual${this._moedaQS()}`;
     let j;
     try {
       j = await this._fetchFn(url);
@@ -287,7 +295,7 @@ class DataStore {
     const d0 = Math.floor(desde), d1 = Math.floor(ate);
     if (!(d1 > d0)) return 0;
     const m = encodeInt(maxPts, 2, 4000);
-    const url = `${this._apiBase}?acao=intervalo&desde=${d0}&ate=${d1}&max=${m}`;
+    const url = `${this._apiBase}?acao=intervalo&desde=${d0}&ate=${d1}&max=${m}${this._moedaQS()}`;
     let j;
     try { j = await this._fetchFn(url); }
     catch (e) { this._lastError = e; return 0; }

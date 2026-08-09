@@ -1,7 +1,8 @@
 'use strict';
 
 (function () {
-  const EXCH = { avg: 'Média', binance: 'Binance', kraken: 'Kraken', coinbase: 'Coinbase' };
+  const MEDIA_POR_IDIOMA = { 'pt-BR': 'Média', 'en-US': 'Average', 'es-ES': 'Promedio' };
+  const EXCH = (idioma) => ({ avg: MEDIA_POR_IDIOMA[idioma] || 'Média', binance: 'Binance', kraken: 'Kraken', coinbase: 'Coinbase' });
   const COL = { avg: '#22d3ee', binance: '#f7c948', kraken: '#a855f7', coinbase: '#3b82f6' };
   const PREMIUM = { avg: 0, binance: 0.0015, kraken: -0.0020, coinbase: 0.0008 };
   const PERIODS = [
@@ -26,7 +27,9 @@
   ];
   const MES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
   const pad = n => String(n).padStart(2, '0');
-  const BRL = n => 'R$ ' + Number(n).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const MOEDA_SIMBOLO = { BRL: 'R$ ', USD: 'US$ ', EUR: '€ ', GBP: '£ ' };
+  let _simboloAtivo = 'R$ '; // ajustado pelo App no boot, conforme moeda_exibicao da URL
+  const BRL = n => _simboloAtivo + Number(n).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const BTC = n => Number(n).toLocaleString('pt-BR', { minimumFractionDigits: 8, maximumFractionDigits: 8 });
   const PCT = n => (n >= 0 ? '+' : '') + Number(n).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '%';
   const fmtUTC = d => `${pad(d.getUTCDate())}/${pad(d.getUTCMonth() + 1)} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`;
@@ -44,7 +47,25 @@
     constructor(doc) {
       this.doc = doc;
       this.bus = new EventBus();
-      this.store = new DataStore({});
+
+      // Fase 2: carteira (BTC/BCH) e moeda de exibicao (BRL/USD/EUR/GBP).
+      // Por enquanto le da URL (?moeda=BCH&moeda_exibicao=USD); o combo
+      // visual fica para o proximo passo. Default mantem o comportamento
+      // de sempre (BTC/BRL).
+      const qs = new URLSearchParams(location.search);
+      this.moeda = (qs.get('moeda') || 'BTC').toUpperCase();
+      this.moedaExibicao = (qs.get('moeda_exibicao') || 'BRL').toUpperCase();
+      this.idioma = qs.get('idioma') || 'pt-BR';
+      _simboloAtivo = MOEDA_SIMBOLO[this.moedaExibicao] || 'R$ ';
+      {
+        const sym = _simboloAtivo.trim();
+        const opValueEl = doc.getElementById('opValue');
+        const stopEl = doc.getElementById('stop');
+        if (opValueEl) opValueEl.value = sym + ' 55.000,00';
+        if (stopEl) stopEl.value = sym + ' 0,00';
+      }
+
+      this.store = new DataStore({ moeda: this.moeda, moedaExibicao: this.moedaExibicao });
       this.periodId = '1H';
       this.real = new RealSeries({ store: this.store });
       // Projeção CONGELADA: nasce uma vez e só cresce pela borda direita.
@@ -55,7 +76,7 @@
         real: this.real, forecast: window.Forecast, premium: PREMIUM, frozen: this.frozen,
       });
       // Persistência local (IndexedDB) da projeção e das operações.
-      this.localStore = new LocalStore({});
+      this.localStore = new LocalStore({ moeda: this.moeda, moedaExibicao: this.moedaExibicao });
       this._saveTimer = null;
       // ---- Pan / rolagem horizontal ----
       // Deslocamento (ms) da janela visível em relação ao "agora" real.
@@ -63,8 +84,14 @@
       // >0 = olhando para o FUTURO (projeção); <0 = olhando para o PASSADO.
       this.panMs = 0;
       this._drag = null;
-      this.cards = Object.keys(EXCH).map(k => new ExchangeCard(k, {
-        store: this.store, meta: { label: EXCH[k], color: COL[k], premium: PREMIUM[k] },
+      const fmtCards = {
+        brl: BRL,
+        usd: n => 'US$ ' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 }),
+        pct: PCT,
+      };
+      const exchLabels = EXCH(this.idioma);
+      this.cards = Object.keys(exchLabels).map(k => new ExchangeCard(k, {
+        store: this.store, meta: { label: exchLabels[k], color: COL[k], premium: PREMIUM[k] }, fmt: fmtCards,
       }));
 
       this.canvas = doc.getElementById('chart');
@@ -79,7 +106,7 @@
         lots: new LotMarkerRenderer(), sells: new SellMarkerRenderer(), cursor: new CursorRenderer(),
         trail: new TrailRenderer(),
       };
-      this.panel = new ControlPanel({ doc, bus: this.bus, defaults: { opValue: 55000, stop: 0, ret: 5.0 } });
+      this.panel = new ControlPanel({ doc, bus: this.bus, defaults: { opValue: 55000, stop: 0, ret: 5.0 }, fmt: { brl: BRL } });
       this.operations = new OperationsController({
         doc, bus: this.bus, canvas: this.canvas, plot: this.plot, panel: this.panel,
         now: () => this.store.latestT() || 0,
@@ -87,6 +114,7 @@
         getFrozen: () => this.frozen,
         isClickVetoed: () => { const v = this._suppressClick; this._suppressClick = false; return !!v; },
         fmt: { brl: BRL, btc: BTC },
+        moeda: this.moeda,
       });
       this.operationsTable = new OperationsTable({
         doc, operations: this.operations, now: () => this.store.latestT() || 0,
@@ -293,12 +321,61 @@
           this.operations.clearOperations(scope);
         };
       };
-      liga('clearSells', 'sells', 'Remover todas as vendas?');
-      liga('clearLots', 'lots', 'Remover as compras consolidadas? (as que ainda têm saldo serão mantidas)');
-      liga('clearAll', 'all', 'Remover todas as operações? (compras com saldo restante serão mantidas)');
+      const T = (k) => window.I18N ? I18N.t(k) : k;
+      liga('clearSells', 'sells', T('confirm_limpar_vendas'));
+      liga('clearLots', 'lots', T('confirm_limpar_compras'));
+      liga('clearAll', 'all', T('confirm_limpar_tudo'));
+    }
+
+    /** Reaplica os textos que dependem da moeda ativa + idioma carregado.
+     * Chamado 2x: uma vez de imediato (fallback/pt-BR), e de novo depois
+     * que I18N.load() resolve (para corrigir caso o idioma nao seja o
+     * default). Tambem chamado sempre que a moeda muda. */
+    _aplicarTraducoesTopo() {
+      const h1 = this.doc.querySelector('.brand h1');
+      const _tituloSim = (window.I18N ? I18N.t('simulador') : 'Simulador');
+      if (h1) h1.textContent = (this.moeda === 'BCH' ? 'BCH' : 'BTC') + ' ' + _tituloSim;
+      document.title = (this.moeda === 'BCH' ? 'BCH' : 'BTC') + ' ' + _tituloSim;
+      const lblBtcAvail = this.doc.getElementById('lblBtcAvail');
+      if (lblBtcAvail) lblBtcAvail.textContent = window.I18N ? I18N.t('simulado_disponivel', { moeda: this.moeda }) : (this.moeda + ' simulado disponível');
+      const thBtc = this.doc.getElementById('thBtc');
+      if (thBtc) thBtc.textContent = this.moeda;
+      const lblStop = this.doc.getElementById('lblStop');
+      if (lblStop) lblStop.textContent = (window.I18N ? I18N.t('lbl_stop_manual') : 'Stop manual') + ' (' + _simboloAtivo.trim() + ')';
+      const sym2 = _simboloAtivo.trim();
+      const thPreco = this.doc.getElementById('thPreco');
+      if (thPreco) thPreco.textContent = (window.I18N ? I18N.t('th_preco') : 'Preço') + ' (' + sym2 + ')';
+      const thValor = this.doc.getElementById('thValor');
+      if (thValor) thValor.textContent = (window.I18N ? I18N.t('th_valor') : 'Valor') + ' (' + sym2 + ')';
+      if (window.I18N) I18N.applyToDom(this.doc);
+    }
+
+    _wireSeletores() {
+      const selMoeda = this.doc.getElementById('selMoeda');
+      const selExib = this.doc.getElementById('selMoedaExibicao');
+      const selIdioma = this.doc.getElementById('selIdioma');
+      if (!selMoeda || !selExib) return;
+
+      selMoeda.value = this.moeda;
+      selExib.value = this.moedaExibicao;
+      if (selIdioma) selIdioma.value = this.idioma;
+
+      this._aplicarTraducoesTopo();
+
+      const recarregar = () => {
+        const qs = new URLSearchParams(location.search);
+        qs.set('moeda', selMoeda.value);
+        qs.set('moeda_exibicao', selExib.value);
+        qs.set('idioma', selIdioma ? selIdioma.value : this.idioma);
+        location.search = qs.toString();
+      };
+      selMoeda.addEventListener('change', recarregar);
+      selExib.addEventListener('change', recarregar);
+      if (selIdioma) selIdioma.addEventListener('change', recarregar);
     }
 
     _wire() {
+      this._wireSeletores();
       this.store.onChange(() => {
         this.operations.processPending();
         this.renderCards(); this.renderChart(); this.renderSidePanel(); this.operationsTable.render(); this.updateStatus();
@@ -421,7 +498,7 @@
 
     updateStatus() {
       const upd = this.doc.getElementById('updated');
-      if (upd) upd.textContent = this.store.latestT() ? 'Dados atualizados' : 'Sem dados';
+      if (upd) upd.textContent = this.store.latestT() ? (window.I18N ? I18N.t('dados_atualizados') : 'Dados atualizados') : (window.I18N ? I18N.t('sem_dados') : 'Sem dados');
       this._updateTrailStats();
     }
 
@@ -444,8 +521,11 @@
       }
       if ('hidden' in el) el.hidden = false;
       if (el.style) { el.style.display = ''; el.style.color = err.mape < 2 ? '#22c55e' : (err.mape < 5 ? '#f7c948' : '#ef4444'); }
-      const sinal = err.bias >= 0 ? 'acima' : 'abaixo';
-      el.textContent = `Desvio da projeção: ${err.mape.toFixed(2)}% (${sinal} do real) • ${err.n} pontos`;
+      const sinalKey = err.bias >= 0 ? 'sinal_acima' : 'sinal_abaixo';
+      const sinal = window.I18N ? I18N.t(sinalKey) : (err.bias >= 0 ? 'acima' : 'abaixo');
+      el.textContent = window.I18N
+        ? I18N.t('desvio_projecao', { pct: err.mape.toFixed(2), sinal: sinal, n: err.n })
+        : `Desvio da projeção: ${err.mape.toFixed(2)}% (${sinal} do real) • ${err.n} pontos`;
     }
     startClock() {
       const tick = () => {
@@ -456,6 +536,10 @@
     }
 
     async init() {
+      if (window.I18N) {
+        await I18N.load(this.idioma);
+        this._aplicarTraducoesTopo();
+      }
       this.buildPeriods(); this.panel.mount(); this.operations.mount(); this.startClock();
       this._wirePan();
       this._wireClear();
@@ -471,7 +555,7 @@
           await this.store.loadRange(ate - this.spanMs(), ate, 1500);
         }
       }
-      catch (e) { const upd = this.doc.getElementById('updated'); if (upd) upd.textContent = 'Falha ao conectar ao backend'; return; }
+      catch (e) { const upd = this.doc.getElementById('updated'); if (upd) upd.textContent = window.I18N ? I18N.t('falha_backend') : 'Falha ao conectar ao backend'; return; }
       // Persistência: abre o IndexedDB e recupera projeção/operações salvas.
       try { await this.localStore.open(); await this._restore(); } catch (e) { /* segue sem persistir */ }
       this.renderCards(); this.renderChart(); this.renderSidePanel(); this.operationsTable.render(); this.updateStatus();
