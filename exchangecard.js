@@ -98,14 +98,18 @@ class ExchangeCard {
     const f = this._fmt;
     const varClass = m.varPct >= 0 ? 'pos' : 'neg';
     const profClass = m.profit >= 0 ? 'pos' : 'neg';
+    const T = window.I18N ? I18N.t.bind(I18N) : (k) => ({
+      card_maior_lucro: 'MAIOR LUCRO', card_no_periodo: 'no período',
+      card_meta: 'Meta', card_lucro_estimado: 'Lucro estimado',
+    }[k] || k);
     this._el.innerHTML =
-      (isBest ? '<div class="badge">MAIOR LUCRO</div>' : '') +
+      (isBest ? '<div class="badge">' + T('card_maior_lucro') + '</div>' : '') +
       `<div class="top"><span class="name" style="color:${m.color}">${escapeHtml(m.label)}</span>` +
       `<svg class="spark" viewBox="0 0 34 16"><polyline fill="none" stroke="${m.color}" stroke-width="1.3" points="0,12 6,8 12,10 18,4 24,7 30,3 34,5"/></svg></div>` +
       `<div class="brl">${f.brl(m.cur)}</div>` +
       `<div class="usd">${m.usd != null ? f.usd(m.usd) : '—'}</div>` +
-      `<div class="var ${varClass}">${f.pct(m.varPct)} no período</div>` +
-      `<div class="meta-row">Meta: <b>${f.brl(m.target)}</b><br>Lucro estimado: <b class="${profClass}">${f.brl(m.profit)}</b></div>`;
+      `<div class="var ${varClass}">${f.pct(m.varPct)} ${T('card_no_periodo')}</div>` +
+      `<div class="meta-row">${T('card_meta')}: <b>${f.brl(m.target)}</b><br>${T('card_lucro_estimado')}: <b class="${profClass}">${f.brl(m.profit)}</b></div>`;
   }
 
   /** Remove o card do DOM (limpeza). */

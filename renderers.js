@@ -26,6 +26,17 @@ class ProjectionBgRenderer {
 }
 
 /* Grid horizontal + rótulos de preço no eixo direito. */
+/* Formata valor do eixo de preco conforme a ordem de grandeza - ativos
+ * como BTC ficam na casa das centenas de milhares (formato 'Xk' faz
+ * sentido), mas BCH/outras moedas em GBP/EUR podem ficar na casa das
+ * dezenas/centenas, onde dividir por 1000 e arredondar sempre dava "0k". */
+function fmtEixoPreco(p) {
+  const ap = Math.abs(p);
+  if (ap >= 1000) return (p / 1000).toFixed(ap >= 100000 ? 0 : 1) + 'k';
+  if (ap >= 1) return p.toFixed(ap >= 100 ? 0 : 2);
+  return p.toFixed(4);
+}
+
 class PriceAxisRenderer {
   constructor(opts = {}) { this._lines = opts.lines || 4; }
   draw(plot, _data) {
@@ -38,7 +49,7 @@ class PriceAxisRenderer {
       const p = plot.pMin + (plot.pMax - plot.pMin) * i / this._lines;
       const y = plot.Y(p);
       ctx.beginPath(); ctx.moveTo(plot.pad.l, y); ctx.lineTo(plot.w - plot.pad.r, y); ctx.stroke();
-      ctx.fillText((p / 1000).toFixed(0) + 'k', plot.w - plot.pad.r + 4, y + 3);
+      ctx.fillText(fmtEixoPreco(p), plot.w - plot.pad.r + 4, y + 3);
     }
   }
 }
@@ -104,7 +115,7 @@ class TargetLineRenderer {
     ctx.strokeStyle = plot.color('target'); ctx.setLineDash([6, 4]); ctx.lineWidth = 1.2;
     ctx.beginPath(); ctx.moveTo(plot.pad.l, y); ctx.lineTo(plot.w - plot.pad.r, y); ctx.stroke(); ctx.setLineDash([]);
     ctx.fillStyle = plot.color('target'); ctx.textAlign = 'left'; ctx.font = '10px monospace';
-    ctx.fillText('ALVO ' + data.fmtBRL(data.target), plot.pad.l + 4, y - 4);
+    ctx.fillText((window.I18N ? I18N.t('chart_alvo') : 'ALVO') + ' ' + data.fmtBRL(data.target), plot.pad.l + 4, y - 4);
   }
 }
 
@@ -116,10 +127,10 @@ class NowDividerRenderer {
     ctx.strokeStyle = plot.color('now'); ctx.setLineDash([3, 3]); ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(nowX, plot.pad.t); ctx.lineTo(nowX, plot.h - plot.pad.b); ctx.stroke(); ctx.setLineDash([]);
     ctx.fillStyle = plot.color('nowText'); ctx.textAlign = 'center'; ctx.font = 'bold 10px monospace';
-    ctx.fillText('AGORA', nowX, plot.pad.t + 10);
+    ctx.fillText(window.I18N ? I18N.t('chart_agora') : 'AGORA', nowX, plot.pad.t + 10);
     ctx.fillStyle = plot.color('axisText'); ctx.font = '9px monospace';
-    ctx.textAlign = 'left'; ctx.fillText('HISTÓRICO CONFIRMADO', plot.pad.l + 4, plot.pad.t + 10);
-    ctx.textAlign = 'right'; ctx.fillText('CENÁRIO PROJETADO', plot.w - plot.pad.r - 4, plot.pad.t + 10);
+    ctx.textAlign = 'left'; ctx.fillText(window.I18N ? I18N.t('chart_historico') : 'HISTÓRICO CONFIRMADO', plot.pad.l + 4, plot.pad.t + 10);
+    ctx.textAlign = 'right'; ctx.fillText(window.I18N ? I18N.t('chart_projetado') : 'CENÁRIO PROJETADO', plot.w - plot.pad.r - 4, plot.pad.t + 10);
   }
 }
 

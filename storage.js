@@ -12,14 +12,29 @@
  * Map em memória: nada quebra, apenas não persiste entre sessões.
  * ============================================================ */
 (function () {
-  const DB_NAME = 'btc_simulador';
+  // Nome do banco agora leva a moeda (carteira) para nao misturar
+  // operacoes simuladas de BTC e BCH no mesmo IndexedDB.
+  // deps.moeda: 'BTC' (default, mantem compatibilidade com dados
+  // ja gravados antes dessa mudanca) ou 'BCH' (banco proprio, novo).
   const DB_VERSION = 1;
   const STORE = 'kv';
+
+  function dbNameForMoeda(moeda, moedaExibicao) {
+    const m = String(moeda || 'BTC').toUpperCase();
+    const e = String(moedaExibicao || 'BRL').toUpperCase();
+    // BTC+BRL mantem o nome antigo (compatibilidade com dados ja salvos).
+    // Qualquer outra combinacao ganha cofre proprio - simulacoes em
+    // moedas diferentes tem escalas de preco diferentes e NAO podem
+    // reaproveitar lotes/projecao uns dos outros.
+    if (m === 'BTC' && e === 'BRL') return 'btc_simulador';
+    return 'simulador_' + m.toLowerCase() + '_' + e.toLowerCase();
+  }
 
   class LocalStore {
     constructor(deps) {
       deps = deps || {};
       this._idb = deps.indexedDB || (typeof indexedDB !== 'undefined' ? indexedDB : null);
+      this._dbName = dbNameForMoeda(deps.moeda, deps.moedaExibicao);
       this._db = null;
       this._mem = new Map();
       this.available = false;
@@ -30,7 +45,7 @@
       const self = this;
       try {
         this._db = await new Promise(function (res, rej) {
-          const req = self._idb.open(DB_NAME, DB_VERSION);
+          const req = self._idb.open(self._dbName, DB_VERSION);
           req.onupgradeneeded = function () {
             const db = req.result;
             if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE);
