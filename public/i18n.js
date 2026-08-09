@@ -23,6 +23,7 @@
     { codigo: 'tr-TR', bandeira: '🇹🇷', nome: 'Türkçe' },
     { codigo: 'en-US', bandeira: '🇺🇸', nome: 'English' },
     { codigo: 'es-ES', bandeira: '🇪🇸', nome: 'Español' },
+    { codigo: 'zh-CN', bandeira: '🇨🇳', nome: '中文' },
   ];
 
   let _textos = {};
