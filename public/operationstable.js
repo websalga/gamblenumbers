@@ -71,33 +71,44 @@ class OperationsTable {
   }
 
   _lotRow(lot) {
+    // preco/valor do lote convertidos para a moeda de exibicao atual -
+    // o lote pode ter sido comprado com outro par selecionado.
+    const price = this._ops.precoOp(lot);
+    const brlConv = this._ops.converterPreco(lot.brl, lot.moedaExib);
     let cls = 'row-y', result = '—', ret = '—';
     if (lot.realized > 1e-6) cls = 'row-g'; else if (lot.realized < -1e-6) cls = 'row-r';
     if (Math.abs(lot.realized) > 1e-6) {
-      result = this._fmt.brl(lot.realized);
+      const realizedConv = this._ops.converterPreco(lot.realized, lot.moedaExib);
+      result = this._fmt.brl(realizedConv);
       ret = this._fmt.pct(lot.realized / (lot.sold * lot.price) * 100);
     } else {
-      const current = this._ops.currentAvg(), unreal = lot.remaining * (current - lot.price);
+      const current = this._ops.currentAvg(), unreal = lot.remaining * (current - price);
       result = '<span style="color:#7d8aa3">' + this._fmt.brl(unreal) + ' ' + this._t('op_proj') + '</span>';
-      ret = this._fmt.pct(lot.price > 0 ? (current - lot.price) / lot.price * 100 : 0);
+      ret = this._fmt.pct(price > 0 ? (current - price) / price * 100 : 0);
     }
     const tr = this._doc.createElement('tr'); tr.className = cls;
     tr.innerHTML = `<td><b>${lot.id}</b></td><td><span class="tag tag-buy">${this._t('op_compra')}</span></td>` +
-      `<td>${this._fmt.utc(new Date(lot.time))}</td><td>${this._fmt.brl(lot.price)}</td>` +
+      `<td>${this._fmt.utc(new Date(lot.time))}</td><td>${this._fmt.brl(price)}</td>` +
       `<td>${this._fmt.btc(lot.qty)}<br><span style="color:#7d8aa3;font-size:10px">${this._t('op_rest')} ${this._fmt.btc(lot.remaining)}</span></td>` +
-      `<td>${this._fmt.brl(lot.brl)}</td><td>${result}</td><td>${ret}</td>`;
+      `<td>${this._fmt.brl(brlConv)}</td><td>${result}</td><td>${ret}</td>`;
     tr.appendChild(this._actionsCell('lot', lot));
     if (lot.hidden && tr.style) tr.style.opacity = '0.5';
     return tr;
   }
 
   _sellRow(sell) {
+    // preco/valor da venda convertidos para a moeda de exibicao atual.
     let cls = 'row-y', result = this._t('op_venda_condicional'), ret = '—';
-    let price = sell.markPrice, value = sell.origVal, qty = sell.reserved || sell.qty;
+    let price = this._ops.converterPreco(sell.markPrice, sell.moedaExib);
+    let value = this._ops.converterPreco(sell.origVal, sell.moedaExib);
+    let qty = sell.reserved || sell.qty;
     if (sell.status === 'executed') {
       cls = sell._profit >= 0 ? 'row-g' : 'row-r';
-      result = this._fmt.brl(sell._pnl); ret = this._fmt.pct(sell._ret);
-      price = sell.execPrice; value = sell._value; qty = sell.qty;
+      const pnlConv = this._ops.converterPreco(sell._pnl, sell.moedaExib);
+      result = this._fmt.brl(pnlConv); ret = this._fmt.pct(sell._ret);
+      price = this._ops.converterPreco(sell.execPrice, sell.moedaExib);
+      value = this._ops.converterPreco(sell._value, sell.moedaExib);
+      qty = sell.qty;
     } else {
       const steps = Math.max(0, Math.ceil((sell.markTime - this._now()) / this._period().stepMs));
       result = `${this._t('op_venda_condicional')}<br><span style="color:#7d8aa3;font-size:10px">${this._t('op_faltam_passos', {n: steps})}</span>`;

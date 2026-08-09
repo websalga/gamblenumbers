@@ -23,18 +23,32 @@
     const m = String(moeda || 'BTC').toUpperCase();
     const e = String(moedaExibicao || 'BRL').toUpperCase();
     // BTC+BRL mantem o nome antigo (compatibilidade com dados ja salvos).
-    // Qualquer outra combinacao ganha cofre proprio - simulacoes em
-    // moedas diferentes tem escalas de preco diferentes e NAO podem
-    // reaproveitar lotes/projecao uns dos outros.
+    // Qualquer outra combinacao ganha cofre proprio - a PROJECAO (alvo,
+    // linha congelada) tem escala de preco atrelada a moeda de exibicao
+    // e NAO pode reaproveitar entre combinacoes diferentes.
     if (m === 'BTC' && e === 'BRL') return 'btc_simulador';
     return 'simulador_' + m.toLowerCase() + '_' + e.toLowerCase();
+  }
+
+  // Cofre das OPERACOES (compras/vendas simuladas): separado apenas por
+  // carteira (moeda), NAO por moeda de exibicao - trocar de R$ para US$
+  // nao deveria fazer o usuario "perder de vista" as proprias operacoes,
+  // so muda como o valor delas e exibido (via conversao, feita em
+  // operationstable.js/app.js a partir do campo 'moedaExib' de cada
+  // lote/venda).
+  function dbNameOperacoes(moeda) {
+    const m = String(moeda || 'BTC').toUpperCase();
+    if (m === 'BTC') return 'btc_simulador'; // mesmo nome de sempre, compatibilidade
+    return 'simulador_' + m.toLowerCase() + '_ops';
   }
 
   class LocalStore {
     constructor(deps) {
       deps = deps || {};
       this._idb = deps.indexedDB || (typeof indexedDB !== 'undefined' ? indexedDB : null);
-      this._dbName = dbNameForMoeda(deps.moeda, deps.moedaExibicao);
+      this._dbName = deps.soOperacoes
+        ? dbNameOperacoes(deps.moeda)
+        : dbNameForMoeda(deps.moeda, deps.moedaExibicao);
       this._db = null;
       this._mem = new Map();
       this.available = false;

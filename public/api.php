@@ -97,6 +97,8 @@ function mapRow($r) {
     'coinbase' => $r['price_brl_coinbase'] !== null ? (float)$r['price_brl_coinbase'] : $avg,
     'btc_usd'  => $r['btc_usd']  !== null ? (float)$r['btc_usd']  : null,
     'usd_brl'  => $r['usd_brl']  !== null ? (float)$r['usd_brl']  : null,
+    'usd_eur'  => isset($r['usd_eur'])  && $r['usd_eur']  !== null ? (float)$r['usd_eur']  : null,
+    'usd_gbp'  => isset($r['usd_gbp'])  && $r['usd_gbp']  !== null ? (float)$r['usd_gbp']  : null,
   ];
 }
 
@@ -110,13 +112,19 @@ try {
   // monta o SELECT dinamico (colunas ja validadas via whitelist acima -
   // seguro interpolar; nada aqui vem direto de $_GET sem passar pelas
   // funcoes moedaSelecionada()/moedaExibicaoSelecionada())
+  // usd_eur/usd_gbp: derivados das colunas de media ja existentes (preco
+  // do ativo em EUR/GBP dividido pelo preco em USD) - taxa implicita,
+  // sem precisar de JOIN com FX_Snapshots. Usados no cliente para
+  // converter valores de operacoes entre moedas de exibicao diferentes.
   $selectCols = "ts_utc,
               {$col['avg']}      AS price_brl,
               {$col['binance']}  AS price_brl_binance,
               {$col['kraken']}   AS price_brl_kraken,
               {$col['coinbase']} AS price_brl_coinbase,
               {$col['usd_ref']}  AS btc_usd,
-              usd_brl";
+              usd_brl,
+              (media_exchanges_eur / NULLIF(media_exchanges_usd,0)) AS usd_eur,
+              (media_exchanges_gbp / NULLIF(media_exchanges_usd,0)) AS usd_gbp";
 
   if ($acao === 'atual') {
     $sql = "SELECT TOP 1 {$selectCols}
@@ -157,7 +165,7 @@ try {
         SELECT *, ROW_NUMBER() OVER (PARTITION BY bucket ORDER BY ts_utc DESC) AS rn
         FROM src
       )
-      SELECT ts_utc, price_brl, price_brl_binance, price_brl_kraken, price_brl_coinbase, btc_usd, usd_brl
+      SELECT ts_utc, price_brl, price_brl_binance, price_brl_kraken, price_brl_coinbase, btc_usd, usd_brl, usd_eur, usd_gbp
       FROM ranked
       WHERE rn = 1
       ORDER BY ts_utc ASC";

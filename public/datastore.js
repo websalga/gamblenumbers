@@ -131,6 +131,16 @@ class DataStore {
   /** Timestamp (ms) do dado real mais recente, ou null se vazio. */
   latestT() { const r = this._rows; return r.length ? r[r.length - 1].t : null; }
 
+  /** Ultima linha com taxas de cambio validas (usd_brl/usd_eur/usd_gbp),
+   * usada para converter valores de operacoes entre moedas de exibicao. */
+  latestRates() {
+    for (let i = this._rows.length - 1; i >= 0; i--) {
+      const r = this._rows[i];
+      if (r.usd_brl != null) return { usd_brl: r.usd_brl, usd_eur: r.usd_eur, usd_gbp: r.usd_gbp };
+    }
+    return null;
+  }
+
   /** Cópia do snapshot mais recente, ou null. */
   latest() { const r = this._rows; return r.length ? { ...r[r.length - 1] } : null; }
 
@@ -438,6 +448,8 @@ function normalizeRow(raw) {
     coinbase: coinbase != null ? coinbase : avg,
     btc_usd: num(raw.btc_usd),
     usd_brl: num(raw.usd_brl),
+    usd_eur: num(raw.usd_eur),
+    usd_gbp: num(raw.usd_gbp),
   };
 }
 
