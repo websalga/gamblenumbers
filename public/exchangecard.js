@@ -104,7 +104,7 @@ class ExchangeCard {
     }[k] || k);
     this._el.innerHTML =
       (isBest ? '<div class="badge">' + T('card_maior_lucro') + '</div>' : '') +
-      `<div class="top"><span class="name" style="color:${m.color}">${escapeHtml(m.label)}</span>` +
+      `<div class="top"><span class="name" style="background:${m.color};color:#04210f;font-size:10px;font-weight:700;padding:2px 8px;border-radius:4px;letter-spacing:.4px;">${escapeHtml(m.label)}</span>` +
       `<svg class="spark" viewBox="0 0 34 16"><polyline fill="none" stroke="${m.color}" stroke-width="1.3" points="0,12 6,8 12,10 18,4 24,7 30,3 34,5"/></svg></div>` +
       `<div class="brl">${f.brl(m.cur)}</div>` +
       `<div class="usd">${m.usd != null ? f.usd(m.usd) : '—'}</div>` +

@@ -317,18 +317,19 @@ class OperationsController {
     const { x, y } = this._coords(e), t = this._plot.invX(x), price = this._plot.invY(y);
     this.mouse = { x, y, inside: true, blinkUntil: this.mouse.blinkUntil || 0 };
     if (t > this._now()) {
-      let html = `<b>Prévia de venda</b><br>Preço livre: <b>${this._fmt.brl(price)}</b><br>`;
+      let html = `<b>${this._t('tooltip_previa_venda')}</b><br>${this._t('tooltip_preco_livre')} <b>${this._fmt.brl(price)}</b><br>`;
       const open = this.openLots();
       if (open.length) {
-        html += '<span style="color:#7d8aa3">Lotes verdes lucram, vermelhos perdem.</span><br>';
-        open.slice(0, 4).forEach(l => { const win = price > l.price; html += `<span style="color:${win ? '#22c55e' : '#ef4444'}">${l.id} ${win ? 'L' : 'P'}</span> `; });
-      } else html += '<span style="color:#7d8aa3">Sem lotes abertos.</span>';
-      html += '<br><span style="color:#7d8aa3">Clique para marcar a venda.</span>';
+        html += '<span style="color:#7d8aa3">' + this._t('tooltip_lotes_verdes') + '</span><br>';
+        const abrevL = this._t('tooltip_lucro_abrev'), abrevP = this._t('tooltip_prejuizo_abrev');
+        open.slice(0, 4).forEach(l => { const win = price > this.precoOp(l); html += `<span style="color:${win ? '#22c55e' : '#ef4444'}">${l.id} ${win ? abrevL : abrevP}</span> `; });
+      } else html += '<span style="color:#7d8aa3">' + this._t('tooltip_sem_lotes') + '</span>';
+      html += '<br><span style="color:#7d8aa3">' + this._t('tooltip_clique_venda') + '</span>';
       this.mouse.blinkUntil = Date.now() + 99999;
       this._showTip(e, html);
     } else {
       const best = this._nearestHistorical(t);
-      if (best) this._showTip(e, `<b>Cotação real</b><br>Média: <b>${this._fmt.brl(best.avg)}</b><br><span style="color:#7d8aa3">Botão direito registra uma compra.</span>`);
+      if (best) this._showTip(e, `<b>${this._t('tooltip_cotacao_real')}</b><br>${this._t('tooltip_media_lbl')} <b>${this._fmt.brl(best.avg)}</b><br><span style="color:#7d8aa3">${this._t('tooltip_botao_direito')}</span>`);
       this.mouse.blinkUntil = 0;
     }
     this._bus.emit('chart:mouse', { ...this.mouse });
