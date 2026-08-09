@@ -60,6 +60,11 @@
       if (!Array.isArray(hist) || hist.length < 2) return 0;
       const step = (stepHint > 0) ? stepHint : (this._stepMs || 6 * 3600 * 1000);
 
+      // Reset se o período mudou — cada escala usa seus próprios deltas
+      if (this.hasMaster && this._stepMs !== step) {
+        this.reset();
+      }
+
       if (!this.hasMaster) {
         this._baseT = hist[hist.length - 1].t;
         this._stepMs = step;
