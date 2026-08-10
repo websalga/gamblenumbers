@@ -317,7 +317,9 @@ class OperationsController {
     const { x, y } = this._coords(e), t = this._plot.invX(x), price = this._plot.invY(y);
     this.mouse = { x, y, inside: true, blinkUntil: this.mouse.blinkUntil || 0 };
     if (t > this._now()) {
-      let html = `<b>${this._t('tooltip_previa_venda')}</b><br>${this._t('tooltip_preco_livre')} <b>${this._fmt.brl(price)}</b><br>`;
+      const _loc2 = (window.I18N && I18N.idioma) ? I18N.idioma : navigator.language;
+      const _dt2 = new Date(t).toLocaleString(_loc2, { dateStyle: 'short', timeStyle: 'short' });
+      let html = `<b>${this._t('tooltip_previa_venda')}</b> <span style="color:#a0aec0;font-size:0.88em">${_dt2}</span><br>${this._t('tooltip_preco_livre')} <b>${this._fmt.brl(price)}</b><br>`;
       const open = this.openLots();
       if (open.length) {
         html += '<span style="color:#7d8aa3">' + this._t('tooltip_lotes_verdes') + '</span><br>';
@@ -329,7 +331,11 @@ class OperationsController {
       this._showTip(e, html);
     } else {
       const best = this._nearestHistorical(t);
-      if (best) this._showTip(e, `<b>${this._t('tooltip_cotacao_real')}</b><br>${this._t('tooltip_media_lbl')} <b>${this._fmt.brl(best.avg)}</b><br><span style="color:#7d8aa3">${this._t('tooltip_botao_direito')}</span>`);
+      if (best) {
+        const _loc = (window.I18N && I18N.idioma) ? I18N.idioma : navigator.language;
+        const _dt = new Date(best.t).toLocaleString(_loc, { dateStyle: 'short', timeStyle: 'short' });
+        this._showTip(e, `<b>${this._t('tooltip_cotacao_real')}</b> <span style="color:#a0aec0;font-size:0.88em">${_dt}</span><br>${this._t('tooltip_media_lbl')} <b>${this._fmt.brl(best.avg)}</b><br><span style="color:#7d8aa3">${this._t('tooltip_botao_direito')}</span>`);
+      }
       this.mouse.blinkUntil = 0;
     }
     this._bus.emit('chart:mouse', { ...this.mouse });

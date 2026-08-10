@@ -1,8 +1,19 @@
 /* ============================================================
- * forecast.js — Banda Min/Max + Delta Nativo do Período (v6b)
+ * forecast.js — Banda Min/Max + Delta Nativo do Período (v7)
  *
- * Fix v6b: resultado[0] = lastPrice exato (sem delta no 1º ponto)
- * → garante conexão visual perfeita com a última cotação real.
+ * v7: dois ajustes de realismo físico
+ *
+ * 1. CAP DE STEP — cada delta é limitado ao p95 dos movimentos
+ *    absolutos observados no histórico. O forecast nunca pode
+ *    saltar mais do que o maior movimento real já visto naquele
+ *    período, excluindo outliers extremos (p95 em vez de max).
+ *    Isso replica a física: para o preço cair muito ele precisa
+ *    de muitos lançamentos intermediários, não de um salto único.
+ *
+ * 2. MEAN REVERSION SUAVE — gatilho sobe de 0.72/0.28 → 0.85/0.15
+ *    e probabilidade cai de 65% → 30%. A reversão só age quando
+ *    muito próximo dos extremos e com menor frequência, evitando
+ *    que vários passos seguidos usem o delta mais extremo.
  * ============================================================ */
 window.Forecast = (function () {
   'use strict';
@@ -30,15 +41,23 @@ window.Forecast = (function () {
     const bandMax = Math.max(...prices);
     const bandMin = Math.min(...prices);
 
-    /* 3 deltas nativos (p25/p50/p75) das diferenças reais do período */
+    /* Diferenças reais consecutivas do período */
     const diffs = [];
     for (let i = 1; i < prices.length; i++) {
       diffs.push(prices[i] - prices[i - 1]);
     }
+
+    /* 3 deltas nativos (p25/p50/p75) */
     const dLow  = percentil(diffs, 0.25);
     const dMid  = percentil(diffs, 0.50);
     const dHigh = percentil(diffs, 0.75);
     const deltas = [dLow, dMid, dHigh];
+
+    /* Cap físico: p95 dos movimentos absolutos observados.
+     * Nenhum passo da simulação pode exceder o que já aconteceu
+     * de fato naquele período/resolução, eliminando saltos irreais. */
+    const absDiffs = diffs.map(d => Math.abs(d));
+    const capStep  = percentil(absDiffs, 0.95);
 
     const resultado = [];
     let cur = lastPrice;
@@ -54,13 +73,19 @@ window.Forecast = (function () {
 
       let delta;
       const r = Math.random();
-      if (pos > 0.72 && r < 0.65) {
+
+      /* Mean reversion suave: só ativa próximo dos extremos (0.85/0.15)
+       * e com baixa probabilidade (30%) — evita rajadas de passos extremos */
+      if (pos > 0.85 && r < 0.30) {
         delta = dLow;
-      } else if (pos < 0.28 && r < 0.65) {
+      } else if (pos < 0.15 && r < 0.30) {
         delta = dHigh;
       } else {
         delta = deltas[Math.floor(Math.random() * 3)];
       }
+
+      /* Aplica o cap físico: nenhum passo excede o p95 observado */
+      delta = clamp(delta, -capStep, capStep);
 
       cur = clamp(cur + delta, bandMin, bandMax);
       resultado.push(cur);
