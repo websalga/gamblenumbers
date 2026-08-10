@@ -56,58 +56,72 @@
      * Garante cobertura até untilT. Cria na 1a vez; depois só COMPLEMENTA
      * a borda direita. Retorna quantos pontos novos entraram.
      */
-    ensure(hist, untilT, stepHint) {
+    ensure(hist, untilT, _stepHint) {
       if (!Array.isArray(hist) || hist.length < 2) return 0;
-      const step = (stepHint > 0) ? stepHint : (this._stepMs || 6 * 3600 * 1000);
 
-      // Reset se o período mudou — cada escala usa seus próprios deltas
-      if (this.hasMaster && this._stepMs !== step) {
-        this.reset();
-      }
+      // Passo da linha-mestra: SEMPRE 6h, independente do período de display.
+      // Isso garante que a previsão nunca muda de forma ao trocar de escala.
+      // 4000 pts × 6h = ~1000 dias (~2,7 anos) de cobertura máxima.
+      const MASTER_STEP = 6 * 3600 * 1000;
+      const MASTER_MAX  = 4000;
 
+      // ── Primeira criação ────────────────────────────────────────────────
       if (!this.hasMaster) {
-        this._baseT = hist[hist.length - 1].t;
-        this._stepMs = step;
+        this._baseT  = hist[hist.length - 1].t;
+        this._stepMs = MASTER_STEP;
         this._spread = computeSpread(hist);
         const span = Math.max(0, untilT - this._baseT);
-        const n = Math.max(1, Math.ceil(span / this._stepMs));
-        const raw = this._forecast.project(hist, n, this._premium);
+        const n    = Math.min(MASTER_MAX, Math.max(1, Math.ceil(span / this._stepMs)));
+        const histResampled = resampleParaPasso(hist, this._stepMs);
+        const raw  = this._forecast.project(histResampled, n, this._premium);
         this._appendFromRaw(raw, this._baseT, this._stepMs);
         return this._master.length;
       }
 
+      // ── Extensão: só avança a borda direita, sempre no passo congelado ─
       const edge = this.edgeT;
       if (untilT <= edge) return 0;
-      const missing = Math.ceil((untilT - edge) / this._stepMs);
+      if (this._master.length >= MASTER_MAX) return 0;
+
+      const missing = Math.min(
+        MASTER_MAX - this._master.length,
+        Math.ceil((untilT - edge) / this._stepMs)
+      );
       if (missing <= 0) return 0;
 
-      // histórico sintético = real + projeção já congelada, para o forecast
-      // continuar coerente de onde parou (emenda contínua na borda).
-      //
-      // IMPORTANTE: hist vem espacado no passo do PERIODO ATUAL (o que o
-      // usuario esta vendo agora), que pode ser bem diferente do passo
-      // CONGELADO (this._stepMs, fixado na 1a chamada de ensure()). Se
-      // projetarmos direto, o forecast calibra volatilidade/drift por
-      // passo do hist (ex: 15min) mas os aplicamos em passos do tempo
-      // congelado (ex: 1min) - superestimando a volatilidade em ate
-      // (passo_hist/passo_congelado)x. Por isso reamostramos o hist para
-      // o passo congelado antes de projetar, mantendo a calibracao correta.
       const histNoPassoCongelado = resampleParaPasso(hist, this._stepMs);
-      const seedHist = histNoPassoCongelado.concat(this._master.map(function (m) { return { avg: m.avg }; }));
+      const seedHist = histNoPassoCongelado.concat(
+        this._master.map(function (m) { return { avg: m.avg }; })
+      );
       const raw = this._forecast.project(seedHist, missing, this._premium);
       this._appendFromRaw(raw, edge, this._stepMs);
       return missing;
     }
 
-    /** Recorta a linha-mestra para [fromT,toT] no passo pedido. Não gera nada. */
+    /** Recorta a linha-mestra para [fromT,toT] no passo pedido.
+     *  Usa interpolação linear (via priceAt) para que qualquer período de
+     *  display funcione com o master de 6h. Não regenera nada. */
     slice(fromT, toT, stepMs) {
       if (!this.hasMaster || !(stepMs > 0) || !(toT > fromT)) return [];
+      const sp  = this._spread;
       const out = [];
-      const tol = stepMs;
       for (let t = fromT; t <= toT + 1; t += stepMs) {
-        const m = this._nearestMaster(t, tol);
-        if (m) out.push({ t: t, avg: m.avg, binance: m.binance, kraken: m.kraken, coinbase: m.coinbase });
-        else out.push({ t: t, avg: null, binance: null, kraken: null, coinbase: null });
+        if (t > this.edgeT) {
+          out.push({ t: t, avg: null, binance: null, kraken: null, coinbase: null });
+          continue;
+        }
+        const avg = this.priceAt(t);
+        if (avg == null || !isFinite(avg) || avg <= 0) {
+          out.push({ t: t, avg: null, binance: null, kraken: null, coinbase: null });
+        } else {
+          out.push({
+            t:        t,
+            avg:      avg,
+            binance:  avg * (1 + sp.binance),
+            kraken:   avg * (1 + sp.kraken),
+            coinbase: avg * (1 + sp.coinbase),
+          });
+        }
       }
       return out;
     }

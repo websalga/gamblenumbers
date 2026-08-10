@@ -330,6 +330,27 @@
       liga('clearSells', 'sells', T('confirm_limpar_vendas'));
       liga('clearLots', 'lots', T('confirm_limpar_compras'));
       liga('clearAll', 'all', T('confirm_limpar_tudo'));
+
+      // Botão "Resetar previsão"
+      const resetBtn = this.doc.getElementById('resetForecastBtn');
+      if (resetBtn) {
+        resetBtn.onclick = () => {
+          const hasPendingSells = this.operations &&
+            this.operations.sells &&
+            this.operations.sells.some(s => s.status === 'pending');
+          const msg = hasPendingSells
+            ? T('confirm_reset_forecast_sells')
+            : T('confirm_reset_forecast');
+          if (!window.confirm(msg)) return;
+          // Reset do frozen forecast + localStore
+          if (this.frozen) this.frozen.reset();
+          if (this.localStore && this.localStore.available) {
+            this.localStore.del('forecast').catch(() => {});
+          }
+          // Força re-render imediato para gerar nova previsão
+          this._render();
+        };
+      }
     }
 
     /** Reaplica os textos que dependem da moeda ativa + idioma carregado.

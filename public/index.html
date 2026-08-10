@@ -118,6 +118,10 @@ tr.row-r td:first-child{border-left:3px solid var(--red)}
   padding:4px 10px;font-size:11px;cursor:pointer;font-family:inherit}
 .opclear:hover{background:#243252}
 .opclear-all:hover{background:#5b1f1f;border-color:#8b2f2f}
+.reset-forecast-btn{background:#111a2e;color:#7d8aa3;border:1px dashed #2b3a5c;border-radius:6px;
+  padding:5px 10px;font-size:11px;cursor:pointer;width:100%;margin-top:6px;text-align:center;
+  transition:background .2s,color .2s,border-color .2s}
+.reset-forecast-btn:hover{background:#1b2740;color:#c8d4f0;border-color:#4a6090}
 .opshint{color:#7d8aa3;font-size:10px}
 </style>
 </head>
@@ -201,6 +205,7 @@ tr.row-r td:first-child{border-left:3px solid var(--red)}
         <button class="buy-btn" id="buyBtn" data-i18n="btn_comprar">Iniciar compra simulada</button>
         <button class="sell-btn" id="sellBtn" data-i18n="btn_vender">Agendar venda no preço-alvo</button>
       </div>
+      <button class="reset-forecast-btn" id="resetForecastBtn" data-i18n="btn_reset_forecast">↺ Resetar previsão</button>
       <div class="summary">
         <h3 data-i18n="lbl_resumo">Resumo</h3>
         <div class="mini"><span id="lblBtcAvail">BTC simulado disponível</span><b id="btcAvail">0,00000000</b></div>
@@ -233,16 +238,16 @@ tr.row-r td:first-child{border-left:3px solid var(--red)}
 <script src="i18n.js?v=1786304232"></script>
 <script src="eventbus.js?v=1786304232"></script>
 <script src="datastore.js?v=1786304232"></script>
-<script src="forecast.js?v=1786315676"></script>
+<script src="forecast.js?v=1786307000"></script>
 <script src="storage.js?v=1786304232"></script>
-<script src="frozenforecast.js?v=1786315880"></script>
+<script src="frozenforecast.js?v=1786307000"></script>
 <script src="series.js?v=1786304232"></script>
 <script src="exchangecard.js?v=1786304232"></script>
 <script src="plotarea.js?v=1786311549"></script>
 <script src="renderers.js?v=1786304232"></script>
 <script src="controlpanel.js?v=1786304232"></script>
-<script src="operations.js?v=1786304232"></script>
+<script src="operations.js?v=1786305111"></script>
 <script src="operationstable.js?v=1786304232"></script>
-<script src="app.js?v=1786304232"></script>
+<script src="app.js?v=1786308000"></script>
 </body>
 </html>
