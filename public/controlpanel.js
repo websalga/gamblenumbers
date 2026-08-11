@@ -38,13 +38,14 @@ class ControlPanel {
     this._doc = deps.doc;
     this._bus = deps.bus;
     this._ids = Object.assign({
-      opValue: 'opValue', stop: 'stop', ret: 'ret', retVal: 'retVal',
+      opValue: 'opValue', stop: 'stop', ret: 'ret', retVal: 'retVal', saldo: 'saldoVirtual',
     }, deps.ids || {});
     const d = deps.defaults || {};
     this._state = {
-      opValue: d.opValue != null ? d.opValue : 55000,
+      opValue: d.opValue != null ? d.opValue : (parseFloat(sessionStorage.getItem('gn_opvalue')) || 100),
       stop: d.stop != null ? d.stop : 0,
       ret: d.ret != null ? d.ret : 5.0,
+      saldo: d.saldo != null ? d.saldo : (parseFloat(sessionStorage.getItem('gn_saldo')) || 55000),
     };
     this._fmt = deps.fmt || { brl: n => 'R$ ' + Number(n).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) };
     this._parse = deps.parse || { brl: parseBRL };
@@ -54,6 +55,7 @@ class ControlPanel {
   get opValue() { return this._state.opValue; }
   get stop() { return this._state.stop; }
   get ret() { return this._state.ret; }
+  get saldo() { return this._state.saldo; }
   snapshot() { return { ...this._state }; }
 
   /* ---------- ligação com o DOM ---------- */
@@ -71,6 +73,7 @@ class ControlPanel {
       op.addEventListener('change', e => {
         this._state.opValue = this._parse.brl(e.target.value);
         e.target.value = this._fmt.brl(this._state.opValue);
+        sessionStorage.setItem('gn_opvalue', this._state.opValue);
         this._bus.emit('control:opValue', { value: this._state.opValue });
       });
     }
@@ -96,6 +99,17 @@ class ControlPanel {
         this._bus.emit('control:ret', { value: this._state.ret });
       });
     }
+    const sd = el(this._ids.saldo);
+    if (sd) {
+      sd.value = this._fmt.brl(this._state.saldo);
+      sd.addEventListener('change', e => {
+        this._state.saldo = this._parse.brl(e.target.value);
+        e.target.value = this._fmt.brl(this._state.saldo);
+        sessionStorage.setItem('gn_saldo', this._state.saldo);
+        this._bus.emit('control:saldo', { value: this._state.saldo });
+      });
+    }
+
     return this;
   }
 
@@ -105,6 +119,19 @@ class ControlPanel {
   setRet(v) { this._state.ret = +v; this._bus.emit('control:ret', { value: this._state.ret }); return this; }
   setOpValue(v) { this._state.opValue = +v; this._bus.emit('control:opValue', { value: this._state.opValue }); return this; }
   setStop(v) { this._state.stop = +v; this._bus.emit('control:stop', { value: this._state.stop }); return this; }
+  setSaldo(v) {
+    this._state.saldo = Math.max(0, +v);
+    sessionStorage.setItem('gn_saldo', this._state.saldo);
+    this._bus.emit('control:saldo', { value: this._state.saldo });
+    this._renderSaldo();
+    return this;
+  }
+  debitSaldo(amount) { return this.setSaldo(this._state.saldo - amount); }
+  creditSaldo(amount) { return this.setSaldo(this._state.saldo + amount); }
+  _renderSaldo() {
+    const el = this._doc.getElementById(this._ids.saldo);
+    if (el) el.value = this._fmt.brl(this._state.saldo);
+  }
 }
 
 /* parser de moeda BR -> número (mesma lógica do app original) */

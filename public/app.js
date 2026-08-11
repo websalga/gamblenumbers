@@ -66,7 +66,7 @@
       }
 
       this.store = new DataStore({ moeda: this.moeda, moedaExibicao: this.moedaExibicao });
-      this.periodId = '1H';
+      this.periodId = sessionStorage.getItem('gn_period') || '1H';
       this.real = new RealSeries({ store: this.store });
       // Projeção CONGELADA: nasce uma vez e só cresce pela borda direita.
       // Trocar de escala não regenera nada — as vendas marcadas sobre ela
@@ -109,7 +109,7 @@
         lots: new LotMarkerRenderer(), sells: new SellMarkerRenderer(), cursor: new CursorRenderer(),
         trail: new TrailRenderer(),
       };
-      this.panel = new ControlPanel({ doc, bus: this.bus, defaults: { opValue: 55000, stop: 0, ret: 5.0 }, fmt: { brl: BRL } });
+      this.panel = new ControlPanel({ doc, bus: this.bus, defaults: {}, fmt: { brl: BRL } });
       this.operations = new OperationsController({
         doc, bus: this.bus, canvas: this.canvas, plot: this.plot, panel: this.panel,
         now: () => this.store.latestT() || 0,
@@ -155,6 +155,7 @@
     /** Troca de período com carga lazy e re-render. */
     async selectPeriod(id) {
       this.periodId = id;
+      sessionStorage.setItem('gn_period', id);
       this.panMs = 0; // nova escala começa ancorada no AGORA
       try { await this.ensureData(); } catch (e) { /* mantém o que já há */ }
       this.renderCards(); this.renderChart(); this.renderSidePanel(); this.operationsTable.render();
@@ -389,6 +390,7 @@
       this._aplicarTraducoesTopo();
 
       const recarregar = () => {
+        sessionStorage.setItem('gn_period', this.periodId);
         const qs = new URLSearchParams(location.search);
         qs.set('moeda', selMoeda.value);
         qs.set('moeda_exibicao', selExib.value);
@@ -488,6 +490,7 @@
 
     renderSidePanel() {
       const setText = (id, value) => { const el = this.doc.getElementById(id); if (el) el.textContent = value; };
+      if (this.panel && this.panel._renderSaldo) this.panel._renderSaldo();
       const weighted = this.operations.weightedAvg();
       const remain = this.operations.totalRemainingBTC();
       const target = this.operations.targetPrice();

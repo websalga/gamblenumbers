@@ -123,7 +123,36 @@ tr.row-r td:first-child{border-left:3px solid var(--red)}
   transition:background .2s,color .2s,border-color .2s}
 .reset-forecast-btn:hover{background:#1b2740;color:#c8d4f0;border-color:#4a6090}
 .opshint{color:#7d8aa3;font-size:10px}
-</style>
+
+      .saldo-box {
+        background: linear-gradient(135deg, #0f2a1a 0%, #0a1f2e 100%);
+        border: 1px solid #22c55e55;
+        border-radius: 8px;
+        padding: 10px 12px;
+        margin-bottom: 12px;
+      }
+      .saldo-label {
+        font-size: 11px;
+        color: #86efac;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        margin-bottom: 4px;
+      }
+      .saldo-input {
+        background: transparent !important;
+        border: none !important;
+        color: #22c55e !important;
+        font-size: 20px !important;
+        font-weight: 700 !important;
+        padding: 0 !important;
+        width: 100%;
+        cursor: text;
+      }
+      .saldo-input:focus {
+        outline: none;
+        border-bottom: 1px solid #22c55e !important;
+      }
+    </style>
 </head>
 <body>
 <div class="app">
@@ -190,7 +219,8 @@ tr.row-r td:first-child{border-left:3px solid var(--red)}
     </div>
 
     <div class="side">
-      <div class="field"><label id="lblOpValue" data-i18n="lbl_valor_compra_venda">Valor da compra / venda</label><input id="opValue" value="R$ 55.000,00"></div>
+      <div class="saldo-box"><div class="saldo-label" data-i18n="lbl_saldo_virtual">💰 Saldo virtual disponível</div><input id="saldoVirtual" class="saldo-input" value="R$ 55.000,00" title="Seu saldo virtual para operar. Edite para alterar."></div>
+      <div class="field"><label id="lblOpValue" data-i18n="lbl_valor_compra_venda">Valor por operação</label><input id="opValue" value="R$ 100,00"></div>
       <div class="field"><label id="lblStop">Stop manual (R$)</label><input id="stop" value="R$ 0,00"></div>
       <div class="field"><label data-i18n="lbl_preco_alvo">Preço-alvo calculado</label><input id="target" readonly></div>
       <div>
@@ -245,9 +275,9 @@ tr.row-r td:first-child{border-left:3px solid var(--red)}
 <script src="exchangecard.js?v=1786304232"></script>
 <script src="plotarea.js?v=1786311549"></script>
 <script src="renderers.js?v=1786304232"></script>
-<script src="controlpanel.js?v=1786304232"></script>
-<script src="operations.js?v=1786305111"></script>
+<script src="controlpanel.js?v=1786320100"></script>
+<script src="operations.js?v=1786320300"></script>
 <script src="operationstable.js?v=1786304232"></script>
-<script src="app.js?v=1786308000"></script>
+<script src="app.js?v=1786320100"></script>
 </body>
 </html>
