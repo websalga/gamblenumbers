@@ -179,6 +179,7 @@ class OperationsController {
       moedaExib: this._moedaExib,
     };
     this.lots.push(lot);
+    if (this._panel && typeof this._panel.debitSaldo === 'function') this._panel.debitSaldo(value);
     this._toast('ok', this._t('toast_compra_registrada', { id: lot.id, qtd: this._fmt.btc(qty), moeda: this._moeda, preco: this._fmt.brl(price) }));
     this._changed('buy', lot);
     return lot;
@@ -235,6 +236,7 @@ class OperationsController {
     sell._pnl = orderPnl;
     sell._value = orderQty * execPrice;
     sell._ret = orderCost > 0 ? orderPnl / orderCost * 100 : 0;
+    if (this._panel && typeof this._panel.creditSaldo === 'function') this._panel.creditSaldo(sell._value);
     this._changed('sell:executed', sell);
     return sell;
   }
