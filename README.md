@@ -11,6 +11,14 @@
 
 ---
 
+## 📸 Screenshots
+
+![GambleNumbers — Buy/Sell Demo](https://github.com/websalga/gamblenumbers/assets/5458319/821ec603-29f3-4ac2-a95f-42d0ffb9970d)
+
+![GambleNumbers — Dashboard](https://github.com/websalga/gamblenumbers/assets/5458319/fef3e090-73b8-4ba0-8e93-7bfe8f08bd88)
+
+---
+
 ## 🚀 What is GambleNumbers?
 
 GambleNumbers is a **Bitcoin and Bitcoin Cash trading simulator** built for education. It uses **real historical and live market data** (from Binance, Kraken, and Coinbase via SQL Server) to let students and beginners practice trading strategies without risking any real money.
