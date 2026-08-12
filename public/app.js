@@ -109,7 +109,7 @@
         lots: new LotMarkerRenderer(), sells: new SellMarkerRenderer(), cursor: new CursorRenderer(),
         trail: new TrailRenderer(),
       };
-      this.panel = new ControlPanel({ doc, bus: this.bus, defaults: {}, fmt: { brl: BRL } });
+      this.panel = new ControlPanel({ doc, bus: this.bus, defaults: {}, fmt: { brl: BRL }, moedaExibicao: this.moedaExibicao });
       this.operations = new OperationsController({
         doc, bus: this.bus, canvas: this.canvas, plot: this.plot, panel: this.panel,
         now: () => this.store.latestT() || 0,
@@ -233,7 +233,7 @@
       if (this._saveTimer) clearTimeout(this._saveTimer);
       this._saveTimer = setTimeout(async () => {
         try {
-          await this.localStore.set('forecast', this.frozen.toJSON());
+          await this.localStore.set('forecast', Object.assign({}, this.frozen.toJSON(), { moedaExib: this.moedaExibicao }));
           await this.opsStore.set('operations', {
             lots: this.operations.lots, sells: this.operations.sells,
             lotSeq: this.operations.lotSeq, sellSeq: this.operations.sellSeq,
@@ -246,7 +246,7 @@
     async _restore() {
       try {
         const fc = await this.localStore.get('forecast');
-        if (fc && Array.isArray(fc.master) && fc.master.length) this.frozen.fromJSON(fc);
+        if (fc && Array.isArray(fc.master) && fc.master.length && (fc.moedaExib || 'BRL') === this.moedaExibicao) this.frozen.fromJSON(fc);
         const ops = await this.opsStore.get('operations');
         if (ops) {
           if (Array.isArray(ops.lots)) this.operations.lots = ops.lots;
@@ -595,6 +595,12 @@
       catch (e) { const upd = this.doc.getElementById('updated'); if (upd) upd.textContent = window.I18N ? I18N.t('falha_backend') : 'Falha ao conectar ao backend'; return; }
       // Persistência: abre o IndexedDB e recupera projeção/operações salvas.
       try { await this.localStore.open(); await this.opsStore.open(); await this._restore(); } catch (e) { /* segue sem persistir */ }
+      // Converter saldo se o usuário trocou de moeda desde a última sessão
+      { const _sm = sessionStorage.getItem('gn_saldo_moeda') || 'BRL';
+        if (_sm !== this.moedaExibicao) {
+          const _sc = this.operations.converterPreco(this.panel.saldo, _sm);
+          if (_sc > 0) this.panel.setSaldo(_sc);
+        } }
       this.renderCards(); this.renderChart(); this.renderSidePanel(); this.operationsTable.render(); this.updateStatus();
       // Rerender defensivo: em alguns casos (ex: taxas de cambio ainda nao
       // totalmente assentadas no primeiro ciclo) o painel lateral pode

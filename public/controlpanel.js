@@ -47,6 +47,7 @@ class ControlPanel {
       ret: d.ret != null ? d.ret : 5.0,
       saldo: d.saldo != null ? d.saldo : (parseFloat(sessionStorage.getItem('gn_saldo')) || 55000),
     };
+    this._moedaExib = (deps.moedaExibicao || 'BRL').toUpperCase();
     this._fmt = deps.fmt || { brl: n => 'R$ ' + Number(n).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) };
     this._parse = deps.parse || { brl: parseBRL };
   }
@@ -106,6 +107,7 @@ class ControlPanel {
         this._state.saldo = this._parse.brl(e.target.value);
         e.target.value = this._fmt.brl(this._state.saldo);
         sessionStorage.setItem('gn_saldo', this._state.saldo);
+        sessionStorage.setItem('gn_saldo_moeda', this._moedaExib);
         this._bus.emit('control:saldo', { value: this._state.saldo });
       });
     }
@@ -122,6 +124,7 @@ class ControlPanel {
   setSaldo(v) {
     this._state.saldo = Math.max(0, +v);
     sessionStorage.setItem('gn_saldo', this._state.saldo);
+    sessionStorage.setItem('gn_saldo_moeda', this._moedaExib);
     this._bus.emit('control:saldo', { value: this._state.saldo });
     this._renderSaldo();
     return this;
