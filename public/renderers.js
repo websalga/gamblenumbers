@@ -216,10 +216,77 @@ class SellMarkerRenderer {
   }
 }
 
+
+/* Faixa de spread entre exchanges: região achurada que cobre o intervalo
+ * entre o menor e o maior preço real das exchanges no momento atual.
+ * Sinaliza ao usuário a "janela de liquidez" — se comprar/vender dentro
+ * desta faixa, a operação está dentro do range onde o mercado realmente
+ * está negociando agora. Desenhada antes das séries para ficar por baixo. */
+class SpreadBandRenderer {
+  draw(plot, data) {
+    const ctx = plot.ctx; if (!ctx) return;
+    const lo = data.spreadLow, hi = data.spreadHigh;
+    if (lo == null || hi == null || hi <= lo) return;
+
+    const yHi = plot.Y(hi);   // y menor (preço alto = pixel alto)
+    const yLo = plot.Y(lo);   // y maior
+    const r   = plot.plotRect;
+    const bh  = yLo - yHi;   // altura da faixa em px
+    if (bh < 1) return;
+
+    ctx.save();
+
+    /* ── preenchimento semitransparente ── */
+    ctx.fillStyle = 'rgba(34,211,238,0.06)';   // ciano suave
+    ctx.fillRect(r.x, yHi, r.w, bh);
+
+    /* ── hachura diagonal (clip para não vazar) ── */
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(r.x, yHi, r.w, bh);
+    ctx.clip();
+    ctx.strokeStyle = 'rgba(34,211,238,0.13)';
+    ctx.lineWidth = 0.8;
+    ctx.setLineDash([]);
+    const step = 12;
+    for (let x = r.x - bh; x < r.x + r.w + bh; x += step) {
+      ctx.beginPath();
+      ctx.moveTo(x,      yHi);
+      ctx.lineTo(x + bh, yLo);
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    /* ── bordas tracejadas ── */
+    ctx.strokeStyle = 'rgba(34,211,238,0.40)';
+    ctx.lineWidth   = 1;
+    ctx.setLineDash([5, 4]);
+
+    ctx.beginPath();
+    ctx.moveTo(r.x, yHi); ctx.lineTo(r.x + r.w, yHi);
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.moveTo(r.x, yLo); ctx.lineTo(r.x + r.w, yLo);
+    ctx.stroke();
+
+    ctx.setLineDash([]);
+
+    /* ── rótulo no canto direito ── */
+    ctx.font      = '9px monospace';
+    ctx.fillStyle = 'rgba(34,211,238,0.60)';
+    ctx.textAlign = 'right';
+    const lbl = window.I18N ? I18N.t('spread_zona') : 'zona de negociação';
+    ctx.fillText(lbl, r.x + r.w - 4, yHi - 3);
+
+    ctx.restore();
+  }
+}
+
 const Renderers = {
   ProjectionBgRenderer, PriceAxisRenderer, TimeAxisRenderer, SeriesRenderer,
   TargetLineRenderer, NowDividerRenderer, CursorRenderer, LotMarkerRenderer, SellMarkerRenderer,
-  TrailRenderer,
+  TrailRenderer, SpreadBandRenderer,
 };
 
 if (typeof module !== 'undefined' && module.exports) module.exports = Renderers;

@@ -108,6 +108,7 @@
         target: new TargetLineRenderer(), now: new NowDividerRenderer(),
         lots: new LotMarkerRenderer(), sells: new SellMarkerRenderer(), cursor: new CursorRenderer(),
         trail: new TrailRenderer(),
+        spreadBand: new SpreadBandRenderer(),
       };
       this.panel = new ControlPanel({ doc, bus: this.bus, defaults: {}, fmt: { brl: BRL }, moedaExibicao: this.moedaExibicao });
       this.operations = new OperationsController({
@@ -465,10 +466,19 @@
         mouse: this.mouse,
         // rastro: o que a projeção previu para o trecho que já virou passado
         trail: this.frozen ? this.frozen.pastTrail(endT, this.period().stepMs) : [],
+        // faixa de spread: min/max entre exchanges no ponto mais recente do histórico
+        ...((() => {
+          const last = hist && hist.length ? hist[hist.length - 1] : null;
+          if (!last) return {};
+          const vals = ['binance','kraken','coinbase'].map(k => last[k]).filter(v => v != null && Number.isFinite(+v));
+          if (vals.length < 2) return {};
+          return { spreadLow: Math.min(...vals), spreadHigh: Math.max(...vals) };
+        })()),
       };
       this.renderers.projBg.draw(this.plot, data);
       this.renderers.priceAxis.draw(this.plot, data);
       this.renderers.timeAxis.draw(this.plot, data);
+      this.renderers.spreadBand.draw(this.plot, data);   // faixa de spread entre exchanges
       this.renderers.trail.draw(this.plot, data);   // por baixo das séries
       this.renderers.series.draw(this.plot, data);
       this.renderers.target.draw(this.plot, data);
