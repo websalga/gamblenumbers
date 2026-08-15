@@ -1,5 +1,15 @@
 'use strict';
 
+/* Escapa HTML para evitar XSS ao usar innerHTML com strings de origem externa
+ * (textos de i18n vindos do banco, datas, etc.). */
+function _esc(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
 class OperationsController {
   constructor(deps = {}) {
     if (!deps.bus) throw new Error('OperationsController exige um EventBus.');
@@ -321,14 +331,14 @@ class OperationsController {
     if (t > this._now()) {
       const _loc2 = (window.I18N && I18N.idioma) ? I18N.idioma : navigator.language;
       const _dt2 = new Date(t).toLocaleString(_loc2, { dateStyle: 'short', timeStyle: 'short' });
-      let html = `<b>${this._t('tooltip_previa_venda')}</b> <span style="color:#a0aec0;font-size:0.88em">${_dt2}</span><br>${this._t('tooltip_preco_livre')} <b>${this._fmt.brl(price)}</b><br>`;
+      let html = `<b>${_esc(this._t('tooltip_previa_venda'))}</b> <span style="color:#a0aec0;font-size:0.88em">${_esc(_dt2)}</span><br>${_esc(this._t('tooltip_preco_livre'))} <b>${this._fmt.brl(price)}</b><br>`;
       const open = this.openLots();
       if (open.length) {
-        html += '<span style="color:#7d8aa3">' + this._t('tooltip_lotes_verdes') + '</span><br>';
-        const abrevL = this._t('tooltip_lucro_abrev'), abrevP = this._t('tooltip_prejuizo_abrev');
+        html += '<span style="color:#7d8aa3">' + _esc(this._t('tooltip_lotes_verdes')) + '</span><br>';
+        const abrevL = _esc(this._t('tooltip_lucro_abrev')), abrevP = _esc(this._t('tooltip_prejuizo_abrev'));
         open.slice(0, 4).forEach(l => { const win = price > this.precoOp(l); html += `<span style="color:${win ? '#22c55e' : '#ef4444'}">${l.id} ${win ? abrevL : abrevP}</span> `; });
-      } else html += '<span style="color:#7d8aa3">' + this._t('tooltip_sem_lotes') + '</span>';
-      html += '<br><span style="color:#7d8aa3">' + this._t('tooltip_clique_venda') + '</span>';
+      } else html += '<span style="color:#7d8aa3">' + _esc(this._t('tooltip_sem_lotes')) + '</span>';
+      html += '<br><span style="color:#7d8aa3">' + _esc(this._t('tooltip_clique_venda')) + '</span>';
       this.mouse.blinkUntil = Date.now() + 99999;
       this._showTip(e, html);
     } else {
@@ -336,7 +346,7 @@ class OperationsController {
       if (best) {
         const _loc = (window.I18N && I18N.idioma) ? I18N.idioma : navigator.language;
         const _dt = new Date(best.t).toLocaleString(_loc, { dateStyle: 'short', timeStyle: 'short' });
-        this._showTip(e, `<b>${this._t('tooltip_cotacao_real')}</b> <span style="color:#a0aec0;font-size:0.88em">${_dt}</span><br>${this._t('tooltip_media_lbl')} <b>${this._fmt.brl(best.avg)}</b><br><span style="color:#7d8aa3">${this._t('tooltip_botao_direito')}</span>`);
+        this._showTip(e, `<b>${_esc(this._t('tooltip_cotacao_real'))}</b> <span style="color:#a0aec0;font-size:0.88em">${_esc(_dt)}</span><br>${_esc(this._t('tooltip_media_lbl'))} <b>${this._fmt.brl(best.avg)}</b><br><span style="color:#7d8aa3">${_esc(this._t('tooltip_botao_direito'))}</span>`);
       }
       this.mouse.blinkUntil = 0;
     }

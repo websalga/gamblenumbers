@@ -53,9 +53,18 @@
       // visual fica para o proximo passo. Default mantem o comportamento
       // de sempre (BTC/BRL).
       const qs = new URLSearchParams(location.search);
-      this.moeda = (qs.get('moeda') || 'BTC').toUpperCase();
-      this.moedaExibicao = (qs.get('moeda_exibicao') || 'BRL').toUpperCase();
-      this.idioma = qs.get('idioma') || 'pt-BR';
+      // Whitelists espelham as do backend (api.php / textos.php) — evitam
+      // valores arbitrários chegando ao DataStore e ao I18N sem validação.
+      const _MOEDAS_OK    = ['BTC', 'BCH'];
+      const _EXIB_OK      = ['BRL', 'USD', 'EUR', 'GBP'];
+      const _IDIOMAS_OK   = ['pt-BR', 'en-US', 'es-ES', 'fr-FR', 'de-DE',
+                             'it-IT', 'ja-JP', 'nl-NL', 'ru-RU', 'tr-TR', 'zh-CN'];
+      const _rawMoeda     = (qs.get('moeda') || '').toUpperCase();
+      const _rawExib      = (qs.get('moeda_exibicao') || '').toUpperCase();
+      const _rawIdioma    = qs.get('idioma') || '';
+      this.moeda          = _MOEDAS_OK.includes(_rawMoeda)  ? _rawMoeda  : 'BTC';
+      this.moedaExibicao  = _EXIB_OK.includes(_rawExib)     ? _rawExib   : 'BRL';
+      this.idioma         = _IDIOMAS_OK.includes(_rawIdioma) ? _rawIdioma : 'pt-BR';
       _simboloAtivo = MOEDA_SIMBOLO[this.moedaExibicao] || 'R$ ';
       {
         const sym = _simboloAtivo.trim();
@@ -624,7 +633,19 @@
 
   if (typeof module !== 'undefined' && module.exports) module.exports = { App, PERIODS, timeLabel };
   if (typeof window !== 'undefined') {
-    window.__App = App;
-    if (typeof window.addEventListener === 'function' && typeof document !== 'undefined') window.addEventListener('DOMContentLoaded', () => { new App(document).init(); });
+    if (typeof window.addEventListener === 'function' && typeof document !== 'undefined') {
+      window.addEventListener('DOMContentLoaded', async () => {
+        const _app = new App(document);
+        await _app.init();
+        // Remove construtores registrados como globais após a inicialização —
+        // eles só são necessários durante a construção do App. I18N é mantido
+        // pois é acessado dinamicamente pelas traduções em toda a vida do app.
+        ['DataStore', 'EventBus', 'ControlPanel', 'OperationsController',
+         'OperationsTable', 'LocalStore', 'FrozenForecast', 'RealSeries',
+         'ProjectedSeries', 'PlotArea', 'ExchangeCard', 'Forecast'].forEach(function (k) {
+          try { delete window[k]; } catch (_) {}
+        });
+      });
+    }
   }
 })();
