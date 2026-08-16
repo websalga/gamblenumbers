@@ -297,7 +297,9 @@ try {
               {$col['usd_ref']}  AS btc_usd,
               usd_brl,
               (media_exchanges_eur / NULLIF(media_exchanges_usd,0)) AS usd_eur,
-              (media_exchanges_gbp / NULLIF(media_exchanges_usd,0)) AS usd_gbp{$fxExtras}{$fxLiteralCol}";
+              (media_exchanges_gbp / NULLIF(media_exchanges_usd,0)) AS usd_gbp{$fxExtras}";
+    // Nota: fxExtras já inclui usd_{moedaExibicao} para MOEDAS_FX_COMPUTED
+    // (ex: usd_cny). Não usar fxLiteralCol aqui — causaria alias duplicado no CTE.
     $col['filterCol'] = $col['filterCol'] ?? "{$col['avg']} IS NOT NULL";
   }
 
@@ -376,9 +378,25 @@ try {
         FROM ranked WHERE rn=1 ORDER BY ts_utc ASC";
     } else {
       $filter = $col['filterCol'] ?? "{$col['avg']} IS NOT NULL";
-      $fxAlias = ($tipo === 'crypto_fiat')
-        ? "ts_utc, price_brl, price_brl_binance, price_brl_kraken, price_brl_coinbase, btc_usd, usd_brl, usd_eur, usd_gbp"
-        : "ts_utc, price_brl, price_brl_binance, price_brl_kraken, price_brl_coinbase, btc_usd, usd_brl";
+      // Construir lista de colunas para o SELECT final do intervalo.
+      // Para crypto_fiat: inclui expressões computadas de usd_eur/gbp.
+      // Para fiat_fiat/fiat_crypto: inclui usd_brl direto da tabela.
+      // Sempre: adiciona usd_jpy/cny/try/rub se estiverem no selectCols.
+      $baseCols = "ts_utc, price_brl, price_brl_binance, price_brl_kraken, price_brl_coinbase, btc_usd, usd_brl";
+      if ($tipo === 'crypto_fiat') $baseCols .= ", usd_eur, usd_gbp";
+      elseif ($tipo === 'fiat_fiat') $baseCols .= ", usd_eur, usd_gbp, usd_jpy, usd_cny, usd_try, usd_rub";
+      // Para crypto_fiat com MOEDAS_FX_COMPUTED: as extras vieram no fxExtras
+      $extraAlias = '';
+      if ($fxRow) {
+        $eLits = [];
+        foreach (['jpy','cny','try','rub'] as $fc) {
+          if (isset($fxRow["usd_{$fc}"]) && $fxRow["usd_{$fc}"] !== null)
+            $eLits[] = "usd_{$fc}";
+        }
+        if ($eLits && $tipo === 'crypto_fiat')
+          $extraAlias = ', ' . implode(', ', $eLits);
+      }
+      $fxAlias = $baseCols . $extraAlias;
       $sql = "
         WITH src AS (
           SELECT {$selectCols},
