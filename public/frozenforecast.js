@@ -39,7 +39,11 @@
     get stepMs() { return this._stepMs; }
     get length() { return this._master.length; }
 
-    toJSON() {
+    /** Repassa calibração para o Forecast global. */
+  applyConfig(cfg) {
+    if (window.Forecast && window.Forecast.applyConfig) window.Forecast.applyConfig(cfg);
+  }
+  toJSON() {
       return { baseT: this._baseT, stepMs: this._stepMs, spread: this._spread, master: this._master };
     }
     fromJSON(o) {

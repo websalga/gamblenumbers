@@ -52,7 +52,7 @@ class OperationsController {
   /**
    * Converte um valor de preco da moeda em que a operacao foi feita
    * (op.moedaExib) para a moeda de exibicao ATUAL da sessao, usando USD
-   * como moeda-ponte (rates traz usd_brl/usd_eur/usd_gbp; USD=1).
+   * como moeda-ponte (rates traz usd_brl/eur/gbp/jpy/cny/try/rub; USD=1).
    * Se faltar taxa ou a moeda ja for a mesma, devolve o valor original -
    * mais seguro que travar a UI por falta de dado de cambio.
    */
@@ -62,7 +62,11 @@ class OperationsController {
     if (origem === atual || !(valor > 0)) return valor;
     const rates = this._getRates();
     if (!rates) return valor;
-    const taxa = { USD: 1, BRL: rates.usd_brl, EUR: rates.usd_eur, GBP: rates.usd_gbp };
+    const taxa = {
+      USD: 1,
+      BRL: rates.usd_brl, EUR: rates.usd_eur, GBP: rates.usd_gbp,
+      JPY: rates.usd_jpy, CNY: rates.usd_cny, TRY: rates.usd_try, RUB: rates.usd_rub,
+    };
     const tOrigem = taxa[origem], tAtual = taxa[atual];
     if (!(tOrigem > 0) || !(tAtual > 0)) return valor;
     return (valor / tOrigem) * tAtual;

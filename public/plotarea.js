@@ -39,6 +39,8 @@ class PlotArea {
       now: 'rgba(232,237,247,0.55)', nowText: '#e8edf7', projBg: 'rgba(34,211,238,0.03)',
     }, deps.colors || {});
     this._dpr = deps.dpr || (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
+    this._padFrac     = deps.padFrac      != null ? deps.padFrac      : 0.08;
+    this._priceDecimals = deps.priceDecimals != null ? deps.priceDecimals : null; // null = auto
 
     this.w = 0; this.h = 0;                         // dimensões CSS (px lógicos)
     this.tMin = 0; this.tMax = 1;                   // limites tempo
@@ -75,7 +77,7 @@ class PlotArea {
   setBoundsFromPoints(points, opts = {}) {
     const keys = opts.keys || ['avg', 'binance', 'kraken', 'coinbase'];
     const extra = opts.extraPrices || [];
-    const padFrac = opts.padFrac != null ? opts.padFrac : 0.08;
+    const padFrac = opts.padFrac != null ? opts.padFrac : (this._padFrac ?? 0.08);
     if (!points || !points.length) return this;
 
     let pMin = Infinity, pMax = -Infinity, tMin = Infinity, tMax = -Infinity;
@@ -161,6 +163,12 @@ class PlotArea {
   /* ---------- acessos para os renderers ---------- */
 
   get ctx() { return this._ctx; }
+  /** Recebe calibração do Chart_Config e atualiza parâmetros internos. */
+  applyConfig(cfg) {
+    if (!cfg) return;
+    if (cfg.yPaddingPct != null) this._padFrac = cfg.yPaddingPct / 100;
+    if (cfg.priceDecimals != null) this._priceDecimals = cfg.priceDecimals;
+  }
   get pad() { return this._pad; }
   color(name) { return this._colors[name]; }
   /** Retângulo útil de plotagem (dentro das margens). */

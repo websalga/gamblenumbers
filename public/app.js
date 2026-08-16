@@ -75,6 +75,7 @@
       }
 
       this.store = new DataStore({ moeda: this.moeda, moedaExibicao: this.moedaExibicao });
+      this.chartConfig = null; // preenchido por _loadChartConfig()
       this.periodId = sessionStorage.getItem('gn_period') || '1H';
       this.real = new RealSeries({ store: this.store });
       // Projeção CONGELADA: nasce uma vez e só cresce pela borda direita.
@@ -137,6 +138,9 @@
       });
       this.mouse = this.operations.mouse;
       this._wire();
+      // Carregar calibração do par e aplicar nos módulos
+      await this._loadChartConfig();
+      this._applyChartConfig();
     }
 
     period() { return PERIODS.find(p => p.id === this.periodId); }
@@ -387,6 +391,45 @@
       if (window.I18N) I18N.applyToDom(this.doc);
     }
 
+    /** Busca o vetor de calibração do par atual (Chart_Config) e armazena. */
+    async _loadChartConfig() {
+      try {
+        const qs = new URLSearchParams({
+          acao: 'config', moeda: this.moeda, moeda_exibicao: this.moedaExibicao,
+        });
+        const r = await fetch(`api.php?${qs}`);
+        const j = await r.json();
+        if (j.ok && j.config) {
+          this.chartConfig = {
+            fonte:             j.config.fonte              || 'crypto_btc',
+            priceDecimals:     parseInt(j.config.price_decimals,   10) || 2,
+            yPaddingPct:       parseFloat(j.config.y_padding_pct)      || 3.0,
+            forecastMinAmpPct: parseFloat(j.config.forecast_min_amp_pct) || 0.5,
+            showSpread:        j.config.show_spread   === '1' || j.config.show_spread === true,
+            showExchanges:     j.config.show_exchanges === '1' || j.config.show_exchanges === true,
+            defaultPeriodo:    j.config.default_periodo || '1D',
+          };
+        }
+      } catch (_) { /* silencioso — usa defaults dos módulos */ }
+    }
+
+    /** Distribui chartConfig para os módulos visuais. */
+    _applyChartConfig() {
+      const cfg = this.chartConfig;
+      if (!cfg) return;
+      if (this.plot      && this.plot.applyConfig)      this.plot.applyConfig(cfg);
+      if (this.frozen    && this.frozen.applyConfig)    this.frozen.applyConfig(cfg);
+      if (this.projected && this.projected.applyConfig) this.projected.applyConfig(cfg);
+      // SpreadBandRenderer: liga/desliga conforme showSpread
+      if (this.renderers && this.renderers.spreadBand && this.renderers.spreadBand.applyConfig)
+        this.renderers.spreadBand.applyConfig(cfg);
+      // Forecast global: atualizar minAmpPct
+      if (window.Forecast && window.Forecast.applyConfig) window.Forecast.applyConfig(cfg);
+      // Cards de exchange: ocultar para pares fiat×fiat e crypto×crypto
+      const exCards = this.doc.querySelectorAll('.exchange-card');
+      exCards.forEach(el => { el.style.display = cfg.showExchanges ? '' : 'none'; });
+    }
+
     _wireSeletores() {
       const selMoeda = this.doc.getElementById('selMoeda');
       const selExib = this.doc.getElementById('selMoedaExibicao');
@@ -400,6 +443,10 @@
       this._aplicarTraducoesTopo();
 
       const recarregar = () => {
+        // Bloquear par inválido (mesmo ativo e cotação)
+        if (selMoeda.value === selExib.value) {
+          selExib.value = selMoeda.value === 'BRL' ? 'USD' : 'BRL';
+        }
         sessionStorage.setItem('gn_period', this.periodId);
         const qs = new URLSearchParams(location.search);
         qs.set('moeda', selMoeda.value);

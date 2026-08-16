@@ -165,8 +165,20 @@ tr.row-r td:first-child{border-left:3px solid var(--red)}
       <div class="field-inline">
         <label for="selMoeda" data-i18n="lbl_carteira">Carteira</label>
         <select id="selMoeda">
-          <option value="BTC">Bitcoin (BTC)</option>
-          <option value="BCH">Bitcoin Cash (BCH)</option>
+          <optgroup data-i18n-label="lbl_grupo_crypto" label="Crypto">
+            <option value="BTC">Bitcoin (BTC)</option>
+            <option value="BCH">Bitcoin Cash (BCH)</option>
+          </optgroup>
+          <optgroup data-i18n-label="lbl_grupo_fiat" label="Moedas Fiat">
+            <option value="BRL" data-i18n="moeda_brl">Real (BRL)</option>
+            <option value="USD" data-i18n="moeda_usd">Dólar (USD)</option>
+            <option value="EUR" data-i18n="moeda_eur">Euro (EUR)</option>
+            <option value="GBP" data-i18n="moeda_gbp">Libra (GBP)</option>
+            <option value="JPY" data-i18n="moeda_jpy">Iene (JPY)</option>
+            <option value="CNY" data-i18n="moeda_cny">Yuan (CNY)</option>
+            <option value="TRY" data-i18n="moeda_try">Lira turca (TRY)</option>
+            <option value="RUB" data-i18n="moeda_rub">Rublo (RUB)</option>
+          </optgroup>
         </select>
       </div>
       <div class="field-inline">
