@@ -123,7 +123,7 @@ class OperationsTable {
       result = `${_escT(this._t('op_venda_condicional'))}<br><span style="color:#7d8aa3;font-size:10px">${_escT(this._t('op_faltam_passos', {n: steps}))}</span>`;
     }
     const tr = this._doc.createElement('tr'); tr.className = cls;
-    const label = sell.status === 'executed' ? (sell._profit >= 0 ? 'L' : 'P') + sell.seq : 'V' + sell.seq;
+    const label = sell.status === 'executed' ? (sell._profit >= 0 ? 'L' : 'P') + (sell.seq ?? '') : (sell.id || ('V' + sell.seq));
     const when = sell.status === 'executed' ? sell.execTime : sell.markTime;
     tr.innerHTML = `<td><b>${_escT(label)}</b></td><td><span class="tag tag-sell">${_escT(this._t('op_venda'))}</span></td>` +
       `<td>${this._fmt.utc(new Date(when))}</td><td>${this._fmt.brl(price)}</td>` +

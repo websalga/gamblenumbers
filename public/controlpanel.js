@@ -75,6 +75,7 @@ class ControlPanel {
         this._state.opValue = this._parse.brl(e.target.value);
         e.target.value = this._fmt.brl(this._state.opValue);
         sessionStorage.setItem('gn_opvalue', this._state.opValue);
+        sessionStorage.setItem('gn_opvalue_moeda', this._moedaExib);
         this._bus.emit('control:opValue', { value: this._state.opValue });
       });
     }
@@ -119,7 +120,7 @@ class ControlPanel {
    * Útil para setar valores de fora (ex.: restaurar sessão) já
    * emitindo o evento correspondente. */
   setRet(v) { this._state.ret = +v; this._bus.emit('control:ret', { value: this._state.ret }); return this; }
-  setOpValue(v) { this._state.opValue = +v; this._bus.emit('control:opValue', { value: this._state.opValue }); return this; }
+  setOpValue(v) { this._state.opValue = +v; sessionStorage.setItem('gn_opvalue', this._state.opValue); sessionStorage.setItem('gn_opvalue_moeda', this._moedaExib); this._renderOpValue(); this._bus.emit('control:opValue', { value: this._state.opValue }); return this; }
   setStop(v) { this._state.stop = +v; this._bus.emit('control:stop', { value: this._state.stop }); return this; }
   setSaldo(v) {
     this._state.saldo = Math.max(0, +v);
@@ -134,6 +135,10 @@ class ControlPanel {
   _renderSaldo() {
     const el = this._doc.getElementById(this._ids.saldo);
     if (el) el.value = this._fmt.brl(this._state.saldo);
+  }
+  _renderOpValue() {
+    const el = this._doc.getElementById(this._ids.opValue);
+    if (el) el.value = this._fmt.brl(this._state.opValue);
   }
 }
 
