@@ -97,6 +97,10 @@
       // >0 = olhando para o FUTURO (projeção); <0 = olhando para o PASSADO.
       this.panMs = 0;
       this._drag = null;
+      // Zoom de lupa: estado independente do período.
+      // level=1 = 100% (sem zoom). Duplica a cada clique com 🔍+ ativo.
+      this._zoom = { level: 1, tCenter: null, pCenter: null, baseTSpan: null, basePSpan: null };
+      this._zoomToolActive = false;
       const fmtCards = {
         brl: BRL,
         usd: n => 'US$ ' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 }),
@@ -165,6 +169,7 @@
 
     /** Troca de período com carga lazy e re-render. */
     async selectPeriod(id) {
+      this._resetZoom(); // zoom reset ao trocar de escala
       this.periodId = id;
       sessionStorage.setItem('gn_period', id);
       this.panMs = 0; // nova escala começa ancorada no AGORA
@@ -280,6 +285,7 @@
       const LIMIAR = 4; // px
 
       cv.addEventListener('mousedown', e => {
+        if (this._zoomToolActive) return; // zoom tool ativo: não iniciar pan
         this._drag = { x0: e.clientX, lastX: e.clientX, moved: false };
       });
 
@@ -460,6 +466,7 @@
     }
 
     _wire() {
+      this._wireZoom();
       this._wireSeletores();
       this.store.onChange(async () => {
         this.operations.processPending();
@@ -518,6 +525,17 @@
       // inteiro (que deixaria a curva achatada num canto).
       const visiveis = win ? all.filter(p => p.t >= win.tMin && p.t <= win.tMax) : all;
       this.plot.setBoundsFromPoints(visiveis.length ? visiveis : all, { extraPrices });
+      // Zoom de lupa: sobrescreve os limites com janela reduzida centrada no ponto clicado.
+      if (this._zoom.level > 1 && this._zoom.tCenter != null && this._zoom.baseTSpan) {
+        const tSpan = this._zoom.baseTSpan / this._zoom.level;
+        const pSpan = this._zoom.basePSpan / this._zoom.level;
+        this.plot.setBounds(
+          this._zoom.tCenter - tSpan / 2,
+          this._zoom.tCenter + tSpan / 2,
+          this._zoom.pCenter - pSpan / 2,
+          this._zoom.pCenter + pSpan / 2
+        );
+      }
       this.plot.clear();
       const data = {
         points: all, hist, fut, nowT: endT, target, fmtBRL: BRL,
@@ -595,6 +613,75 @@
       setTimeout(() => { el.style.opacity = '0'; el.style.transition = 'opacity .4s'; setTimeout(() => el.remove(), 400); }, 4200);
     }
 
+
+    /** Zoom de lupa — botões 🔍+ e 🔍- na barra de períodos. */
+    _wireZoom() {
+      const cv = this.canvas;
+      if (!cv) return;
+      // Listener na FASE DE CAPTURA: dispara antes do click de venda do canvas.
+      // stopImmediatePropagation impede que o OperationsController processe o clique.
+      cv.addEventListener('click', e => {
+        if (!this._zoomToolActive) return;
+        e.stopImmediatePropagation();
+        // Na primeira aplicação de zoom: salvar os spans base atuais do PlotArea.
+        if (this._zoom.level === 1) {
+          this._zoom.baseTSpan = this.plot.tMax - this.plot.tMin;
+          this._zoom.basePSpan = this.plot.pMax - this.plot.pMin;
+        }
+        const rect = cv.getBoundingClientRect();
+        this._zoom.tCenter = this.plot.invX(e.clientX - rect.left);
+        this._zoom.pCenter = this.plot.invY(e.clientY - rect.top);
+        this._zoom.level   = Math.min(this._zoom.level * 2, 64); // máximo 64x
+        this.renderChart();
+      }, true /* capture */);
+    }
+
+    /** Reseta zoom para 100% e desativa a ferramenta de lupa. */
+    _resetZoom() {
+      this._zoom = { level: 1, tCenter: null, pCenter: null, baseTSpan: null, basePSpan: null };
+      this._zoomToolActive = false;
+      const btn = this.doc.getElementById('zoomInBtn');
+      if (btn) btn.classList.remove('active');
+      if (this.canvas && this.canvas.style) this.canvas.style.cursor = '';
+      // Só re-renderiza se o gráfico já foi inicializado
+      if (this.store && this.store.ready) this.renderChart();
+    }
+
+    /** Adiciona botões 🔍+ e 🔍– após os botões de período. */
+    _buildZoomControls() {
+      const wrap = this.doc.getElementById('periods');
+      if (!wrap || wrap.querySelector('#zoomInBtn')) return; // idempotente
+      const T = (k) => window.I18N ? I18N.t(k) : k;
+
+      // Separador visual
+      const sep = this.doc.createElement('span');
+      sep.style.cssText = 'display:inline-block;width:1px;background:rgba(255,255,255,.1);height:22px;margin:0 4px;align-self:center;';
+      wrap.appendChild(sep);
+
+      // Botão zoom in
+      const zoomIn = this.doc.createElement('button');
+      zoomIn.id = 'zoomInBtn';
+      zoomIn.textContent = '🔍+';
+      zoomIn.title = T('zoom_in_hint') || 'Zoom in — clique na área do gráfico para aproximar (2× por clique)';
+      zoomIn.style.cssText = 'font-size:14px;padding:4px 10px;';
+      zoomIn.onclick = () => {
+        this._zoomToolActive = !this._zoomToolActive;
+        zoomIn.classList.toggle('active', this._zoomToolActive);
+        if (this.canvas && this.canvas.style)
+          this.canvas.style.cursor = this._zoomToolActive ? 'zoom-in' : '';
+      };
+      wrap.appendChild(zoomIn);
+
+      // Botão zoom reset
+      const zoomOut = this.doc.createElement('button');
+      zoomOut.id = 'zoomOutBtn';
+      zoomOut.textContent = '🔍–';
+      zoomOut.title = T('zoom_out_hint') || 'Resetar zoom para 100%';
+      zoomOut.style.cssText = 'font-size:14px;padding:4px 10px;';
+      zoomOut.onclick = () => this._resetZoom();
+      wrap.appendChild(zoomOut);
+    }
+
     buildPeriods() {
       const wrap = this.doc.getElementById('periods'); if (!wrap) return;
       wrap.innerHTML = '';
@@ -608,6 +695,7 @@
         };
         wrap.appendChild(b);
       }
+      this._buildZoomControls();
     }
 
     updateStatus() {
