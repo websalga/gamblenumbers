@@ -179,16 +179,13 @@ try {
   // ── Taxas FX necessárias para queries de pares não-crypto_fiat ───────
   // Busca uma vez; usada para montar expressões SQL literais (float do
   // nosso banco — não input do usuário, sem risco de injeção).
+  // Colunas válidas em FX_Snapshots — jamais incluir usd_btc/usd_bch/usd_usd
+  // (crypto não existe em FX_Snapshots; USD é o pivô =1, sem coluna própria)
   $fxRow = null;
   if ($tipo !== 'crypto_fiat' || in_array($moedaExibicao, MOEDAS_FX_COMPUTED, true)) {
-    $needed = array_unique(array_filter([
-      'usd_' . strtolower($moeda),
-      'usd_' . strtolower($moedaExibicao),
-      'usd_brl', 'usd_eur', 'usd_gbp', 'usd_jpy', 'usd_cny', 'usd_try', 'usd_rub',
-    ], fn($c) => preg_match('/^usd_[a-z]+$/', $c)));
-    $selFx = implode(',', $needed);
     $fxRow = $pdo->query(
-      "SELECT TOP 1 {$selFx} FROM dbo.FX_Snapshots WHERE ok=1 ORDER BY ts_utc DESC"
+      "SELECT TOP 1 usd_brl,usd_eur,usd_gbp,usd_jpy,usd_cny,usd_try,usd_rub
+       FROM dbo.FX_Snapshots WHERE ok=1 ORDER BY ts_utc DESC"
     )->fetch(PDO::FETCH_ASSOC) ?: [];
   }
 
@@ -198,24 +195,101 @@ try {
     $fxCol  = 'usd_' . strtolower($moedaExibicao);
     $fxRate = $fxRow ? (float)($fxRow[$fxCol] ?? 1.0) : 1.0;
   }
-  $col = colunas($moeda, $moedaExibicao, $fxRate);
+  // ── Montar $col e $selectCols de acordo com o tipo de par ──────────────
 
-  // monta o SELECT dinamico (colunas ja validadas via whitelist acima -
-  // seguro interpolar; nada aqui vem direto de $_GET sem passar pelas
-  // funcoes moedaSelecionada()/moedaExibicaoSelecionada())
-  // usd_eur/usd_gbp: derivados das colunas de media ja existentes (preco
-  // do ativo em EUR/GBP dividido pelo preco em USD) - taxa implicita,
-  // sem precisar de JOIN com FX_Snapshots. Usados no cliente para
-  // converter valores de operacoes entre moedas de exibicao diferentes.
-  // Para moedas computadas: inclui a taxa FX como literal para que mapRow
-  // possa devolvê-la ao frontend (ex: usd_jpy) para conversoes no cliente.
-  $fxLiteralCol = '';
-  if ($col['fx_literal'] !== null && $col['fx_col'] !== null) {
-    $fxLiteralCol = ",
+  if ($tipo === 'fiat_fiat') {
+    // fiat×fiat via USD como pivo em FX_Snapshots
+    // USD é o próprio pivô (=1.0) — sem coluna usd_usd na tabela
+    $colC = 'usd_' . strtolower($moedaExibicao);
+    if ($moeda === 'USD') {
+      $expr       = $colC;   // USD/JPY = usd_jpy diretamente
+      $colA_expr  = '1.0';
+      $filterExpr = "{$colC} IS NOT NULL";
+    } else {
+      $colA       = 'usd_' . strtolower($moeda);
+      $expr       = "({$colC} / NULLIF({$colA}, 0))";
+      $colA_expr  = $colA;
+      $filterExpr = "{$colA} IS NOT NULL AND {$colC} IS NOT NULL";
+    }
+    // Lê FX direto da tabela — sem literais extras para evitar alias duplicado
+    $selectCols = "ts_utc,
+              {$expr} AS price_brl,
+              {$expr} AS price_brl_binance,
+              {$expr} AS price_brl_kraken,
+              {$expr} AS price_brl_coinbase,
+              {$colA_expr} AS btc_usd,
+              usd_brl, usd_eur, usd_gbp, usd_jpy, usd_cny, usd_try, usd_rub";
+    $col = [
+      'tabela'    => 'dbo.FX_Snapshots',
+      'avg'       => $expr,
+      'filterCol' => $filterExpr,
+    ];
+
+  } elseif ($tipo === 'fiat_crypto') {
+    // fiat/BTC|BCH: quanto de crypto vale 1 unidade do fiat
+    // USD/BTC = 1/BTC_USD_price (sem coluna usd_usd em FX_Snapshots)
+    $tblCrypto = MOEDAS_CRYPTO[$moedaExibicao];
+    if ($moeda === 'USD') {
+      $expr    = "(1.0 / NULLIF(media_exchanges_usd, 0))";
+      $exprBin = "CASE WHEN price_usd_binance  IS NOT NULL THEN 1.0/NULLIF(price_usd_binance,0)  ELSE NULL END";
+      $exprKrk = "CASE WHEN price_usd_kraken   IS NOT NULL THEN 1.0/NULLIF(price_usd_kraken,0)   ELSE NULL END";
+      $exprCbs = "CASE WHEN price_usd_coinbase IS NOT NULL THEN 1.0/NULLIF(price_usd_coinbase,0) ELSE NULL END";
+    } else {
+      $colA    = 'usd_' . strtolower($moeda);
+      $fxA     = isset($fxRow[$colA]) ? number_format((float)$fxRow[$colA], 8, '.', '') : '1.0';
+      $expr    = "(1.0 / NULLIF(media_exchanges_usd * {$fxA}, 0))";
+      $exprBin = "CASE WHEN price_usd_binance  IS NOT NULL THEN 1.0/NULLIF(price_usd_binance  * {$fxA},0) ELSE NULL END";
+      $exprKrk = "CASE WHEN price_usd_kraken   IS NOT NULL THEN 1.0/NULLIF(price_usd_kraken   * {$fxA},0) ELSE NULL END";
+      $exprCbs = "CASE WHEN price_usd_coinbase IS NOT NULL THEN 1.0/NULLIF(price_usd_coinbase * {$fxA},0) ELSE NULL END";
+    }
+    // literais de taxa para o cliente converter entre moedas
+    $fxLits = [];
+    if ($fxRow) {
+      foreach (['brl','eur','gbp','jpy','cny','try','rub'] as $fc) {
+        $k = "usd_{$fc}";
+        if (isset($fxRow[$k]) && $fxRow[$k] !== null)
+          $fxLits[] = number_format((float)$fxRow[$k], 8, '.', '') . " AS {$k}";
+      }
+    }
+    $fxExtras = $fxLits ? (",
+              " . implode(",
+              ", $fxLits)) : '';
+    $selectCols = "ts_utc,
+              {$expr}    AS price_brl,
+              {$exprBin} AS price_brl_binance,
+              {$exprKrk} AS price_brl_kraken,
+              {$exprCbs} AS price_brl_coinbase,
+              media_exchanges_usd AS btc_usd,
+              usd_brl{$fxExtras}";
+    $col = [
+      'tabela'    => $tblCrypto,
+      'avg'       => $expr,
+      'filterCol' => 'media_exchanges_usd IS NOT NULL',
+    ];
+
+  } else {
+    // crypto_fiat (lógica original) + taxas extras jpy/cny/try/rub como literais
+    // NÃO duplicar brl/eur/gbp que já vêm como expressões no SELECT
+    $col = colunas($moeda, $moedaExibicao, $fxRate);
+
+    $fxLiteralCol = '';
+    if (!empty($col['fx_literal']) && !empty($col['fx_col'])) {
+      $fxLiteralCol = ",
               {$col['fx_literal']} AS {$col['fx_col']}";
-  }
-
-  $selectCols = "ts_utc,
+    }
+    $fxExtras = '';
+    if ($fxRow) {
+      $lits = [];
+      foreach (['jpy','cny','try','rub'] as $fc) {
+        $k = "usd_{$fc}";
+        if (isset($fxRow[$k]) && $fxRow[$k] !== null)
+          $lits[] = number_format((float)$fxRow[$k], 8, '.', '') . " AS {$k}";
+      }
+      if ($lits) $fxExtras = ",
+              " . implode(",
+              ", $lits);
+    }
+    $selectCols = "ts_utc,
               {$col['avg']}      AS price_brl,
               {$col['binance']}  AS price_brl_binance,
               {$col['kraken']}   AS price_brl_kraken,
@@ -223,7 +297,9 @@ try {
               {$col['usd_ref']}  AS btc_usd,
               usd_brl,
               (media_exchanges_eur / NULLIF(media_exchanges_usd,0)) AS usd_eur,
-              (media_exchanges_gbp / NULLIF(media_exchanges_usd,0)) AS usd_gbp{$fxLiteralCol}";
+              (media_exchanges_gbp / NULLIF(media_exchanges_usd,0)) AS usd_gbp{$fxExtras}{$fxLiteralCol}";
+    $col['filterCol'] = $col['filterCol'] ?? "{$col['avg']} IS NOT NULL";
+  }
 
   if ($acao === 'atual') {
     if ($tipo === 'crypto_crypto') {
