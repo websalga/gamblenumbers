@@ -55,7 +55,7 @@
       const qs = new URLSearchParams(location.search);
       // Whitelists espelham as do backend (api.php / textos.php) — evitam
       // valores arbitrários chegando ao DataStore e ao I18N sem validação.
-      const _MOEDAS_OK    = ['BTC', 'BCH'];
+      const _MOEDAS_OK    = ['BTC', 'BCH', 'BRL', 'USD', 'EUR', 'GBP', 'JPY', 'CNY', 'TRY', 'RUB'];
       const _EXIB_OK      = ['BRL', 'USD', 'EUR', 'GBP', 'JPY', 'CNY', 'TRY', 'RUB'];
       const _IDIOMAS_OK   = ['pt-BR', 'en-US', 'es-ES', 'fr-FR', 'de-DE',
                              'it-IT', 'ja-JP', 'nl-NL', 'ru-RU', 'tr-TR', 'zh-CN'];
@@ -138,9 +138,6 @@
       });
       this.mouse = this.operations.mouse;
       this._wire();
-      // Carregar calibração do par e aplicar nos módulos
-      await this._loadChartConfig();
-      this._applyChartConfig();
     }
 
     period() { return PERIODS.find(p => p.id === this.periodId); }
@@ -463,7 +460,11 @@
       this._wireSeletores();
       this.store.onChange(() => {
         this.operations.processPending();
-        this.renderCards(); this.renderChart(); this.renderSidePanel(); this.operationsTable.render(); this.updateStatus();
+        // Calibração do par — aplicada depois dos dados (garante que cfg
+      // influencia o primeiro render, e que o constructor ficou sync).
+      await this._loadChartConfig();
+      this._applyChartConfig();
+      this.renderCards(); this.renderChart(); this.renderSidePanel(); this.operationsTable.render(); this.updateStatus();
       });
       this.bus.on('control:ret', () => { this.renderCards(); this.renderChart(); this.renderSidePanel(); });
       this.bus.on('control:opValue', () => {});
@@ -667,6 +668,10 @@
           const _sc = this.operations.converterPreco(this.panel.saldo, _sm);
           if (_sc > 0) this.panel.setSaldo(_sc);
         } }
+      // Calibração do par — aplicada depois dos dados (garante que cfg
+      // influencia o primeiro render, e que o constructor ficou sync).
+      await this._loadChartConfig();
+      this._applyChartConfig();
       this.renderCards(); this.renderChart(); this.renderSidePanel(); this.operationsTable.render(); this.updateStatus();
       // Rerender defensivo: em alguns casos (ex: taxas de cambio ainda nao
       // totalmente assentadas no primeiro ciclo) o painel lateral pode
