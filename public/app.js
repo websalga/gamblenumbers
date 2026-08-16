@@ -104,7 +104,7 @@
       };
       const exchLabels = EXCH(this.idioma);
       this.cards = Object.keys(exchLabels).map(k => new ExchangeCard(k, {
-        store: this.store, meta: { label: exchLabels[k], color: COL[k], premium: PREMIUM[k] }, fmt: fmtCards,
+        store: this.store, meta: { label: exchLabels[k], color: COL[k], premium: PREMIUM[k] }, fmt: fmtCards, moedaExibicao: this.moedaExibicao,
       }));
 
       this.canvas = doc.getElementById('chart');
@@ -458,7 +458,7 @@
 
     _wire() {
       this._wireSeletores();
-      this.store.onChange(() => {
+      this.store.onChange(async () => {
         this.operations.processPending();
         // Calibração do par — aplicada depois dos dados (garante que cfg
       // influencia o primeiro render, e que o constructor ficou sync).

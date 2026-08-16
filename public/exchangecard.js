@@ -34,6 +34,7 @@ class ExchangeCard {
     this._color = (deps.meta && deps.meta.color) || '#888';
     this._premium = (deps.meta && typeof deps.meta.premium === 'number') ? deps.meta.premium : 0;
     this._fmt = deps.fmt || ExchangeCard._defaultFmt;
+    this._moedaExib = deps.moedaExibicao || 'BRL'; // moeda em que 'cur' ja vem convertido pelo backend
     this._el = null; // nó DOM, criado no primeiro render
   }
 
@@ -60,9 +61,18 @@ class ExchangeCard {
     const v = span > 0 ? store.variation(this.key, span) : { pct: 0 };
     const varPct = v ? v.pct : 0;
 
-    // conversão USD usando a taxa real do último snapshot
-    const usdRate = num(last.usd_brl) || null;
-    const usd = usdRate ? cur / usdRate : null;
+    // conversão USD: 'cur' já vem do backend na moeda de exibição
+    // ATIVA (this._moedaExib), entao a taxa usada tem que ser a
+    // dessa MESMA moeda para USD - nunca fixa em usd_brl (bug antigo:
+    // dividia preco em EUR/GBP/etc pela taxa BRL->USD, dando numero sem sentido).
+    const moedaExib = String(this._moedaExib || 'BRL').toUpperCase();
+    let usd = null;
+    if (moedaExib === 'USD') {
+      usd = cur;
+    } else {
+      const usdRate = num(last['usd_' + moedaExib.toLowerCase()]) || null;
+      usd = usdRate ? cur / usdRate : null; // null = taxa nao coletada (ex: JPY/CNY/TRY/RUB hoje)
+    }
 
     // meta e lucro (dependem de entradas do usuário; se ausentes, base neutra)
     const ret = num(ctx.ret) || 0;
