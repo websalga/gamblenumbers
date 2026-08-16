@@ -27,7 +27,7 @@
   ];
   const MES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
   const pad = n => String(n).padStart(2, '0');
-  const MOEDA_SIMBOLO = { BRL: 'R$ ', USD: 'US$ ', EUR: '€ ', GBP: '£ ' };
+  const MOEDA_SIMBOLO = { BRL: 'R$ ', USD: 'US$ ', EUR: '€ ', GBP: '£ ', JPY: '¥ ', CNY: '元 ', TRY: '₺ ', RUB: '₽ ' };
   let _simboloAtivo = 'R$ '; // ajustado pelo App no boot, conforme moeda_exibicao da URL
   const BRL = n => _simboloAtivo + Number(n).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const BTC = n => Number(n).toLocaleString('pt-BR', { minimumFractionDigits: 8, maximumFractionDigits: 8 });
@@ -56,7 +56,7 @@
       // Whitelists espelham as do backend (api.php / textos.php) — evitam
       // valores arbitrários chegando ao DataStore e ao I18N sem validação.
       const _MOEDAS_OK    = ['BTC', 'BCH'];
-      const _EXIB_OK      = ['BRL', 'USD', 'EUR', 'GBP'];
+      const _EXIB_OK      = ['BRL', 'USD', 'EUR', 'GBP', 'JPY', 'CNY', 'TRY', 'RUB'];
       const _IDIOMAS_OK   = ['pt-BR', 'en-US', 'es-ES', 'fr-FR', 'de-DE',
                              'it-IT', 'ja-JP', 'nl-NL', 'ru-RU', 'tr-TR', 'zh-CN'];
       const _rawMoeda     = (qs.get('moeda') || '').toUpperCase();

@@ -39,7 +39,11 @@ const MOEDAS = [
 ];
 
 // --- Whitelist de moeda de exibicao (fiat) ---
-const MOEDAS_EXIBICAO = ['BRL', 'USD', 'EUR', 'GBP'];
+const MOEDAS_EXIBICAO = ['BRL', 'USD', 'EUR', 'GBP', 'JPY', 'CNY', 'TRY', 'RUB'];
+
+// Moedas que nao possuem colunas pre-calculadas em snapshots/BCH_Snapshots.
+// O preco e derivado em tempo real: media_exchanges_usd * taxa_fx (do FX_Snapshots).
+const MOEDAS_FX_COMPUTED = ['JPY', 'CNY', 'TRY', 'RUB'];
 
 function moedaSelecionada(): string {
   $m = strtoupper($_GET['moeda'] ?? 'BTC');
@@ -57,27 +61,41 @@ function moedaExibicaoSelecionada(): string {
  * volta para os nomes que o frontend ja conhece (price_brl,
  * price_brl_binance, etc) - o contrato JSON nao muda, so o CONTEUDO.
  */
-function colunas(string $moeda, string $moedaExibicao): array {
+/**
+ * Para JPY/CNY/TRY/RUB (MOEDAS_FX_COMPUTED) nao existem colunas pre-calculadas
+ * em snapshots/BCH_Snapshots. Busca-se a taxa mais recente de FX_Snapshots
+ * e multiplica pela coluna USD em tempo de consulta.
+ * $fxRate vem como literal float seguro (da nossa propria base, nao de $_GET).
+ */
+function colunas(string $moeda, string $moedaExibicao, float $fxRate = 1.0): array {
   $tabela = MOEDAS[$moeda];
-  $sufixo = strtolower($moedaExibicao); // brl|usd|eur|gbp
-
-  // media: agora vem sempre da coluna dedicada media_exchanges_<moeda>,
-  // calculada e gravada pelos coletores como a media literal das 3
-  // exchanges mostradas na tela (Binance/Kraken/Coinbase) - nunca fica
-  // fora do intervalo min/max delas, em ambas as tabelas (BTC e BCH).
-  $colAvg = "media_exchanges_{$sufixo}";
-
-  // referencia USD "pura" (campo auxiliar 'btc_usd' do contrato JSON,
-  // mantido para compatibilidade) - tambem usa a media dedicada.
+  $sufixo = strtolower($moedaExibicao);
   $colUsdRef = 'media_exchanges_usd';
+
+  if (in_array($moedaExibicao, MOEDAS_FX_COMPUTED, true)) {
+    // Expresssoes SQL seguras: $fxRate e um float do nosso banco, nao input do usuario
+    $fx = number_format($fxRate, 8, '.', '');
+    return [
+      'tabela'      => $tabela,
+      'avg'         => "media_exchanges_usd * {$fx}",
+      'binance'     => "CASE WHEN price_usd_binance  IS NOT NULL THEN price_usd_binance  * {$fx} ELSE NULL END",
+      'kraken'      => "CASE WHEN price_usd_kraken   IS NOT NULL THEN price_usd_kraken   * {$fx} ELSE NULL END",
+      'coinbase'    => "CASE WHEN price_usd_coinbase IS NOT NULL THEN price_usd_coinbase * {$fx} ELSE NULL END",
+      'usd_ref'     => $colUsdRef,
+      'fx_col'      => "usd_{$sufixo}",   // nome da coluna em FX_Snapshots
+      'fx_literal'  => $fx,
+    ];
+  }
 
   return [
     'tabela'     => $tabela,
-    'avg'        => $colAvg,
+    'avg'        => "media_exchanges_{$sufixo}",
     'binance'    => "price_{$sufixo}_binance",
     'kraken'     => "price_{$sufixo}_kraken",
     'coinbase'   => "price_{$sufixo}_coinbase",
     'usd_ref'    => $colUsdRef,
+    'fx_col'     => null,
+    'fx_literal' => null,
   ];
 }
 
@@ -99,6 +117,10 @@ function mapRow($r) {
     'usd_brl'  => $r['usd_brl']  !== null ? (float)$r['usd_brl']  : null,
     'usd_eur'  => isset($r['usd_eur'])  && $r['usd_eur']  !== null ? (float)$r['usd_eur']  : null,
     'usd_gbp'  => isset($r['usd_gbp'])  && $r['usd_gbp']  !== null ? (float)$r['usd_gbp']  : null,
+    'usd_jpy'  => isset($r['usd_jpy'])  && $r['usd_jpy']  !== null ? (float)$r['usd_jpy']  : null,
+    'usd_cny'  => isset($r['usd_cny'])  && $r['usd_cny']  !== null ? (float)$r['usd_cny']  : null,
+    'usd_try'  => isset($r['usd_try'])  && $r['usd_try']  !== null ? (float)$r['usd_try']  : null,
+    'usd_rub'  => isset($r['usd_rub'])  && $r['usd_rub']  !== null ? (float)$r['usd_rub']  : null,
   ];
 }
 
@@ -106,8 +128,20 @@ try {
   $acao = $_GET['acao'] ?? 'cotacoes';
   $moeda = moedaSelecionada();
   $moedaExibicao = moedaExibicaoSelecionada();
-  $col = colunas($moeda, $moedaExibicao);
   $pdo = db();
+
+  // Para moedas computadas (JPY/CNY/TRY/RUB), busca a taxa FX mais recente
+  // uma unica vez — usada como literal SQL em todas as queries desta requisicao.
+  $fxRate = 1.0;
+  if (in_array($moedaExibicao, MOEDAS_FX_COMPUTED, true)) {
+    $fxCol = 'usd_' . strtolower($moedaExibicao);
+    $fxRow = $pdo->query(
+      "SELECT TOP 1 {$fxCol} FROM dbo.FX_Snapshots WHERE ok=1 AND {$fxCol} IS NOT NULL ORDER BY ts_utc DESC"
+    )->fetch(PDO::FETCH_ASSOC);
+    $fxRate = $fxRow ? (float)$fxRow[$fxCol] : 1.0;
+  }
+
+  $col = colunas($moeda, $moedaExibicao, $fxRate);
 
   // monta o SELECT dinamico (colunas ja validadas via whitelist acima -
   // seguro interpolar; nada aqui vem direto de $_GET sem passar pelas
@@ -116,6 +150,14 @@ try {
   // do ativo em EUR/GBP dividido pelo preco em USD) - taxa implicita,
   // sem precisar de JOIN com FX_Snapshots. Usados no cliente para
   // converter valores de operacoes entre moedas de exibicao diferentes.
+  // Para moedas computadas: inclui a taxa FX como literal para que mapRow
+  // possa devolvê-la ao frontend (ex: usd_jpy) para conversoes no cliente.
+  $fxLiteralCol = '';
+  if ($col['fx_literal'] !== null && $col['fx_col'] !== null) {
+    $fxLiteralCol = ",
+              {$col['fx_literal']} AS {$col['fx_col']}";
+  }
+
   $selectCols = "ts_utc,
               {$col['avg']}      AS price_brl,
               {$col['binance']}  AS price_brl_binance,
@@ -124,7 +166,7 @@ try {
               {$col['usd_ref']}  AS btc_usd,
               usd_brl,
               (media_exchanges_eur / NULLIF(media_exchanges_usd,0)) AS usd_eur,
-              (media_exchanges_gbp / NULLIF(media_exchanges_usd,0)) AS usd_gbp";
+              (media_exchanges_gbp / NULLIF(media_exchanges_usd,0)) AS usd_gbp{$fxLiteralCol}";
 
   if ($acao === 'atual') {
     $sql = "SELECT TOP 1 {$selectCols}
