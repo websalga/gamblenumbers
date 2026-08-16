@@ -6,3 +6,4 @@ config.php
 *.sql
 chumbrega.php
 !docs/*.sql
+!infra/**/*.sql

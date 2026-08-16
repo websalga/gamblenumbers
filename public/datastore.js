@@ -136,7 +136,10 @@ class DataStore {
   latestRates() {
     for (let i = this._rows.length - 1; i >= 0; i--) {
       const r = this._rows[i];
-      if (r.usd_brl != null) return { usd_brl: r.usd_brl, usd_eur: r.usd_eur, usd_gbp: r.usd_gbp };
+      if (r.usd_brl != null) return {
+        usd_brl: r.usd_brl, usd_eur: r.usd_eur, usd_gbp: r.usd_gbp,
+        usd_jpy: r.usd_jpy, usd_cny: r.usd_cny, usd_try: r.usd_try, usd_rub: r.usd_rub,
+      };
     }
     return null;
   }
@@ -450,6 +453,10 @@ function normalizeRow(raw) {
     usd_brl: num(raw.usd_brl),
     usd_eur: num(raw.usd_eur),
     usd_gbp: num(raw.usd_gbp),
+    usd_jpy: num(raw.usd_jpy),
+    usd_cny: num(raw.usd_cny),
+    usd_try: num(raw.usd_try),
+    usd_rub: num(raw.usd_rub),
   };
 }
 

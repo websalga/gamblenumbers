@@ -38,8 +38,17 @@ window.Forecast = (function () {
     const lastPrice = prices[prices.length - 1];
 
     /* Banda do período */
-    const bandMax = Math.max(...prices);
-    const bandMin = Math.min(...prices);
+    let bandMax = Math.max(...prices);
+    let bandMin = Math.min(...prices);
+    // Garantir amplitude mínima configurável (evita banda plana em pares de baixa volatilidade)
+    if (_minAmpPct != null) {
+      const mid  = (bandMax + bandMin) / 2;
+      const minH = mid * _minAmpPct / 2;
+      if ((bandMax - bandMin) < mid * _minAmpPct) {
+        bandMax = mid + minH;
+        bandMin = mid - minH;
+      }
+    }
 
     /* Diferenças reais consecutivas do período */
     const diffs = [];
@@ -94,5 +103,11 @@ window.Forecast = (function () {
     return resultado;
   }
 
-  return { project };
+  let _minAmpPct = null; // configurável via applyConfig
+
+  function applyConfig(cfg) {
+    _minAmpPct = (cfg && cfg.forecastMinAmpPct != null) ? cfg.forecastMinAmpPct / 100 : null;
+  }
+
+  return { project, applyConfig };
 })();

@@ -30,7 +30,11 @@ class ProjectionBgRenderer {
  * como BTC ficam na casa das centenas de milhares (formato 'Xk' faz
  * sentido), mas BCH/outras moedas em GBP/EUR podem ficar na casa das
  * dezenas/centenas, onde dividir por 1000 e arredondar sempre dava "0k". */
-function fmtEixoPreco(p) {
+function fmtEixoPreco(p, decimals) {
+  // decimals vem do Chart_Config (priceDecimals); null = lógica automática
+  if (decimals != null) return Number(p).toLocaleString(undefined, {
+    minimumFractionDigits: decimals, maximumFractionDigits: decimals,
+  });
   const ap = Math.abs(p);
   if (ap >= 1000) return (p / 1000).toFixed(ap >= 100000 ? 0 : 1) + 'k';
   if (ap >= 1) return p.toFixed(ap >= 100 ? 0 : 2);
@@ -49,7 +53,7 @@ class PriceAxisRenderer {
       const p = plot.pMin + (plot.pMax - plot.pMin) * i / this._lines;
       const y = plot.Y(p);
       ctx.beginPath(); ctx.moveTo(plot.pad.l, y); ctx.lineTo(plot.w - plot.pad.r, y); ctx.stroke();
-      ctx.fillText(fmtEixoPreco(p), plot.w - plot.pad.r + 4, y + 3);
+      ctx.fillText(fmtEixoPreco(p, plot._priceDecimals), plot.w - plot.pad.r + 4, y + 3);
     }
   }
 }
@@ -223,7 +227,10 @@ class SellMarkerRenderer {
  * desta faixa, a operação está dentro do range onde o mercado realmente
  * está negociando agora. Desenhada antes das séries para ficar por baixo. */
 class SpreadBandRenderer {
+  constructor() { this._enabled = true; }
+  applyConfig(cfg) { this._enabled = cfg ? (cfg.showSpread !== false) : true; }
   draw(plot, data) {
+    if (!this._enabled) return;
     const ctx = plot.ctx; if (!ctx) return;
     const lo = data.spreadLow, hi = data.spreadHigh;
     if (lo == null || hi == null || hi <= lo) return;
