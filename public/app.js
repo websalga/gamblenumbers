@@ -319,6 +319,9 @@
       // setas do teclado
       if (typeof window !== 'undefined' && window.addEventListener) {
         window.addEventListener('keydown', e => {
+          // Ignorar setas quando foco está em input/select (ex: slider de retorno)
+          const tag = document.activeElement ? document.activeElement.tagName : '';
+          if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
           if (e.key === 'ArrowLeft') this.panByFraction(-0.15);
           else if (e.key === 'ArrowRight') this.panByFraction(0.15);
           else if (e.key === 'Home') this.resetPan();
@@ -484,8 +487,15 @@
         weighted: this.operations.weightedAvg(), remainingBTC: this.operations.totalRemainingBTC(),
       };
       const models = this.cards.map(c => ({ c, m: c.compute(ctx) })).filter(x => x.m);
+      // Só considera cards VISÍVEIS para eleger o "MAIOR LUCRO".
+      // Se showExchanges=false (BCH) as exchanges ficam ocultas e o badge
+      // deve recair no card visível com maior lucro (geralmente avg).
+      const showExch = !this.chartConfig || this.chartConfig.showExchanges !== false;
       let bestKey = null, bestProfit = -Infinity;
-      for (const { m } of models) if (m.profit > bestProfit) { bestProfit = m.profit; bestKey = m.key; }
+      for (const { c, m } of models) {
+        const visivel = c.key === 'avg' || showExch;
+        if (visivel && m.profit > bestProfit) { bestProfit = m.profit; bestKey = m.key; }
+      }
       const hasLots = ctx.remainingBTC > 0;
       for (const c of this.cards) c.render(container, ctx, hasLots && c.key === bestKey);
     }
@@ -667,6 +677,12 @@
         if (_sm !== this.moedaExibicao) {
           const _sc = this.operations.converterPreco(this.panel.saldo, _sm);
           if (_sc > 0) this.panel.setSaldo(_sc);
+        } }
+      // Converter valor de operação (opValue) se a moeda mudou desde a última sessão
+      { const _om = sessionStorage.getItem('gn_opvalue_moeda') || 'BRL';
+        if (_om !== this.moedaExibicao) {
+          const _oc = this.operations.converterPreco(this.panel.opValue, _om);
+          if (_oc > 0) this.panel.setOpValue(_oc);
         } }
       // Calibração do par — aplicada depois dos dados (garante que cfg
       // influencia o primeiro render, e que o constructor ficou sync).

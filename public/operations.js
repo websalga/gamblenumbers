@@ -290,11 +290,10 @@ class OperationsController {
       // a marca "descolar" ao trocar de escala.
       const HORIZON_MS = 48 * 3600 * 1000;
       const t = this._now() + HORIZON_MS;
-      // O preço vem da projeção congelada naquele instante (é sobre ela que a
-      // venda é marcada). Sem frozen, cai no preço-alvo calculado.
-      const fz = this._frozen();
-      const projected = fz && typeof fz.priceAt === 'function' ? fz.priceAt(t) : null;
-      this.scheduleSell(projected != null && projected > 0 ? projected : this.targetPrice(), t);
+      // Preço-alvo calculado: preço médio ponderado × (1 + retorno desejado %).
+      // Garante que o usuário vende exatamente quando o preço atingir o retorno
+      // que ele configurou no slider — comportamento intuitivo e previsível.
+      this.scheduleSell(this.targetPrice(), t);
     };
     return this;
   }
