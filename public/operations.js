@@ -57,7 +57,7 @@ class OperationsController {
    * mais seguro que travar a UI por falta de dado de cambio.
    */
   converterPreco(valor, moedaOrigem) {
-    const origem = String(moedaOrigem || this._moedaExib).toUpperCase();
+    const origem = String(moedaOrigem || 'BRL').toUpperCase(); // lotes antigos sem moedaExib nasceram em BRL
     const atual = String(this._moedaExib).toUpperCase();
     if (origem === atual || !(valor > 0)) return valor;
     const rates = this._getRates();

@@ -199,17 +199,22 @@ try {
 
   if ($tipo === 'fiat_fiat') {
     // fiat×fiat via USD como pivo em FX_Snapshots
-    // USD é o próprio pivô (=1.0) — sem coluna usd_usd na tabela
-    $colC = 'usd_' . strtolower($moedaExibicao);
+    // USD é o próprio pivô (=1.0) — sem coluna usd_usd na tabela.
+    // Isso vale tanto para $moeda === 'USD' (ativo) quanto para
+    // $moedaExibicao === 'USD' (cotação) - os dois lados precisam do
+    // mesmo tratamento, senão vira 'usd_usd' (coluna inexistente).
+    $colC = ($moedaExibicao === 'USD') ? '1.0' : ('usd_' . strtolower($moedaExibicao));
     if ($moeda === 'USD') {
-      $expr       = $colC;   // USD/JPY = usd_jpy diretamente
+      $expr       = $colC;   // USD/JPY = usd_jpy diretamente (ou 1.0 se JPY==USD)
       $colA_expr  = '1.0';
-      $filterExpr = "{$colC} IS NOT NULL";
+      $filterExpr = ($moedaExibicao === 'USD') ? '1=1' : "{$colC} IS NOT NULL";
     } else {
       $colA       = 'usd_' . strtolower($moeda);
       $expr       = "({$colC} / NULLIF({$colA}, 0))";
       $colA_expr  = $colA;
-      $filterExpr = "{$colA} IS NOT NULL AND {$colC} IS NOT NULL";
+      $filterExpr = ($moedaExibicao === 'USD')
+        ? "{$colA} IS NOT NULL"
+        : "{$colA} IS NOT NULL AND {$colC} IS NOT NULL";
     }
     // Lê FX direto da tabela — sem literais extras para evitar alias duplicado
     $selectCols = "ts_utc,
