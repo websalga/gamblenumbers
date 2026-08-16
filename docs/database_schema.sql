@@ -57,6 +57,10 @@ CREATE TABLE [dbo].[FX_Snapshots] (
     [usd_eur]   DECIMAL(19,6)                   NULL,
     [usd_gbp]   DECIMAL(19,6)                   NULL,
     [source]    VARCHAR(50)                     NULL,
+    [usd_jpy]   DECIMAL(19,6)                   NULL,
+    [usd_cny]   DECIMAL(19,6)                   NULL,
+    [usd_try]   DECIMAL(19,6)                   NULL,
+    [usd_rub]   DECIMAL(19,6)                   NULL,
     [ok]        INT             NOT NULL        DEFAULT 1,
     [err]       TEXT                            NULL,
     CONSTRAINT [PK_FX_Snapshots] PRIMARY KEY CLUSTERED ([id])
@@ -125,6 +129,10 @@ CREATE TABLE `FX_Snapshots` (
     `usd_eur`   DECIMAL(19,6)               DEFAULT NULL,
     `usd_gbp`   DECIMAL(19,6)               DEFAULT NULL,
     `source`    VARCHAR(50)                 DEFAULT NULL,
+    `usd_jpy`   DECIMAL(19,6)               DEFAULT NULL,
+    `usd_cny`   DECIMAL(19,6)               DEFAULT NULL,
+    `usd_try`   DECIMAL(19,6)               DEFAULT NULL,
+    `usd_rub`   DECIMAL(19,6)               DEFAULT NULL,
     `ok`        INT             NOT NULL    DEFAULT 1,
     `err`       LONGTEXT                    DEFAULT NULL,
     PRIMARY KEY (`id`)
@@ -192,6 +200,10 @@ CREATE TABLE fx_snapshots (
     usd_eur   NUMERIC(19,6),
     usd_gbp   NUMERIC(19,6),
     source    VARCHAR(50),
+    usd_jpy   NUMERIC(19,6),
+    usd_cny   NUMERIC(19,6),
+    usd_try   NUMERIC(19,6),
+    usd_rub   NUMERIC(19,6),
     ok        INTEGER         NOT NULL DEFAULT 1,
     err       TEXT
 );
@@ -268,4 +280,37 @@ CREATE TABLE site_textos (
     texto         NVARCHAR2(500)  NOT NULL,
     atualizado_em TIMESTAMP       DEFAULT SYS_EXTRACT_UTC(SYSTIMESTAMP) NOT NULL,
     CONSTRAINT uq_site_textos_chave_idioma UNIQUE (chave, idioma)
+);
+
+-- =============================================================================
+-- MIGRACAO 2026-08-16 — Adição de moedas fiat (JPY, CNY, TRY, RUB) a FX_Snapshots
+-- =============================================================================
+
+-- SQL Server / T-SQL
+ALTER TABLE [dbo].[FX_Snapshots] ADD
+    [usd_jpy]   DECIMAL(19,6)   NULL,
+    [usd_cny]   DECIMAL(19,6)   NULL,
+    [usd_try]   DECIMAL(19,6)   NULL,
+    [usd_rub]   DECIMAL(19,6)   NULL;
+
+-- MySQL / MariaDB
+ALTER TABLE `FX_Snapshots`
+    ADD COLUMN `usd_jpy` DECIMAL(19,6) DEFAULT NULL,
+    ADD COLUMN `usd_cny` DECIMAL(19,6) DEFAULT NULL,
+    ADD COLUMN `usd_try` DECIMAL(19,6) DEFAULT NULL,
+    ADD COLUMN `usd_rub` DECIMAL(19,6) DEFAULT NULL;
+
+-- PostgreSQL
+ALTER TABLE fx_snapshots
+    ADD COLUMN usd_jpy NUMERIC(19,6),
+    ADD COLUMN usd_cny NUMERIC(19,6),
+    ADD COLUMN usd_try NUMERIC(19,6),
+    ADD COLUMN usd_rub NUMERIC(19,6);
+
+-- Oracle
+ALTER TABLE fx_snapshots ADD (
+    usd_jpy NUMBER(19,6),
+    usd_cny NUMBER(19,6),
+    usd_try NUMBER(19,6),
+    usd_rub NUMBER(19,6)
 );
