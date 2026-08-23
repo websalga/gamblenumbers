@@ -31,6 +31,10 @@ class OperationsController {
     // acesso à projeção congelada (para ancorar vendas no preço projetado)
     this._frozen = deps.getFrozen || (() => null);
     this._getRates = deps.getRates || (() => null);
+    // getFee(t) -> feerate em sat/vB (BTC) ou sat/byte (BCH) no instante t
+    this._getFee = deps.getFee || (() => 1.0);
+    // Tamanho típico de transação: BTC SegWit P2WPKH ~140 vB, BCH P2PKH ~225 bytes
+    this._txSize = (String(this._moeda).toUpperCase() === 'BCH') ? 225 : 140;
     // Veto de clique: durante/logo após um arraste (pan), o clique não deve
     // virar uma venda marcada sem intenção.
     this._clickVetoed = deps.isClickVetoed || (() => false);
@@ -44,6 +48,20 @@ class OperationsController {
     this.sellSeq = 0;
     this.mouse = { x: null, y: null, inside: false, blinkUntil: 0 };
     this._mounted = false;
+  }
+
+  /** Calcula taxa de rede em moeda de exibição para uma tx naquele preço/feerate. */
+  _calcFeeBrl(feerate, price) {
+    return (feerate > 0 && price > 0) ? feerate * this._txSize * (price / 1e8) : 0;
+  }
+
+  /** Rótulo de congestionamento da rede BTC/BCH. */
+  _feeLabel(feerate) {
+    if (String(this._moeda).toUpperCase() === 'BCH') return feerate.toFixed(1) + ' sat/byte 🟢';
+    if (feerate >= 50)  return feerate.toFixed(0) + ' sat/vB 🔴';
+    if (feerate >= 10)  return feerate.toFixed(0) + ' sat/vB 🟠';
+    if (feerate >= 3)   return feerate.toFixed(1) + ' sat/vB 🟡';
+    return feerate.toFixed(1) + ' sat/vB 🟢';
   }
 
   snapshot() { return { lots: this.lots, sells: this.sells }; }
@@ -187,14 +205,20 @@ class OperationsController {
     if (!(price > 0)) return null;
     const qty = value / price;
     const seq = ++this.lotSeq;
+    const _buyTime = atTime || this._now();
+    const _feerate = this._getFee(_buyTime);
+    const _feeBrl  = this._calcFeeBrl(_feerate, price);
     const lot = {
-      id: 'LT' + seq, seq, time: atTime || this._now(), price, brl: value,
+      id: 'LT' + seq, seq, time: _buyTime, price, brl: value,
       qty, remaining: qty, sold: 0, realized: 0, status: 'open',
       moedaExib: this._moedaExib,
+      fee_brl: _feeBrl,    // taxa de rede paga na compra (moeda de exibição atual)
+      feerate:  _feerate,  // sat/vB ou sat/byte registrado no momento da compra
     };
     this.lots.push(lot);
-    if (this._panel && typeof this._panel.debitSaldo === 'function') this._panel.debitSaldo(value);
-    this._toast('ok', this._t('toast_compra_registrada', { id: lot.id, qtd: this._fmt.btc(qty), moeda: this._moeda, preco: this._fmt.brl(price) }));
+    if (this._panel && typeof this._panel.debitSaldo === 'function') this._panel.debitSaldo(value + _feeBrl);
+    const _feeInfo = _feeBrl > 0.005 ? ' | taxa: ' + this._fmt.brl(_feeBrl) + ' (' + this._feeLabel(_feerate) + ')' : '';
+    this._toast('ok', this._t('toast_compra_registrada', { id: lot.id, qtd: this._fmt.btc(qty), moeda: this._moeda, preco: this._fmt.brl(price) }) + _feeInfo);
     this._changed('buy', lot);
     return lot;
   }
@@ -241,15 +265,24 @@ class OperationsController {
       if (lot.remaining <= 1e-10) { lot.remaining = 0; lot.status = 'closed'; }
       orderPnl += pnl; orderCost += take * precoLote; orderQty += take; qty -= take;
     }
+    // Taxa de rede na venda
+    const _sellFeerate = this._getFee(this._now());
+    const _sellFeeBrl  = this._calcFeeBrl(_sellFeerate, execPrice);
+    // Taxa de compra proporcional às cotas vendidas
+    const _buyFeeTotal = this.lots.reduce((s, l) => s + (l.fee_brl || 0), 0);
+    // Descontar ambas as fees do PnL líquido
+    const _netPnl = orderPnl - _sellFeeBrl - (_buyFeeTotal > 0 ? _buyFeeTotal * (orderQty / Math.max(this.totalRemainingBTC() + orderQty, orderQty)) : 0);
     sell.status = 'executed';
     sell.execPrice = execPrice;
     sell.execTime = this._now();
     sell.reserved = 0;
-    sell.moedaExib = this._moedaExib; // resultado calculado na moeda atual
-    sell._profit = orderPnl;
-    sell._pnl = orderPnl;
-    sell._value = orderQty * execPrice;
-    sell._ret = orderCost > 0 ? orderPnl / orderCost * 100 : 0;
+    sell.moedaExib = this._moedaExib;
+    sell.fee_brl   = _sellFeeBrl;     // taxa de rede paga na venda
+    sell.feerate   = _sellFeerate;
+    sell._profit = _netPnl;
+    sell._pnl    = _netPnl;
+    sell._value  = orderQty * execPrice - _sellFeeBrl;  // recebimento líquido
+    sell._ret = orderCost > 0 ? _netPnl / orderCost * 100 : 0;
     if (this._panel && typeof this._panel.creditSaldo === 'function') this._panel.creditSaldo(sell._value);
     this._changed('sell:executed', sell);
     return sell;
@@ -334,14 +367,27 @@ class OperationsController {
     if (t > this._now()) {
       const _loc2 = (window.I18N && I18N.idioma) ? I18N.idioma : navigator.language;
       const _dt2 = new Date(t).toLocaleString(_loc2, { dateStyle: 'short', timeStyle: 'short' });
+      // Feerate atual para estimar taxa de venda neste ponto
+      const _futFeerate = this._getFee(this._now());
+      const _futSellFee = this._calcFeeBrl(_futFeerate, price);
       let html = `<b>${_esc(this._t('tooltip_previa_venda'))}</b> <span style="color:#a0aec0;font-size:0.88em">${_esc(_dt2)}</span><br>${_esc(this._t('tooltip_preco_livre'))} <b>${this._fmt.brl(price)}</b><br>`;
       const open = this.openLots();
       if (open.length) {
         html += '<span style="color:#7d8aa3">' + _esc(this._t('tooltip_lotes_verdes')) + '</span><br>';
         const abrevL = _esc(this._t('tooltip_lucro_abrev')), abrevP = _esc(this._t('tooltip_prejuizo_abrev'));
-        open.slice(0, 4).forEach(l => { const win = price > this.precoOp(l); html += `<span style="color:${win ? '#22c55e' : '#ef4444'}">${l.id} ${win ? abrevL : abrevP}</span> `; });
+        open.slice(0, 4).forEach(l => {
+          const precoLote = this.precoOp(l);
+          const buyFeePerBtc = (l.fee_brl || 0) / (l.qty || 1);
+          const sellFeePerBtc = _futSellFee / (l.remaining || l.qty || 1);
+          const netPrice = price - sellFeePerBtc - buyFeePerBtc;
+          const win = netPrice > precoLote;
+          const lucro = l.remaining * (price - precoLote) - (l.fee_brl || 0) - _futSellFee;
+          const lucroStr = this._fmt.brl(Math.abs(lucro));
+          html += `<span style="color:${win ? '#22c55e' : '#ef4444'}">${_esc(l.id)} ${win ? abrevL : abrevP} ${lucroStr}</span> `;
+        });
       } else html += '<span style="color:#7d8aa3">' + _esc(this._t('tooltip_sem_lotes')) + '</span>';
-      html += '<br><span style="color:#7d8aa3">' + _esc(this._t('tooltip_clique_venda')) + '</span>';
+      const _feeStr = _futSellFee >= 0.005 ? `<br><span style="color:#94a3b8;font-size:0.9em">⛓ Taxa rede: <b>${this._fmt.brl(_futSellFee)}</b> (${_esc(this._feeLabel(_futFeerate))})</span>` : '';
+      html += _feeStr + '<br><span style="color:#7d8aa3">' + _esc(this._t('tooltip_clique_venda')) + '</span>';
       this.mouse.blinkUntil = Date.now() + 99999;
       this._showTip(e, html);
     } else {
@@ -349,7 +395,12 @@ class OperationsController {
       if (best) {
         const _loc = (window.I18N && I18N.idioma) ? I18N.idioma : navigator.language;
         const _dt = new Date(best.t).toLocaleString(_loc, { dateStyle: 'short', timeStyle: 'short' });
-        this._showTip(e, `<b>${_esc(this._t('tooltip_cotacao_real'))}</b> <span style="color:#a0aec0;font-size:0.88em">${_esc(_dt)}</span><br>${_esc(this._t('tooltip_media_lbl'))} <b>${this._fmt.brl(best.avg)}</b><br><span style="color:#7d8aa3">${_esc(this._t('tooltip_botao_direito'))}</span>`);
+        const _histFeerate = best.fee_p50 || 1.0;
+        const _histFee = this._calcFeeBrl(_histFeerate, best.avg);
+        const _feeHtml = _histFee >= 0.005
+          ? `<br><span style="color:#94a3b8;font-size:0.9em">⛓ Taxa rede: <b>${this._fmt.brl(_histFee)}</b> (${_esc(this._feeLabel(_histFeerate))})</span>`
+          : '';
+        this._showTip(e, `<b>${_esc(this._t('tooltip_cotacao_real'))}</b> <span style="color:#a0aec0;font-size:0.88em">${_esc(_dt)}</span><br>${_esc(this._t('tooltip_media_lbl'))} <b>${this._fmt.brl(best.avg)}</b>${_feeHtml}<br><span style="color:#7d8aa3">${_esc(this._t('tooltip_botao_direito'))}</span>`);
       }
       this.mouse.blinkUntil = 0;
     }
