@@ -395,7 +395,7 @@ class OperationsController {
       if (best) {
         const _loc = (window.I18N && I18N.idioma) ? I18N.idioma : navigator.language;
         const _dt = new Date(best.t).toLocaleString(_loc, { dateStyle: 'short', timeStyle: 'short' });
-        const _histFeerate = best.fee_p50 || 1.0;
+        const _histFeerate = this._getFee(best.t);  // busca feerate no store via timestamp
         const _histFee = this._calcFeeBrl(_histFeerate, best.avg);
         const _feeHtml = _histFee >= 0.005
           ? `<br><span style="color:#94a3b8;font-size:0.9em">⛓ Taxa rede: <b>${this._fmt.brl(_histFee)}</b> (${_esc(this._feeLabel(_histFeerate))})</span>`
