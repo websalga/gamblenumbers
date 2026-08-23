@@ -118,8 +118,41 @@ tr.row-r td:first-child{border-left:3px solid var(--red)}
   padding:4px 10px;font-size:11px;cursor:pointer;font-family:inherit}
 .opclear:hover{background:#243252}
 .opclear-all:hover{background:#5b1f1f;border-color:#8b2f2f}
+.reset-forecast-btn{background:#111a2e;color:#7d8aa3;border:1px dashed #2b3a5c;border-radius:6px;
+  padding:5px 10px;font-size:11px;cursor:pointer;width:100%;margin-top:6px;text-align:center;
+  transition:background .2s,color .2s,border-color .2s}
+.reset-forecast-btn:hover{background:#1b2740;color:#c8d4f0;border-color:#4a6090}
 .opshint{color:#7d8aa3;font-size:10px}
-</style>
+
+      .saldo-box {
+        background: linear-gradient(135deg, #0f2a1a 0%, #0a1f2e 100%);
+        border: 1px solid #22c55e55;
+        border-radius: 8px;
+        padding: 10px 12px;
+        margin-bottom: 12px;
+      }
+      .saldo-label {
+        font-size: 11px;
+        color: #86efac;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        margin-bottom: 4px;
+      }
+      .saldo-input {
+        background: transparent !important;
+        border: none !important;
+        color: #22c55e !important;
+        font-size: 20px !important;
+        font-weight: 700 !important;
+        padding: 0 !important;
+        width: 100%;
+        cursor: text;
+      }
+      .saldo-input:focus {
+        outline: none;
+        border-bottom: 1px solid #22c55e !important;
+      }
+    </style>
 </head>
 <body>
 <div class="app">
@@ -132,8 +165,20 @@ tr.row-r td:first-child{border-left:3px solid var(--red)}
       <div class="field-inline">
         <label for="selMoeda" data-i18n="lbl_carteira">Carteira</label>
         <select id="selMoeda">
-          <option value="BTC">Bitcoin (BTC)</option>
-          <option value="BCH">Bitcoin Cash (BCH)</option>
+          <optgroup data-i18n-label="lbl_grupo_crypto" label="Crypto">
+            <option value="BTC">Bitcoin (BTC)</option>
+            <option value="BCH">Bitcoin Cash (BCH)</option>
+          </optgroup>
+          <optgroup data-i18n-label="lbl_grupo_fiat" label="Moedas Fiat">
+            <option value="BRL" data-i18n="moeda_brl">Real (BRL)</option>
+            <option value="USD" data-i18n="moeda_usd">Dólar (USD)</option>
+            <option value="EUR" data-i18n="moeda_eur">Euro (EUR)</option>
+            <option value="GBP" data-i18n="moeda_gbp">Libra (GBP)</option>
+            <option value="JPY" data-i18n="moeda_jpy">Iene (JPY)</option>
+            <option value="CNY" data-i18n="moeda_cny">Yuan (CNY)</option>
+            <option value="TRY" data-i18n="moeda_try">Lira turca (TRY)</option>
+            <option value="RUB" data-i18n="moeda_rub">Rublo (RUB)</option>
+          </optgroup>
         </select>
       </div>
       <div class="field-inline">
@@ -143,6 +188,10 @@ tr.row-r td:first-child{border-left:3px solid var(--red)}
           <option value="USD" data-i18n="moeda_usd">Dólar (USD)</option>
           <option value="EUR" data-i18n="moeda_eur">Euro (EUR)</option>
           <option value="GBP" data-i18n="moeda_gbp">Libra (GBP)</option>
+          <option value="JPY" data-i18n="moeda_jpy">Iene (JPY)</option>
+          <option value="CNY" data-i18n="moeda_cny">Yuan (CNY)</option>
+          <option value="TRY" data-i18n="moeda_try">Lira turca (TRY)</option>
+          <option value="RUB" data-i18n="moeda_rub">Rublo (RUB)</option>
         </select>
       </div>
     </div>
@@ -150,8 +199,16 @@ tr.row-r td:first-child{border-left:3px solid var(--red)}
         <label for="selIdioma" data-i18n="lbl_idioma">Idioma</label>
         <select id="selIdioma">
           <option value="pt-BR">🇧🇷 Português</option>
+          <option value="fr-FR">🇫🇷 Français</option>
+          <option value="de-DE">🇩🇪 Deutsch</option>
+          <option value="it-IT">🇮🇹 Italiano</option>
+          <option value="ja-JP">🇯🇵 日本語</option>
+          <option value="nl-NL">🇳🇱 Nederlands</option>
+          <option value="ru-RU">🇷🇺 Русский</option>
+          <option value="tr-TR">🇹🇷 Türkçe</option>
           <option value="en-US">🇺🇸 English</option>
           <option value="es-ES">🇪🇸 Español</option>
+          <option value="zh-CN">🇨🇳 中文</option>
         </select>
       </div>
     <div class="status">
@@ -178,7 +235,8 @@ tr.row-r td:first-child{border-left:3px solid var(--red)}
     </div>
 
     <div class="side">
-      <div class="field"><label id="lblOpValue" data-i18n="lbl_valor_compra_venda">Valor da compra / venda</label><input id="opValue" value="R$ 55.000,00"></div>
+      <div class="saldo-box"><div class="saldo-label" data-i18n="lbl_saldo_virtual">💰 Saldo virtual disponível</div><input id="saldoVirtual" class="saldo-input" value="R$ 55.000,00" title="Seu saldo virtual para operar. Edite para alterar."></div>
+      <div class="field"><label id="lblOpValue" data-i18n="lbl_valor_compra_venda">Valor por operação</label><input id="opValue" value="R$ 100,00"></div>
       <div class="field"><label id="lblStop">Stop manual (R$)</label><input id="stop" value="R$ 0,00"></div>
       <div class="field"><label data-i18n="lbl_preco_alvo">Preço-alvo calculado</label><input id="target" readonly></div>
       <div>
@@ -193,6 +251,7 @@ tr.row-r td:first-child{border-left:3px solid var(--red)}
         <button class="buy-btn" id="buyBtn" data-i18n="btn_comprar">Iniciar compra simulada</button>
         <button class="sell-btn" id="sellBtn" data-i18n="btn_vender">Agendar venda no preço-alvo</button>
       </div>
+      <button class="reset-forecast-btn" id="resetForecastBtn" data-i18n="btn_reset_forecast">↺ Resetar previsão</button>
       <div class="summary">
         <h3 data-i18n="lbl_resumo">Resumo</h3>
         <div class="mini"><span id="lblBtcAvail">BTC simulado disponível</span><b id="btcAvail">0,00000000</b></div>
@@ -222,19 +281,19 @@ tr.row-r td:first-child{border-left:3px solid var(--red)}
 
 <div id="tooltip"></div>
 <div id="toasts"></div>
-<script src="i18n.js?v=1786288860"></script>
-<script src="eventbus.js?v=1786288860"></script>
-<script src="datastore.js?v=1786288860"></script>
-<script src="forecast.js?v=1786288860"></script>
-<script src="storage.js?v=1786288860"></script>
-<script src="frozenforecast.js?v=1786288860"></script>
-<script src="series.js?v=1786288860"></script>
-<script src="exchangecard.js?v=1786288860"></script>
-<script src="plotarea.js?v=1786288860"></script>
-<script src="renderers.js?v=1786288860"></script>
-<script src="controlpanel.js?v=1786288860"></script>
-<script src="operations.js?v=1786288860"></script>
-<script src="operationstable.js?v=1786288860"></script>
-<script src="app.js?v=1786288860"></script>
+<script src="i18n.js?v=1786304232"></script>
+<script src="eventbus.js?v=1786304232"></script>
+<script src="datastore.js?v=1786858273"></script>
+<script src="forecast.js?v=1786858480"></script>
+<script src="storage.js?v=1786304232"></script>
+<script src="frozenforecast.js?v=1786858451"></script>
+<script src="series.js?v=1786304232"></script>
+<script src="exchangecard.js?v=1786868069"></script>
+<script src="plotarea.js?v=1786858451"></script>
+<script src="renderers.js?v=1786858499"></script>
+<script src="controlpanel.js?v=1786492193"></script>
+<script src="operations.js?v=1786868069"></script>
+<script src="operationstable.js?v=1786836650"></script>
+<script src="app.js?v=1786910241"></script>
 </body>
 </html>

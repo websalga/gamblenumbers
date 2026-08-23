@@ -14,6 +14,13 @@
 (function () {
   const IDIOMAS = [
     { codigo: 'pt-BR', bandeira: '🇧🇷', nome: 'Português' },
+    { codigo: 'fr-FR', bandeira: '🇫🇷', nome: 'Français' },
+    { codigo: 'de-DE', bandeira: '🇩🇪', nome: 'Deutsch' },
+    { codigo: 'it-IT', bandeira: '🇮🇹', nome: 'Italiano' },
+    { codigo: 'ja-JP', bandeira: '🇯🇵', nome: '日本語' },
+    { codigo: 'nl-NL', bandeira: '🇳🇱', nome: 'Nederlands' },
+    { codigo: 'ru-RU', bandeira: '🇷🇺', nome: 'Русский' },
+    { codigo: 'tr-TR', bandeira: '🇹🇷', nome: 'Türkçe' },
     { codigo: 'en-US', bandeira: '🇺🇸', nome: 'English' },
     { codigo: 'es-ES', bandeira: '🇪🇸', nome: 'Español' },
   ];

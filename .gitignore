@@ -5,3 +5,5 @@ config.php
 *.bak
 *.sql
 chumbrega.php
+!docs/*.sql
+!infra/**/*.sql
