@@ -137,6 +137,7 @@ function mapRow($r) {
     'usd_cny'  => $fx('usd_cny'),
     'usd_try'  => $fx('usd_try'),
     'usd_rub'  => $fx('usd_rub'),
+    'fee_p50'  => $fx('fee_p50') ?? 0.0,
   ];
 }
 
@@ -308,6 +309,15 @@ try {
     $col['filterCol'] = $col['filterCol'] ?? "{$col['avg']} IS NOT NULL";
   }
 
+  // ── Taxa de rede (fee_p50): BTC usa est_6_satvb nativo, BCH usa 1 sat/byte, outros 0 ────
+  if ($tipo === 'crypto_fiat' && $moeda === 'BTC') {
+    $selectCols .= ",\n              ISNULL(est_6_satvb, 1.0) AS fee_p50";
+  } elseif ($tipo === 'crypto_fiat') {  // BCH ou outros crypto
+    $selectCols .= ",\n              1.0 AS fee_p50";
+  } else {
+    $selectCols .= ",\n              0.0 AS fee_p50";
+  }
+
   if ($acao === 'atual') {
     if ($tipo === 'crypto_crypto') {
       $tblA = MOEDAS_CRYPTO[$moeda]; $tblC = MOEDAS_CRYPTO[$moedaExibicao];
@@ -390,6 +400,7 @@ try {
       $baseCols = "ts_utc, price_brl, price_brl_binance, price_brl_kraken, price_brl_coinbase, btc_usd, usd_brl";
       if ($tipo === 'crypto_fiat') $baseCols .= ", usd_eur, usd_gbp";
       elseif ($tipo === 'fiat_fiat') $baseCols .= ", usd_eur, usd_gbp, usd_jpy, usd_cny, usd_try, usd_rub";
+      $baseCols .= ', fee_p50';  // taxa de rede (presente em todos os pares)
       // Para crypto_fiat com MOEDAS_FX_COMPUTED: as extras vieram no fxExtras
       $extraAlias = '';
       if ($fxRow) {

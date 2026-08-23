@@ -135,6 +135,7 @@
         moeda: this.moeda,
         moedaExibicao: this.moedaExibicao,
         getRates: () => this.store.latestRates(),
+        getFee:   (t) => this.store.feeAt(t),
       });
       this.operationsTable = new OperationsTable({
         doc, operations: this.operations, now: () => this.store.latestT() || 0,

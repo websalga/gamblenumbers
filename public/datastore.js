@@ -144,6 +144,15 @@ class DataStore {
     return null;
   }
 
+  /**
+   * Feerate (sat/vB) do snapshot mais próximo de t.
+   * Retorna 1.0 como fallback seguro quando não há dado de fee.
+   */
+  feeAt(t) {
+    const snap = (t != null) ? this.nearest(t) : this.latest();
+    return (snap && snap.fee_p50 > 0) ? snap.fee_p50 : 1.0;
+  }
+
   /** Cópia do snapshot mais recente, ou null. */
   latest() { const r = this._rows; return r.length ? { ...r[r.length - 1] } : null; }
 
@@ -457,6 +466,7 @@ function normalizeRow(raw) {
     usd_cny: num(raw.usd_cny),
     usd_try: num(raw.usd_try),
     usd_rub: num(raw.usd_rub),
+    fee_p50: num(raw.fee_p50) ?? 0,  // feerate (sat/vB ou sat/byte) para calculo de taxa de rede
   };
 }
 
