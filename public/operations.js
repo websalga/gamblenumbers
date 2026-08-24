@@ -364,6 +364,29 @@ class OperationsController {
   _onMouseMove(e) {
     const { x, y } = this._coords(e), t = this._plot.invX(x), price = this._plot.invY(y);
     this.mouse = { x, y, inside: true, blinkUntil: this.mouse.blinkUntil || 0 };
+    // Hover sobre marcador de venda agendada → tooltip informativo
+    const _pendSells = this.sells.filter(s => s.status === 'pending');
+    for (const _ps of _pendSells) {
+      const _psx = this._plot.X(_ps.markTime), _psy = this._plot.Y(this.precoOp(_ps));
+      if (Math.hypot(_psx - x, _psy - y) < 20) {
+        const _loc0 = (window.I18N && I18N.idioma) ? I18N.idioma : navigator.language;
+        const _dt0 = new Date(_ps.markTime).toLocaleString(_loc0, { dateStyle: 'short', timeStyle: 'short' });
+        const _mp = this.precoOp(_ps);
+        const _sfr = this._getFee(this._now()), _sf = this._calcFeeBrl(_sfr, _mp);
+        const abrevL0 = _esc(this._t('tooltip_lucro_abrev')), abrevP0 = _esc(this._t('tooltip_prejuizo_abrev'));
+        let _pnl0 = '';
+        this.openLots().slice(0, 4).forEach(l => {
+          const pL = this.precoOp(l);
+          const luc = l.remaining * (_mp - pL) - (l.fee_brl || 0) - _sf;
+          _pnl0 += `<span style="color:${luc >= 0 ? '#22c55e' : '#ef4444'}">${_esc(l.id)} ${luc >= 0 ? abrevL0 : abrevP0} ${this._fmt.brl(Math.abs(luc))}</span> `;
+        });
+        const _feeHtml0 = _sf >= 0.005 ? `<br><span style="color:#94a3b8;font-size:0.9em">⛓ Taxa rede: <b>${this._fmt.brl(_sf)}</b> (${_esc(this._feeLabel(_sfr))})</span>` : '';
+        const _cancelLabel = (window.I18N ? I18N.t('tooltip_cancelar_venda') : null) || 'Clique para cancelar';
+        this._showTip(e, `<b>${_esc(_ps.id)}</b> — ${_esc(_dt0)}<br>${_esc(this._t('tooltip_preco_livre'))} <b>${this._fmt.brl(_mp)}</b><br>${_pnl0}${_feeHtml0}<br><span style="color:#7d8aa3">${_esc(_cancelLabel)}</span>`);
+        this._bus.emit('chart:mouse', { ...this.mouse });
+        return;
+      }
+    }
     if (t > this._now()) {
       const _loc2 = (window.I18N && I18N.idioma) ? I18N.idioma : navigator.language;
       const _dt2 = new Date(t).toLocaleString(_loc2, { dateStyle: 'short', timeStyle: 'short' });

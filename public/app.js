@@ -595,12 +595,22 @@
       setText('avgPrice', weighted > 0 ? BRL(weighted) : '—');
       setText('projProfit', remain > 0 ? BRL(remain * (target - weighted)) : '—');
       setText('btcAvail', BTC(remain));
-      const realized = this.operations.lots.reduce((sum, l) => sum + l.realized, 0);
+      // realized: sell._pnl já é líquido de taxas (sell fee + fração proporcional de buy fee).
+      // Usar diretamente evita dupla contagem que ocorreria ao somar pnl e subtrair totalFees.
+      const realized = this.operations.sells
+        .filter(s => s.status === 'executed')
+        .reduce((sum, s) => sum + this.operations.converterPreco(s._pnl || 0, s.moedaExib), 0);
       const current = this.operations.currentAvg();
       const unreal = this.operations.openLots().reduce((sum, l) => sum + l.remaining * (current - this.operations.precoOp(l)), 0);
-      const pnl = realized + unreal;
+      // Taxas pagas: exibidas separadamente para transparência (não subtraídas do pnl — já estão em _pnl)
+      const totalBuyFees  = this.operations.lots.reduce((s, l) => s + this.operations.converterPreco(l.fee_brl || 0, l.moedaExib), 0);
+      const totalSellFees = this.operations.sells.filter(s => s.status === 'executed').reduce((s, v) => s + this.operations.converterPreco(v.fee_brl || 0, v.moedaExib), 0);
+      const totalFees = totalBuyFees + totalSellFees;
+      const feeTotalEl = this.doc.getElementById('feeTotal');
+      if (feeTotalEl) feeTotalEl.textContent = BRL(totalFees);
+      const netPnl = realized + unreal;
       const pnlEl = this.doc.getElementById('pnl');
-      if (pnlEl) { pnlEl.textContent = BRL(pnl); pnlEl.className = ''; pnlEl.style.color = pnl >= 0 ? '#22c55e' : '#ef4444'; }
+      if (pnlEl) { pnlEl.textContent = BRL(netPnl); pnlEl.className = ''; pnlEl.style.color = netPnl >= 0 ? '#22c55e' : '#ef4444'; }
       const cost = this.operations.openLots().reduce((sum, l) => sum + l.remaining * this.operations.precoOp(l), 0);
       const ret = cost > 0 ? unreal / cost * 100 : 0;
       const retEl = this.doc.getElementById('retNow');
