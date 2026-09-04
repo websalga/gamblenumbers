@@ -62,7 +62,7 @@ function btc_balance(string $address): array {
         return ['valid'=>false, 'balance'=>'0'];
     }
     $req = ['id'=>1,'method'=>'blockchain.address.get_balance','params'=>[$address]];
-    $resp = electrum_query('192.168.18.111', 50001, $req);
+    $resp = electrum_query('192.168.18.149', 50002, $req);
     if (!$resp || isset($resp['error'])) return ['valid'=>true, 'balance'=>'0', 'query_error'=>true];
     $sat = ($resp['result']['confirmed'] ?? 0) + ($resp['result']['unconfirmed'] ?? 0);
     $btc = number_format($sat / 1e8, 8, '.', '');
@@ -204,6 +204,49 @@ try {
                 'bch_habilitado'=> $bchHab,
                 'btc_saldo'     => $btcHab ? $btcResult['balance'] : '0',
                 'bch_saldo'     => $bchHab ? $bchResult['balance'] : '0',
+            ]);
+        })(),
+
+        /* ---- refresh_balance: reconsulta saldo on-chain dos enderecos ja salvos ---- */
+        'refresh_balance' => (function() use ($body) {
+            $sid = trim($body['session_id'] ?? '');
+            if (strlen($sid) !== 64) { echo json_encode(['error'=>'session_id inválido']); return; }
+
+            $st = db()->prepare('SELECT btc_address, bch_address, btc_habilitado, bch_habilitado
+                FROM dbo.GN_Usuarios WHERE session_id=?');
+            $st->execute([$sid]);
+            $row = $st->fetch();
+            if (!$row) { echo json_encode(['error'=>'sessão não encontrada']); return; }
+
+            $btcNovo = null; $bchNovo = null;
+            if ($row['btc_habilitado'] && $row['btc_address']) {
+                $r = btc_balance($row['btc_address']);
+                if ($r['valid'] && empty($r['query_error'])) $btcNovo = $r['balance'];
+            }
+            if ($row['bch_habilitado'] && $row['bch_address']) {
+                $r = bch_balance($row['bch_address']);
+                if ($r['valid'] && empty($r['query_error'])) $bchNovo = $r['balance'];
+            }
+
+            // So sobrescreve no banco os saldos que vieram bem; um erro pontual
+            // na rede/Fulcrum nao apaga o ultimo valor conhecido do usuario.
+            $sets = ['ultimo_acesso=GETUTCDATE()']; $params = [];
+            if ($btcNovo !== null) { $sets[] = 'btc_saldo_visto=?'; $params[] = $btcNovo; }
+            if ($bchNovo !== null) { $sets[] = 'bch_saldo_visto=?'; $params[] = $bchNovo; }
+            $params[] = $sid;
+            db()->prepare('UPDATE dbo.GN_Usuarios SET '.implode(', ', $sets).' WHERE session_id=?')
+                ->execute($params);
+
+            $st2 = db()->prepare('SELECT btc_saldo_visto, bch_saldo_visto FROM dbo.GN_Usuarios WHERE session_id=?');
+            $st2->execute([$sid]);
+            $cur = $st2->fetch();
+
+            echo json_encode([
+                'session_id'     => $sid,
+                'btc_habilitado' => (bool)$row['btc_habilitado'],
+                'bch_habilitado' => (bool)$row['bch_habilitado'],
+                'btc_saldo'      => $cur['btc_saldo_visto'],
+                'bch_saldo'      => $cur['bch_saldo_visto'],
             ]);
         })(),
 
