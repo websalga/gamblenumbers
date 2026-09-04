@@ -282,7 +282,26 @@
       {detail: window.GNIdentity.session || {mode:'simulation'}}));
   }
 
-  window.GNIdentity = { session: null, init };
+  /* --- Reconsulta saldo on-chain dos enderecos ja salvos (botao "atualizar saldo") ---
+   * So faz sentido em modo real (ha session_id). Atualiza window.GNIdentity.session,
+   * o cache local (localStorage) e dispara 'gn:identity:updated' p/ quem estiver
+   * escutando (app.js) recalcular e re-renderizar o saldo. Retorna a sessao
+   * atualizada, ou null se nao havia sessao real ou a chamada falhou. */
+  async function refresh() {
+    const s = window.GNIdentity.session;
+    if (!s || !s.session_id) return null;
+    try {
+      const r = await api('refresh_balance', { session_id: s.session_id });
+      if (!r || r.error) return null;
+      const merged = Object.assign({}, s, r);
+      window.GNIdentity.session = merged;
+      saveSess(merged);
+      window.dispatchEvent(new CustomEvent('gn:identity:updated', { detail: merged }));
+      return merged;
+    } catch (e) { return null; }
+  }
+
+  window.GNIdentity = { session: null, init, refresh };
   if (document.readyState==='loading')
     document.addEventListener('DOMContentLoaded', init);
   else init();

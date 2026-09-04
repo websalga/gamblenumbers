@@ -466,9 +466,106 @@
       if (selIdioma) selIdioma.addEventListener('change', recarregar);
     }
 
+    /* ============================================================
+     * Identidade anonima (GNIdentity) <-> saldo total exibido.
+     *
+     * Modo simulacao (nenhum endereco informado): campo #saldoVirtual
+     * continua editavel pelo usuario, exatamente como sempre foi.
+     *
+     * Modo real (BTC e/ou BCH informado e habilitado): campo fica
+     * bloqueado (readOnly) e o valor mostrado passa a ser CALCULADO -
+     * saldo on-chain (BTC e/ou BCH) convertido para USD e depois para
+     * a moeda de exibicao atual (this.moedaExibicao), reaproveitando
+     * this.operations.converterPreco (mesma logica de USD-pivot usada
+     * em todo o resto do app). O botao #btnAtualizarSaldo permite ao
+     * usuario forcar uma nova leitura on-chain sem recarregar a pagina.
+     * ============================================================ */
+    _wireIdentity() {
+      const apply = (session) => { this._applyIdentity(session); };
+      window.addEventListener('gn:identity:ready', e => apply(e.detail));
+      window.addEventListener('gn:identity:updated', e => apply(e.detail));
+
+      const btn = this.doc.getElementById('btnAtualizarSaldo');
+      if (btn) {
+        btn.addEventListener('click', async () => {
+          if (!window.GNIdentity || typeof window.GNIdentity.refresh !== 'function') return;
+          const original = btn.innerHTML;
+          btn.disabled = true; btn.innerHTML = '&hellip;';
+          try {
+            const s = await window.GNIdentity.refresh();
+            this.toast(s ? 'ok' : 'warn', s
+              ? ('Saldo atualizado a partir da blockchain.')
+              : ('Não foi possível atualizar o saldo agora.'));
+          } finally {
+            btn.disabled = false; btn.innerHTML = original;
+          }
+        });
+      }
+      // A sessao pode ja ter resolvido (cache local) antes deste listener existir.
+      if (window.GNIdentity && window.GNIdentity.session) apply(window.GNIdentity.session);
+    }
+
+    /** Aplica o estado de identidade (real/simulacao) ao campo de saldo. */
+    async _applyIdentity(session) {
+      const input = this.doc.getElementById('saldoVirtual');
+      const btn   = this.doc.getElementById('btnAtualizarSaldo');
+      const modo  = this.doc.getElementById('saldoModo');
+      if (!input) return;
+      const real = !!(session && (session.btc_habilitado || session.bch_habilitado));
+      this._saldoReal = real;
+      input.readOnly = real;
+      input.title = real
+        ? ('Saldo calculado a partir dos seus endereços. Use o botão para atualizar.')
+        : ('Seu saldo virtual para operar. Edite para alterar.');
+      if (btn) btn.hidden = !real;
+      if (modo) {
+        if (!real) { modo.textContent = 'Modo simulação'; }
+        else {
+          const partes = [];
+          if (session.btc_habilitado) partes.push('BTC');
+          if (session.bch_habilitado) partes.push('BCH');
+          modo.textContent = ('Modo real') + ' · ' + partes.join(' + ');
+        }
+      }
+      if (!real) return; // simulacao: nao ha nada a calcular, mantem comportamento atual
+
+      const totalUsd = await this._saldoRealEmUsd(session);
+      if (totalUsd == null) return; // sem cotacao disponivel agora - preserva ultimo valor exibido
+      const valorExib = this.operations.converterPreco(totalUsd, 'USD');
+      if (valorExib >= 0) this.panel.setSaldo(valorExib);
+    }
+
+    /** Soma (BTC*preco_usd + BCH*preco_usd) das carteiras habilitadas. Retorna null se nao conseguiu nenhum preco. */
+    async _saldoRealEmUsd(session) {
+      try {
+        const [btcUsd, bchUsd] = await Promise.all([
+          session.btc_habilitado ? this._precoCryptoUsd('BTC') : Promise.resolve(null),
+          session.bch_habilitado ? this._precoCryptoUsd('BCH') : Promise.resolve(null),
+        ]);
+        let total = 0, obtido = false;
+        if (session.btc_habilitado && btcUsd > 0) { total += (parseFloat(session.btc_saldo) || 0) * btcUsd; obtido = true; }
+        if (session.bch_habilitado && bchUsd > 0) { total += (parseFloat(session.bch_saldo) || 0) * bchUsd; obtido = true; }
+        return obtido ? total : null;
+      } catch (e) { return null; }
+    }
+
+    /** Preco USD atual de BTC ou BCH (independe da moeda_exibicao do site). */
+    async _precoCryptoUsd(moedaCrypto) {
+      if (moedaCrypto === this.moeda) {
+        const l = this.store.latest();
+        if (l && l.btc_usd > 0) return l.btc_usd;
+      }
+      try {
+        const r = await fetch(`api.php?acao=atual&moeda=${moedaCrypto}`, { cache: 'no-store' });
+        const j = await r.json();
+        return (j && j.ok && j.data && j.data.btc_usd > 0) ? j.data.btc_usd : null;
+      } catch (e) { return null; }
+    }
+
     _wire() {
       this._wireZoom();
       this._wireSeletores();
+      this._wireIdentity();
       this.store.onChange(async () => {
         this.operations.processPending();
         // Calibração do par — aplicada depois dos dados (garante que cfg
