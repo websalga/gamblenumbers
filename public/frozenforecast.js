@@ -16,7 +16,7 @@
  *     o trecho faltante na BORDA DIREITA, retomando do último ponto.
  *   - Escala maior -> menor: nada é gerado (geração congelada).
  *
- * NÃO altera forecast.js — apenas a consome uma vez por trecho.
+ * Resolução por horizonte, calibrada apenas com observações reais.
  * ============================================================ */
 (function () {
   class FrozenForecast {
@@ -27,6 +27,7 @@
       }
       this._forecast = deps.forecast;
       this._premium = deps.premium || { avg: 0, binance: 0, kraken: 0, coinbase: 0 };
+      this._history = [];
       this._master = [];
       this._baseT = null;
       this._stepMs = null;
@@ -41,70 +42,77 @@
 
     /** Repassa calibração para o Forecast global. */
   applyConfig(cfg) {
-    if (window.Forecast && window.Forecast.applyConfig) window.Forecast.applyConfig(cfg);
+    if (this._forecast.applyConfig) this._forecast.applyConfig(cfg);
   }
   toJSON() {
-      return { baseT: this._baseT, stepMs: this._stepMs, spread: this._spread, master: this._master };
+      return { version: 2, history: this._history, baseT: this._baseT, stepMs: this._stepMs, spread: this._spread, master: this._master };
     }
     fromJSON(o) {
-      if (!o || !Array.isArray(o.master)) return this;
+      if (!o || o.version !== 2 || !Array.isArray(o.master) || !Array.isArray(o.history)) return this;
       this._master = o.master.slice();
+      this._history = o.history.slice();
       this._baseT = (o.baseT != null) ? o.baseT : (this._master[0] ? this._master[0].t : null);
       this._stepMs = o.stepMs || null;
       this._spread = o.spread || this._spread;
       return this;
     }
-    reset() { this._master = []; this._baseT = null; this._stepMs = null; return this; }
+    reset() { this._history = []; this._master = []; this._baseT = null; this._stepMs = null; return this; }
 
     /**
      * Garante cobertura até untilT. Cria na 1a vez; depois só COMPLEMENTA
      * a borda direita. Retorna quantos pontos novos entraram.
      */
-    ensure(hist, untilT, _stepHint) {
-      if (!Array.isArray(hist) || hist.length < 2) return 0;
-
-      // Passo da linha-mestra: SEMPRE 6h, independente do período de display.
-      // Isso garante que a previsão nunca muda de forma ao trocar de escala.
-      // 4000 pts × 6h = ~1000 dias (~2,7 anos) de cobertura máxima.
-      const MASTER_STEP = 6 * 3600 * 1000;
-      const MASTER_MAX  = 4000;
-
-      // ── Primeira criação ────────────────────────────────────────────────
+    ensure(hist, untilT) {
+      const valid = (hist || []).filter(p => Number.isFinite(p.t) && Number.isFinite(+p.avg) && p.avg > 0)
+        .sort((a, b) => a.t - b.t).filter((p, i, a) => !i || p.t > a[i - 1].t);
       if (!this.hasMaster) {
-        this._baseT  = hist[hist.length - 1].t;
-        this._stepMs = MASTER_STEP;
-        this._spread = computeSpread(hist);
-        const span = Math.max(0, untilT - this._baseT);
-        const n    = Math.min(MASTER_MAX, Math.max(1, Math.ceil(span / this._stepMs)));
-        const histResampled = resampleParaPasso(hist, this._stepMs);
-        const raw  = this._forecast.project(histResampled, n, this._premium);
-        this._appendFromRaw(raw, this._baseT, this._stepMs);
-        return this._master.length;
+        if (valid.length < 4) return 0;
+        this._history = valid.slice(-4000).map(p => ({ ...p }));
+        const gaps = [];
+        for (let i = 1; i < this._history.length; i++) {
+          const gap = this._history[i].t - this._history[i - 1].t;
+          if (gap > 0) gaps.push(gap);
+        }
+        gaps.sort((a, b) => a - b);
+        // Never invent sub-minute market observations. Freeze calibration
+        // with the forecast, independently of the selected display period.
+        this._stepMs = Math.max(60000, gaps[gaps.length >> 1] || 300000);
+        this._baseT = this._history[this._history.length - 1].t;
+        this._spread = computeSpread(this._history);
+        const last = this._history[this._history.length - 1];
+        for (const k of ['binance', 'kraken', 'coinbase']) {
+          if (last[k] > 0) this._spread[k] = last[k] / last.avg - 1;
+        }
+        this._master.push({ ...last, avg: +last.avg });
       }
-
-      // ── Extensão: só avança a borda direita, sempre no passo congelado ─
-      const edge = this.edgeT;
-      if (untilT <= edge) return 0;
-      if (this._master.length >= MASTER_MAX) return 0;
-
-      const missing = Math.min(
-        MASTER_MAX - this._master.length,
-        Math.ceil((untilT - edge) / this._stepMs)
-      );
-      if (missing <= 0) return 0;
-
-      const histNoPassoCongelado = resampleParaPasso(hist, this._stepMs);
-      const seedHist = histNoPassoCongelado.concat(
-        this._master.map(function (m) { return { avg: m.avg }; })
-      );
-      const raw = this._forecast.project(seedHist, missing, this._premium);
-      this._appendFromRaw(raw, edge, this._stepMs);
-      return missing;
+      const before = this.length;
+      const day = 86400000;
+      // Fine near-term detail; bounded memory even for the five-year view.
+      const tiers = [
+        [day, this._stepMs],
+        [7 * day, Math.max(this._stepMs, 3600000)],
+        [90 * day, Math.max(this._stepMs, 21600000)],
+        [Infinity, Math.max(this._stepMs, day)],
+      ];
+      while (this.edgeT < untilT && this.length < 12000) {
+        const previousLength = this.length;
+        const elapsed = this.edgeT - this._baseT;
+        const [limit, step] = tiers.find(([limit]) => elapsed < limit);
+        const stop = Math.min(untilT, this._baseT + limit);
+        const n = Math.min(12000 - this.length, Math.max(1, Math.ceil((stop - this.edgeT) / step)));
+        const calibration = resampleParaPasso(this._history, step);
+        const anchor = this._master[this.length - 1].avg;
+        // project[0] is the anchor, not the next future observation.
+        const raw = this._forecast.project(calibration, n + 1, this._premium, anchor, step);
+        this._appendFromRaw(raw.slice(1), this.edgeT, step);
+        if (this.length === previousLength || !raw.length) break;
+      }
+      return this.length - before;
     }
 
     /** Recorta a linha-mestra para [fromT,toT] no passo pedido.
      *  Usa interpolação linear (via priceAt) para que qualquer período de
-     *  display funcione com o master de 6h. Não regenera nada. */
+     *  display funcione com a grade de resolução variável. Não regenera nada. */
     slice(fromT, toT, stepMs) {
       if (!this.hasMaster || !(stepMs > 0) || !(toT > fromT)) return [];
       const sp  = this._spread;
@@ -149,10 +157,10 @@
       }
       if (!(step > 0) || out.length <= 2) return out;
       // reduz a amostragem para não poluir a tela em escalas longas
-      const passo = Math.max(1, Math.round(step / this._stepMs));
-      if (passo <= 1) return out;
-      const red = [];
-      for (let i = 0; i < out.length; i += passo) red.push(out[i]);
+      const red = [out[0]];
+      for (const p of out.slice(1)) {
+        if (p.t - red[red.length - 1].t >= step) red.push(p);
+      }
       if (red[red.length - 1] !== out[out.length - 1]) red.push(out[out.length - 1]);
       return red;
     }
@@ -234,11 +242,15 @@
     // 'inventar' resolucao muito mais fina do que o hist realmente tem)
     if (n > hist.length * 20) return hist;
     const out = [];
+    const gaps = hist.slice(1).map((p, i) => p.t - hist[i].t).filter(g => g > 0).sort((a, b) => a - b);
+    const maxGap = 4 * (gaps[gaps.length >> 1] || passoMs);
     let idx = 0;
     for (let i = 0; i < n; i++) {
       const t = t0 + i * passoMs;
       while (idx < hist.length - 2 && hist[idx + 1].t < t) idx++;
       const a = hist[idx], b = hist[Math.min(idx + 1, hist.length - 1)];
+      // Não interpolar através de uma interrupção prolongada da coleta.
+      if (b.t - a.t > maxGap && t !== a.t && t !== b.t) continue;
       const span = (b.t - a.t) || 1;
       const u = Math.max(0, Math.min(1, (t - a.t) / span));
       out.push({

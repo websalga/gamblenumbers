@@ -115,7 +115,17 @@ class SeriesRenderer {
 class TargetLineRenderer {
   draw(plot, data) {
     const ctx = plot.ctx; if (!ctx || data.target == null) return;
-    const y = plot.Y(data.target);
+    const outside = data.target > plot.pMax || data.target < plot.pMin;
+    const y = outside
+      ? (data.target > plot.pMax ? plot.pad.t + 28 : plot.h - plot.pad.b - 12)
+      : plot.Y(data.target);
+    if (outside) {
+      ctx.fillStyle = plot.color('target'); ctx.textAlign = 'right'; ctx.font = '11px monospace';
+      ctx.fillText((data.target > plot.pMax ? '↑ ' : '↓ ') +
+        (window.I18N ? I18N.t('chart_alvo') : 'ALVO') + ' ' + data.fmtBRL(data.target),
+        plot.w - plot.pad.r - 4, y);
+      return;
+    }
     ctx.strokeStyle = plot.color('target'); ctx.setLineDash([6, 4]); ctx.lineWidth = 1.2;
     ctx.beginPath(); ctx.moveTo(plot.pad.l, y); ctx.lineTo(plot.w - plot.pad.r, y); ctx.stroke(); ctx.setLineDash([]);
     ctx.fillStyle = plot.color('target'); ctx.textAlign = 'left'; ctx.font = '10px monospace';
@@ -298,3 +308,4 @@ const Renderers = {
 
 if (typeof module !== 'undefined' && module.exports) module.exports = Renderers;
 if (typeof window !== 'undefined') Object.assign(window, Renderers);
+

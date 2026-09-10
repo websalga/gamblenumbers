@@ -114,6 +114,27 @@ function colunas(string $moeda, string $moedaExibicao, float $fxRate = 1.0): arr
   ];
 }
 
+/**
+ * Taxa de conversao de BRL para a moeda de exibicao escolhida, usando a
+ * linha mais recente de FX_Snapshots (mesma fonte que o restante da API
+ * ja usa para JPY/CNY/TRY/RUB). Retorna null se a taxa nao puder ser
+ * resolvida (nesse caso o chamador deve manter os valores em BRL).
+ */
+function fxRateFromBrl(PDO $pdo, string $moedaExibicao): ?float {
+  if ($moedaExibicao === 'BRL') return 1.0;
+  $row = $pdo->query(
+    "SELECT TOP 1 usd_brl,usd_eur,usd_gbp,usd_jpy,usd_cny,usd_try,usd_rub FROM dbo.FX_Snapshots WHERE ok=1 ORDER BY ts_utc DESC"
+  )->fetch(PDO::FETCH_ASSOC);
+  if (!$row || empty($row['usd_brl'])) return null;
+  $usdBrl = (float)$row['usd_brl'];
+  if ($usdBrl <= 0) return null;
+  if ($moedaExibicao === 'USD') return 1.0 / $usdBrl;
+  $col = 'usd_' . strtolower($moedaExibicao);
+  if (!isset($row[$col]) || $row[$col] === null) return null;
+  $usdTarget = (float)$row[$col];
+  return $usdTarget / $usdBrl;
+}
+
 // converte 'YYYY-MM-DD HH:MM:SS' (UTC) em epoch ms
 function toMs($ts) {
   $t = strtotime($ts . ' UTC');
@@ -147,6 +168,57 @@ try {
   $moedaExibicao = moedaExibicaoSelecionada();
   $pdo          = db();
   $tipo         = tipoPar($moeda, $moedaExibicao);
+
+
+  // ── Endpoint de extratos BTC/BCH por sessão ───────────────────────────
+  if ($acao === 'extratos') {
+    $sessionId = $_GET['session_id'] ?? '';
+    if (!preg_match('/^[a-f0-9]{64}$/', $sessionId)) {
+      http_response_code(400);
+      echo json_encode(['ok'=>false,'error'=>'Sessão inválida.']);
+      exit;
+    }
+    $stmt = $pdo->prepare("SELECT session_id FROM dbo.GN_Usuarios WHERE session_id = ?");
+    $stmt->execute([$sessionId]);
+    if (!$stmt->fetch(PDO::FETCH_ASSOC)) {
+      http_response_code(404);
+      echo json_encode(['ok'=>false,'error'=>'Sessão não encontrada.']);
+      exit;
+    }
+    $stmt = $pdo->prepare("SELECT asset, address, last_checked_utc, last_height, total_coin, tx_count, utxo_count, status, last_error, price_brl, price_ts_utc, value_brl FROM dbo.vw_GN_AddressStatementSummary WHERE session_id = ? ORDER BY asset");
+    $stmt->execute([$sessionId]);
+    $summary = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    $stmt = $pdo->prepare("SELECT TOP (200) asset, address, observed_at_utc, block_height, event_type, total_coin, delta_coin, price_brl, value_brl, delta_value_brl, source_host FROM dbo.vw_GN_AddressStatementEvents WHERE session_id = ? ORDER BY observed_at_utc DESC, asset");
+    $stmt->execute([$sessionId]);
+    $events = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    // Converte os valores monetarios (nativamente em BRL nas views) para a
+    // moeda de exibicao escolhida pelo usuario (?moeda_exibicao=USD|EUR|...).
+    // O front informa qual moeda foi de fato aplicada via 'moeda_exibicao'
+    // na resposta, mesmo quando a taxa nao pode ser resolvida (fallback BRL).
+    $moedaAplicada = 'BRL';
+    $fxRate = fxRateFromBrl($pdo, $moedaExibicao);
+    if ($fxRate !== null) {
+      $moedaAplicada = $moedaExibicao;
+      if ($fxRate != 1.0) {
+        foreach ($summary as &$row) {
+          foreach (['price_brl', 'value_brl'] as $k) {
+            if (isset($row[$k]) && $row[$k] !== null) $row[$k] = (float)$row[$k] * $fxRate;
+          }
+        }
+        unset($row);
+        foreach ($events as &$row) {
+          foreach (['price_brl', 'value_brl', 'delta_value_brl'] as $k) {
+            if (isset($row[$k]) && $row[$k] !== null) $row[$k] = (float)$row[$k] * $fxRate;
+          }
+        }
+        unset($row);
+      }
+    }
+
+    echo json_encode(['ok'=>true,'session_id'=>$sessionId,'moeda_exibicao'=>$moedaAplicada,'summary'=>$summary,'events'=>$events]);
+    exit;
+  }
 
   // ── Endpoint de configuração do par (Chart_Config) ────────────────────
   if ($acao === 'config') {

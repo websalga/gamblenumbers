@@ -61,7 +61,13 @@
                              'it-IT', 'ja-JP', 'nl-NL', 'ru-RU', 'tr-TR', 'zh-CN'];
       const _rawMoeda     = (qs.get('moeda') || '').toUpperCase();
       const _rawExib      = (qs.get('moeda_exibicao') || '').toUpperCase();
-      const _rawIdioma    = qs.get('idioma') || '';
+      // Preferencia de idioma escolhida na tela inicial (identity.js) fica
+      // salva em localStorage (gn_idioma) e vale para toda a navegacao,
+      // mesmo sem ?idioma= na URL. A URL, quando presente, ainda manda
+      // (permite compartilhar link num idioma especifico).
+      let _storedIdioma = '';
+      try { _storedIdioma = localStorage.getItem('gn_idioma') || ''; } catch (e) { /* ignore */ }
+      const _rawIdioma    = qs.get('idioma') || _storedIdioma || '';
       this.moeda          = _MOEDAS_OK.includes(_rawMoeda)  ? _rawMoeda  : 'BTC';
       this.moedaExibicao  = _EXIB_OK.includes(_rawExib)     ? _rawExib   : 'BRL';
       this.idioma         = _IDIOMAS_OK.includes(_rawIdioma) ? _rawIdioma : 'pt-BR';
@@ -75,6 +81,9 @@
       }
 
       this.store = new DataStore({ moeda: this.moeda, moedaExibicao: this.moedaExibicao });
+      this._forecastReady = false;
+      this._forecastHistory = [];
+      this._calibrationStore = new DataStore({ moeda: this.moeda, moedaExibicao: this.moedaExibicao });
       this.chartConfig = null; // preenchido por _loadChartConfig()
       this.periodId = sessionStorage.getItem('gn_period') || '1H';
       this.real = new RealSeries({ store: this.store });
@@ -199,7 +208,8 @@
       // As séries continuam ancoradas no AGORA real (o histórico termina nele
       // e a projeção começa nele). O pan não muda os dados, só a janela pela
       // qual olhamos — por isso as marcas nunca "descolam" ao rolar.
-      return { hist: this.real.points(this.period(), endT), fut: this.projected.points(this.period(), endT) };
+      if (this._forecastReady) this.frozen.ensure(this._forecastHistory, endT + this.spanMs());
+      return { hist: this.real.points(this.period(), endT), fut: this._forecastReady ? this.projected.points(this.period(), endT) : [] };
     }
 
     /** Move a janela em N pixels de tela (converte px -> tempo). */
@@ -263,7 +273,8 @@
     async _restore() {
       try {
         const fc = await this.localStore.get('forecast');
-        if (fc && Array.isArray(fc.master) && fc.master.length && (fc.moedaExib || 'BRL') === this.moedaExibicao) this.frozen.fromJSON(fc);
+        if (fc && fc.version !== 2) await this.localStore.set('forecast_legacy_v1', fc);
+        if (fc && fc.version === 2 && Array.isArray(fc.master) && fc.master.length && (fc.moedaExib || 'BRL') === this.moedaExibicao) this.frozen.fromJSON(fc);
         const ops = await this.opsStore.get('operations');
         if (ops) {
           if (Array.isArray(ops.lots)) this.operations.lots = ops.lots;
@@ -356,7 +367,7 @@
       // Botão "Resetar previsão"
       const resetBtn = this.doc.getElementById('resetForecastBtn');
       if (resetBtn) {
-        resetBtn.onclick = () => {
+        resetBtn.onclick = async () => {
           const hasPendingSells = this.operations &&
             this.operations.sells &&
             this.operations.sells.some(s => s.status === 'pending');
@@ -364,13 +375,15 @@
             ? T('confirm_reset_forecast_sells')
             : T('confirm_reset_forecast');
           if (!window.confirm(msg)) return;
+          await this._loadForecastHistory();
           // Reset do frozen forecast + localStore
           if (this.frozen) this.frozen.reset();
           if (this.localStore && this.localStore.available) {
             this.localStore.del('forecast').catch(() => {});
           }
           // Força re-render imediato para gerar nova previsão
-          this._render();
+          this.renderCards(); this.renderChart(); this.renderSidePanel();
+          this._persist();
         };
       }
     }
@@ -455,6 +468,7 @@
           selExib.value = selMoeda.value === 'BRL' ? 'USD' : 'BRL';
         }
         sessionStorage.setItem('gn_period', this.periodId);
+        if (selIdioma) { try { localStorage.setItem('gn_idioma', selIdioma.value); } catch (e) { /* ignore */ } }
         const qs = new URLSearchParams(location.search);
         qs.set('moeda', selMoeda.value);
         qs.set('moeda_exibicao', selExib.value);
@@ -609,7 +623,7 @@
       const endT = this.store.latestT(); if (endT == null) return;
       const { hist, fut } = this.seriesData(), all = hist.concat(fut);
       const target = this.operations.targetPrice();
-      const extraPrices = [target]
+      const extraPrices = []
         .concat(this.operations.lots.map(l => this.operations.precoOp(l)))
         .concat(this.operations.sells.filter(s => s.status === 'pending').map(s => this.operations.precoOp(s)));
       this.plot.resize();
@@ -845,6 +859,13 @@
       tick(); setInterval(tick, 1000);
     }
 
+    async _loadForecastHistory() {
+      const end = this.store.latestT();
+      if (end == null) return;
+      await this._calibrationStore.loadRange(end - 7 * 86400000, end, 4000);
+      this._forecastHistory = this._calibrationStore.between(end - 7 * 86400000, end);
+    }
+
     async init() {
       if (window.I18N) {
         await I18N.load(this.idioma);
@@ -866,8 +887,11 @@
         }
       }
       catch (e) { const upd = this.doc.getElementById('updated'); if (upd) upd.textContent = window.I18N ? I18N.t('falha_backend') : 'Falha ao conectar ao backend'; return; }
+      // Calibration has a stable seven-day window, separate from the viewport.
+      await this._loadForecastHistory();
       // Persistência: abre o IndexedDB e recupera projeção/operações salvas.
       try { await this.localStore.open(); await this.opsStore.open(); await this._restore(); } catch (e) { /* segue sem persistir */ }
+      this._forecastReady = true;
       // Converter saldo se o usuário trocou de moeda desde a última sessão
       { const _sm = sessionStorage.getItem('gn_saldo_moeda') || 'BRL';
         if (_sm !== this.moedaExibicao) {
@@ -885,6 +909,7 @@
       await this._loadChartConfig();
       this._applyChartConfig();
       this.renderCards(); this.renderChart(); this.renderSidePanel(); this.operationsTable.render(); this.updateStatus();
+      this._persist();
       // Rerender defensivo: em alguns casos (ex: taxas de cambio ainda nao
       // totalmente assentadas no primeiro ciclo) o painel lateral pode
       // calcular lucro/prejuizo com fallback incorreto na primeira pintura.

@@ -161,7 +161,30 @@ tr.row-r td:first-child{border-left:3px solid var(--red)}
       }
       .saldo-refresh-btn:hover:not(:disabled) { background: #22c55e22; }
       .saldo-refresh-btn:disabled { opacity: .5; cursor: default; }
+      .saldo-danger-btn {
+        background: transparent; border: 1px solid #ef444455; color: #ef4444;
+        border-radius: 6px; width: 30px; height: 30px; font-size: 14px;
+        cursor: pointer; flex-shrink: 0; line-height: 1;
+      }
+      .saldo-danger-btn:hover { background: #ef444422; }
       .saldo-modo { font-size: 10px; color: #7d8aa3; margin-top: 4px; }
+.topnav{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.topnav button{background:var(--panel2);border:1px solid var(--border);color:var(--muted);padding:6px 12px;border-radius:7px;cursor:pointer;font-size:12px;font-weight:700}
+.topnav button:hover,.topnav button.active{border-color:var(--avg);color:var(--txt)}
+#extratosView{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:14px}
+.statements-layout{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}
+.statement-card{background:var(--panel2);border:1px solid var(--border);border-radius:10px;padding:12px;overflow:auto}
+.statement-total{margin-top:12px;background:linear-gradient(135deg,#0f2a1a 0%,#0a1f2e 100%);border-color:#22c55e55}
+.statement-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;margin-bottom:10px}
+.statement-head h3,#extratosView h2,.statement-card h3{font-size:13px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-bottom:4px}
+.statement-head small{display:block;color:var(--muted);font-family:monospace;font-size:10px;max-width:310px;overflow:hidden;text-overflow:ellipsis}
+.statement-balance{text-align:right}.statement-balance b{display:block;color:var(--txt);font-size:15px}.statement-balance span{color:var(--green);font-size:12px}
+.statement-kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:8px 0 10px}
+.statement-kpis div{background:#070c18;border:1px solid var(--border);border-radius:8px;padding:8px}.statement-kpis span,.statement-kpis small{display:block;color:var(--muted);font-size:10px}.statement-kpis b{display:block;margin-top:3px;color:var(--txt);font-size:12px}
+.statement-table{min-width:620px}.statement-table tr.in td:first-child{border-left:3px solid var(--green)}.statement-table tr.out td:first-child{border-left:3px solid var(--red)}.statement-table .empty{text-align:center;color:var(--muted);padding:18px}.total-value{font-size:28px;font-weight:800;color:var(--green);margin:8px 0}.total-grid{grid-template-columns:repeat(2,1fr)}
+.extratos-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px}.extratos-actions button{background:#1b2740;color:#e8edf7;border:1px solid #2b3a5c;border-radius:6px;padding:6px 10px;font-size:11px;cursor:pointer}
+@media(max-width:900px){.statements-layout{grid-template-columns:1fr}}
+
     </style>
 </head>
 <body>
@@ -221,6 +244,10 @@ tr.row-r td:first-child{border-left:3px solid var(--red)}
           <option value="zh-CN">🇨🇳 中文</option>
         </select>
       </div>
+
+    <nav class="topnav">
+      <button id="navExtratos" type="button" data-i18n="nav_extratos">Extratos</button>
+    </nav>
     <div class="status">
       <div><span class="dot"></span><span data-i18n="sistema_ativo">Sistema ativo</span></div>
       <div id="updated">Dados atualizados há 0s</div>
@@ -228,6 +255,7 @@ tr.row-r td:first-child{border-left:3px solid var(--red)}
     </div>
   </header>
 
+  <div id="simulatorView">
   <div class="cards" id="cards"></div>
 
   <div class="main">
@@ -245,7 +273,7 @@ tr.row-r td:first-child{border-left:3px solid var(--red)}
     </div>
 
     <div class="side">
-      <div class="saldo-box"><div class="saldo-label" data-i18n="lbl_saldo_virtual">💰 Saldo virtual disponível</div><div class="saldo-row"><input id="saldoVirtual" class="saldo-input" value="R$ 55.000,00" title="Seu saldo virtual para operar. Edite para alterar."><button id="btnAtualizarSaldo" class="saldo-refresh-btn" type="button" hidden title="Atualizar saldo a partir da blockchain">&#10227;</button></div><div class="saldo-modo" id="saldoModo"></div></div>
+      <div class="saldo-box"><div class="saldo-label" data-i18n="lbl_saldo_virtual">💰 Saldo virtual disponível</div><div class="saldo-row"><input id="saldoVirtual" class="saldo-input" value="R$ 55.000,00" title="Seu saldo virtual para operar. Edite para alterar."><button id="btnAtualizarSaldo" class="saldo-refresh-btn" type="button" hidden title="Atualizar saldo a partir da blockchain">&#10227;</button><button id="btnSairApagar" class="saldo-danger-btn" type="button" title="Sair e apagar todos os meus dados deste site">&#128465;</button></div><div class="saldo-modo" id="saldoModo"></div></div>
       <div class="field"><label id="lblOpValue" data-i18n="lbl_valor_compra_venda">Valor por operação</label><input id="opValue" value="R$ 100,00"></div>
       <div class="field"><label id="lblStop">Stop manual (R$)</label><input id="stop" value="R$ 0,00"></div>
       <div class="field"><label data-i18n="lbl_preco_alvo">Preço-alvo calculado</label><input id="target" readonly></div>
@@ -288,24 +316,42 @@ tr.row-r td:first-child{border-left:3px solid var(--red)}
       <tbody id="opsBody"></tbody>
     </table>
   </div>
+  </div>
+
+  <section id="extratosView" hidden>
+    <h2 data-i18n="extratos_titulo">Extratos</h2>
+    <p data-i18n="extratos_subtitulo">Acompanhe entradas, saídas, atualizações de saldo e valor total do GambleNumbers.</p>
+    <div class="extratos-actions">
+      <button id="extratosRefresh" type="button" data-i18n="extrato_atualizar">Atualizar extratos</button>
+      <button id="extratosBack" type="button" data-i18n="extrato_voltar">Voltar ao simulador</button>
+      <span id="extratosStatus" class="opshint"></span>
+    </div>
+    <div class="statements-layout">
+      <div id="statementBTC" class="statement-card"></div>
+      <div id="statementBCH" class="statement-card"></div>
+    </div>
+    <div id="statementTotal" class="statement-card statement-total"></div>
+  </section>
 </div>
 
 <div id="tooltip"></div>
 <div id="toasts"></div>
-<script src="identity.js?v=1788484767"></script>
+<script src="identity.js?v=1788998914"></script>
 <script src="i18n.js?v=1786304232"></script>
 <script src="eventbus.js?v=1786304232"></script>
-<script src="datastore.js?v=1787516068"></script>
-<script src="forecast.js?v=1786858480"></script>
+<script src="datastore.js?v=gnforecast-20260907-1"></script>
+<script src="forecast.js?v=gnforecast-20260907-1"></script>
 <script src="storage.js?v=1786304232"></script>
-<script src="frozenforecast.js?v=1786858451"></script>
-<script src="series.js?v=1786304232"></script>
+<script src="frozenforecast.js?v=gnforecast-20260907-1"></script>
+<script src="series.js?v=gnforecast-20260907-1"></script>
 <script src="exchangecard.js?v=1786868069"></script>
 <script src="plotarea.js?v=1786858451"></script>
-<script src="renderers.js?v=1786858499"></script>
+<script src="renderers.js?v=gnforecast-20260907-1"></script>
 <script src="controlpanel.js?v=1786492193"></script>
 <script src="operations.js?v=1787521417"></script>
 <script src="operationstable.js?v=1787524348"></script>
-<script src="app.js?v=1788484767"></script>
+<script src="app.js?v=1788998860"></script>
+<script src="extratos.js?v=1788997986"></script>
 </body>
 </html>
+
