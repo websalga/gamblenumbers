@@ -55,13 +55,112 @@ function bch_address_to_scripthash(string $addr): ?string {
     return $addr; // retornamos o addr para uso no método get_history
 }
 
-/* --- Consultar saldo via Electrs (BTC) --- */
+/* --- Base58Check decode (sem bcmath/gmp): retorna bytes crus (versao+payload+checksum) --- */
+function base58_decode(string $s): ?string {
+    $alphabet = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+    $bytes = [0];
+    for ($i = 0; $i < strlen($s); $i++) {
+        $p = strpos($alphabet, $s[$i]);
+        if ($p === false) return null;
+        $carry = $p;
+        for ($j = 0; $j < count($bytes); $j++) {
+            $carry += $bytes[$j] * 58;
+            $bytes[$j] = $carry & 0xff;
+            $carry >>= 8;
+        }
+        while ($carry > 0) { $bytes[] = $carry & 0xff; $carry >>= 8; }
+    }
+    $leadingZeros = 0;
+    for ($i = 0; $i < strlen($s) && $s[$i] === '1'; $i++) $leadingZeros++;
+    $bytes = array_reverse($bytes);
+    return str_repeat("\x00", $leadingZeros) . implode('', array_map('chr', $bytes));
+}
+
+/* --- Bech32/Bech32m decode (BIP173/BIP350), sem dependencias externas --- */
+function bech32_polymod(array $values): int {
+    $gen = [0x3b6a57b2, 0x26508e6d, 0x1ea119fa, 0x3d4233dd, 0x2a1462b3];
+    $chk = 1;
+    foreach ($values as $v) {
+        $top = $chk >> 25;
+        $chk = (($chk & 0x1ffffff) << 5) ^ $v;
+        for ($i = 0; $i < 5; $i++) if (($top >> $i) & 1) $chk ^= $gen[$i];
+    }
+    return $chk;
+}
+function bech32_hrp_expand(string $hrp): array {
+    $ret = [];
+    for ($i=0;$i<strlen($hrp);$i++) $ret[] = ord($hrp[$i]) >> 5;
+    $ret[] = 0;
+    for ($i=0;$i<strlen($hrp);$i++) $ret[] = ord($hrp[$i]) & 31;
+    return $ret;
+}
+function bech32_decode(string $bech): ?array {
+    $bech = strtolower($bech);
+    $pos = strrpos($bech, '1');
+    if ($pos === false || $pos < 1 || $pos + 7 > strlen($bech)) return null;
+    $hrp = substr($bech, 0, $pos);
+    $charset = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l';
+    $data = [];
+    for ($i = $pos+1; $i < strlen($bech); $i++) {
+        $d = strpos($charset, $bech[$i]);
+        if ($d === false) return null;
+        $data[] = $d;
+    }
+    $body = array_slice($data, 0, -6);
+    if (bech32_polymod(array_merge(bech32_hrp_expand($hrp), $data)) === 1) return ['hrp'=>$hrp,'data'=>$body];
+    if (bech32_polymod(array_merge(bech32_hrp_expand($hrp), $data)) === 0x2bc830a3) return ['hrp'=>$hrp,'data'=>$body];
+    return null;
+}
+function convertbits(array $data, int $frombits, int $tobits, bool $pad): ?array {
+    $acc = 0; $bits = 0; $ret = []; $maxv = (1 << $tobits) - 1;
+    foreach ($data as $value) {
+        if ($value < 0 || ($value >> $frombits)) return null;
+        $acc = (($acc << $frombits) | $value);
+        $bits += $frombits;
+        while ($bits >= $tobits) { $bits -= $tobits; $ret[] = ($acc >> $bits) & $maxv; }
+    }
+    if ($pad) { if ($bits) $ret[] = ($acc << ($tobits - $bits)) & $maxv; }
+    elseif ($bits >= $frombits || (($acc << ($tobits - $bits)) & $maxv)) return null;
+    return $ret;
+}
+
+/* --- Endereco BTC (bech32 ou base58) -> scripthash Electrum (sha256 do scriptPubKey, invertido) --- */
+function btc_address_to_scripthash(string $address): ?string {
+    $script = null;
+    if (preg_match('/^(bc1|tb1)[a-z0-9]{6,87}$/i', $address)) {
+        $dec = bech32_decode($address);
+        if (!$dec || count($dec['data']) < 1) return null;
+        $witver = $dec['data'][0];
+        $program = convertbits(array_slice($dec['data'], 1), 5, 8, false);
+        if ($program === null || count($program) < 2 || count($program) > 40) return null;
+        $opcode = $witver === 0 ? 0x00 : (0x50 + $witver);
+        $script = chr($opcode) . chr(count($program)) . implode('', array_map('chr', $program));
+    } else {
+        $raw = base58_decode($address);
+        if ($raw === null || strlen($raw) !== 25) return null;
+        $payload  = substr($raw, 0, 21);
+        $checksum = substr($raw, 21, 4);
+        $calc = substr(hash('sha256', hash('sha256', $payload, true), true), 0, 4);
+        if ($checksum !== $calc) return null;
+        $version = ord($raw[0]);
+        $hash160 = substr($raw, 1, 20);
+        if ($version === 0x00)       $script = "\x76\xa9\x14" . $hash160 . "\x88\xac"; // P2PKH
+        elseif ($version === 0x05)   $script = "\xa9\x14" . $hash160 . "\x87";           // P2SH
+        else return null;
+    }
+    if ($script === null) return null;
+    return bin2hex(strrev(hash('sha256', $script, true)));
+}
+
+/* --- Consultar saldo via Fulcrum-BTC (protocolo Electrum padrao: scripthash, nao address) --- */
 function btc_balance(string $address): array {
     // Validação básica de endereço BTC
     if (!preg_match('/^(bc1[a-z0-9]{6,87}|[13][a-zA-Z1-9]{25,34})$/', $address)) {
         return ['valid'=>false, 'balance'=>'0'];
     }
-    $req = ['id'=>1,'method'=>'blockchain.address.get_balance','params'=>[$address]];
+    $sh = btc_address_to_scripthash($address);
+    if ($sh === null) return ['valid'=>true, 'balance'=>'0', 'query_error'=>true];
+    $req = ['id'=>1,'method'=>'blockchain.scripthash.get_balance','params'=>[$sh]];
     $resp = electrum_query('192.168.18.149', 50002, $req);
     if (!$resp || isset($resp['error'])) return ['valid'=>true, 'balance'=>'0', 'query_error'=>true];
     $sat = ($resp['result']['confirmed'] ?? 0) + ($resp['result']['unconfirmed'] ?? 0);
@@ -248,6 +347,29 @@ try {
                 'btc_saldo'      => $cur['btc_saldo_visto'],
                 'bch_saldo'      => $cur['bch_saldo_visto'],
             ]);
+        })(),
+
+        'wipe_profile' => (function() use ($body) {
+            $sid = trim($body['session_id'] ?? '');
+            if (strlen($sid) !== 64) { echo json_encode(['error'=>'session_id invalido']); return; }
+            $pdo = db();
+            $pdo->beginTransaction();
+            try {
+                $pdo->prepare('DELETE FROM dbo.GN_Enderecos_Escrow WHERE trade_id IN (SELECT trade_id FROM dbo.GN_Trades WHERE session_comprador=? OR session_vendedor=?)')->execute([$sid, $sid]);
+                $pdo->prepare('DELETE FROM dbo.GN_Depositos WHERE session_id=? OR trade_id IN (SELECT trade_id FROM dbo.GN_Trades WHERE session_comprador=? OR session_vendedor=?)')->execute([$sid, $sid, $sid]);
+                $pdo->prepare('DELETE FROM dbo.GN_Pagamentos WHERE session_destinatario=? OR trade_id IN (SELECT trade_id FROM dbo.GN_Trades WHERE session_comprador=? OR session_vendedor=?)')->execute([$sid, $sid, $sid]);
+                $pdo->prepare('DELETE FROM dbo.GN_Trades WHERE session_comprador=? OR session_vendedor=?')->execute([$sid, $sid]);
+                $pdo->prepare('DELETE FROM dbo.GN_Ordens WHERE session_id=?')->execute([$sid]);
+                $st = $pdo->prepare('DELETE FROM dbo.GN_Usuarios WHERE session_id=?');
+                $st->execute([$sid]);
+                $apagado = $st->rowCount() > 0;
+                $pdo->commit();
+                echo json_encode(['ok'=>true, 'apagado'=>$apagado]);
+            } catch (Throwable $e) {
+                $pdo->rollBack();
+                http_response_code(500);
+                echo json_encode(['ok'=>false, 'error'=>$e->getMessage()]);
+            }
         })(),
 
         default => (function() {

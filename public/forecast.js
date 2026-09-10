@@ -26,20 +26,20 @@ window.Forecast = (function () {
     return sorted[idx];
   }
 
-  function project(hist, nPontos, _premium) {
+  function project(hist, nPontos, _premium, anchor, stepMs) {
 
     const data = hist.filter(h => h.avg != null && isFinite(+h.avg) && +h.avg > 0);
     if (data.length < 4) {
-      const last = data.length ? +data[data.length - 1].avg : 0;
+      const last = anchor > 0 ? anchor : (data.length ? +data[data.length - 1].avg : 0);
       return Array.from({ length: nPontos }, () => last);
     }
 
     const prices    = data.map(h => +h.avg);
-    const lastPrice = prices[prices.length - 1];
+    const lastPrice = anchor > 0 ? anchor : prices[prices.length - 1];
 
     /* Banda do período */
-    let bandMax = Math.max(...prices);
-    let bandMin = Math.min(...prices);
+    let bandMax = Math.max(lastPrice, ...prices);
+    let bandMin = Math.min(lastPrice, ...prices);
     // Garantir amplitude mínima configurável (evita banda plana em pares de baixa volatilidade)
     if (_minAmpPct != null) {
       const mid  = (bandMax + bandMin) / 2;
@@ -53,8 +53,10 @@ window.Forecast = (function () {
     /* Diferenças reais consecutivas do período */
     const diffs = [];
     for (let i = 1; i < prices.length; i++) {
+      if (stepMs > 0 && data[i].t - data[i - 1].t > stepMs * 1.5) continue;
       diffs.push(prices[i] - prices[i - 1]);
     }
+    if (diffs.length < 3) return Array.from({ length: nPontos }, () => lastPrice);
 
     /* 3 deltas nativos (p25/p50/p75) */
     const dLow  = percentil(diffs, 0.25);

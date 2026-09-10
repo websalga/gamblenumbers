@@ -85,14 +85,17 @@ class ProjectedSeries {
     const hist = this._real.points(period, endT);
     const n = period.points | 0;
     if (!hist.length) return [];
-    const end = hist[hist.length - 1].t;
+    const end = endT == null ? this._real.endT() : endT;
 
     // ---- Caminho CONGELADO (preferido quando ha frozen) ----
     // O frozen garante cobertura ate end+span, complementando so a borda
     // faltante; aqui apenas recortamos o que ja existe.
     if (this._frozen) {
       const span = n * period.stepMs;
-      this._frozen.ensure(hist, end + span, period.stepMs);
+      // Calibration is provided from actual snapshots by App; never use the display interpolation.
+      if (!this._frozen.hasMaster) return [];
+      this._frozen.ensure([], end + span);
+      
       return this._frozen.slice(end + period.stepMs, end + span, period.stepMs);
     }
 
@@ -147,3 +150,4 @@ function num(v) { if (v == null) return null; const n = +v; return Number.isFini
 
 if (typeof module !== 'undefined' && module.exports) module.exports = { RealSeries, ProjectedSeries };
 if (typeof window !== 'undefined') { window.RealSeries = RealSeries; window.ProjectedSeries = ProjectedSeries; }
+

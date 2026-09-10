@@ -214,7 +214,8 @@ class DataStore {
     const step = +p.stepMs;
     const end = (endT == null) ? this.latestT() : endT;
     if (end == null) return [];
-    const start = end - n * step;
+    // Incluir o último snapshot evita deslocar o preço corrente pelo zoom.
+    const start = end - (n - 1) * step;
     const out = [];
     // Dois casos MUITO diferentes, que antes eram tratados igual (null):
     //  (a) a grade é mais fina que a cadência de coleta (escalas curtas):

@@ -3,6 +3,7 @@ config.php
 .env.*
 *.log
 *.bak
+*.bak_*
 *.sql
 chumbrega.php
 !docs/*.sql
