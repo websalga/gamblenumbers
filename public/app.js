@@ -468,7 +468,16 @@
           selExib.value = selMoeda.value === 'BRL' ? 'USD' : 'BRL';
         }
         sessionStorage.setItem('gn_period', this.periodId);
-        if (selIdioma) { try { localStorage.setItem('gn_idioma', selIdioma.value); } catch (e) { /* ignore */ } }
+        if (selIdioma) {
+          try { localStorage.setItem('gn_idioma', selIdioma.value); } catch (e) { /* ignore */ }
+          try {
+            const sess = window.GNIdentity && window.GNIdentity.session;
+            if (sess && sess.session_id) {
+              const blob = new Blob([JSON.stringify({action:'salvar_idioma', session_id: sess.session_id, idioma: selIdioma.value})], {type:'application/json'});
+              navigator.sendBeacon('identity.php', blob);
+            }
+          } catch (e) { /* ignore */ }
+        }
         const qs = new URLSearchParams(location.search);
         qs.set('moeda', selMoeda.value);
         qs.set('moeda_exibicao', selExib.value);
@@ -524,41 +533,72 @@
       const input = this.doc.getElementById('saldoVirtual');
       const btn   = this.doc.getElementById('btnAtualizarSaldo');
       const modo  = this.doc.getElementById('saldoModo');
+      const btnSacar = this.doc.getElementById('btnSacarExterno');
+      const btnConfig = this.doc.getElementById('btnConfigSaida');
       if (!input) return;
-      const real = !!(session && (session.btc_habilitado || session.bch_habilitado));
+      const real = !!(session && session.modo_real);
       this._saldoReal = real;
       input.readOnly = real;
       input.title = real
         ? ('Saldo calculado a partir dos seus endereços. Use o botão para atualizar.')
         : ('Seu saldo virtual para operar. Edite para alterar.');
       if (btn) btn.hidden = !real;
-      if (modo) {
-        if (!real) { modo.textContent = 'Modo simulação'; }
-        else {
-          const partes = [];
-          if (session.btc_habilitado) partes.push('BTC');
-          if (session.bch_habilitado) partes.push('BCH');
-          modo.textContent = ('Modo real') + ' · ' + partes.join(' + ');
-        }
-      }
-      if (!real) return; // simulacao: nao ha nada a calcular, mantem comportamento atual
+      if (btnConfig) btnConfig.hidden = !(session && session.session_id);
+      const btnSair = this.doc.getElementById('btnSairApagar');
+      if (btnSair) btnSair.hidden = !(session && session.session_id);
+      const btcSaldo = parseFloat(session && session.btc_saldo) || 0;
+      const bchSaldo = parseFloat(session && session.bch_saldo) || 0;
+      if (btnSacar) btnSacar.hidden = !(real && (btcSaldo > 0 || bchSaldo > 0));
+      if (!real) { if (modo) modo.textContent = 'Modo simulação'; return; }
 
       const totalUsd = await this._saldoRealEmUsd(session);
-      if (totalUsd == null) return; // sem cotacao disponivel agora - preserva ultimo valor exibido
-      const valorExib = this.operations.converterPreco(totalUsd, 'USD');
-      if (valorExib >= 0) this.panel.setSaldo(valorExib);
+      if (totalUsd != null) {
+        const valorExib = this.operations.converterPreco(totalUsd, 'USD');
+        if (valorExib >= 0) this.panel.setSaldo(valorExib);
+      }
+
+      if (modo) {
+        modo.textContent = 'Modo real · BTC + BCH';
+        const btcPend = parseFloat(session.btc_pendente) || 0;
+        const bchPend = parseFloat(session.bch_pendente) || 0;
+        if (btcPend > 0 || bchPend > 0) {
+          const pendUsd = await this._saldoPendenteEmUsd(session);
+          if (pendUsd != null && pendUsd > 0) {
+            const pendExib = this.operations.converterPreco(pendUsd, 'USD');
+            const simb = this._simboloMoedaExib();
+            modo.textContent += ` · +${simb}${pendExib.toFixed(2)} aguardando confirmação`;
+          } else {
+            modo.textContent += ' · saldo adicional aguardando confirmação';
+          }
+        }
+      }
+    }
+
+    _simboloMoedaExib() {
+      const s = {BRL:'R$ ',USD:'US$ ',EUR:'€',GBP:'£',JPY:'¥',CNY:'¥',TRY:'₺',RUB:'₽'};
+      return s[this.moedaExibicao] || (this.moedaExibicao+' ');
+    }
+
+    async _saldoPendenteEmUsd(session) {
+      try {
+        const [btcUsd, bchUsd] = await Promise.all([this._precoCryptoUsd('BTC'), this._precoCryptoUsd('BCH')]);
+        let total = 0, obtido = false;
+        if (btcUsd > 0) { total += (parseFloat(session.btc_pendente) || 0) * btcUsd; obtido = true; }
+        if (bchUsd > 0) { total += (parseFloat(session.bch_pendente) || 0) * bchUsd; obtido = true; }
+        return obtido ? total : null;
+      } catch (e) { return null; }
     }
 
     /** Soma (BTC*preco_usd + BCH*preco_usd) das carteiras habilitadas. Retorna null se nao conseguiu nenhum preco. */
     async _saldoRealEmUsd(session) {
       try {
         const [btcUsd, bchUsd] = await Promise.all([
-          session.btc_habilitado ? this._precoCryptoUsd('BTC') : Promise.resolve(null),
-          session.bch_habilitado ? this._precoCryptoUsd('BCH') : Promise.resolve(null),
+          this._precoCryptoUsd('BTC'),
+          this._precoCryptoUsd('BCH'),
         ]);
         let total = 0, obtido = false;
-        if (session.btc_habilitado && btcUsd > 0) { total += (parseFloat(session.btc_saldo) || 0) * btcUsd; obtido = true; }
-        if (session.bch_habilitado && bchUsd > 0) { total += (parseFloat(session.bch_saldo) || 0) * bchUsd; obtido = true; }
+        if (btcUsd > 0) { total += (parseFloat(session.btc_saldo) || 0) * btcUsd; obtido = true; }
+        if (bchUsd > 0) { total += (parseFloat(session.bch_saldo) || 0) * bchUsd; obtido = true; }
         return obtido ? total : null;
       } catch (e) { return null; }
     }
@@ -926,6 +966,7 @@
       window.addEventListener('DOMContentLoaded', async () => {
         const _app = new App(document);
         await _app.init();
+        window.GNApp = _app;
         // Remove construtores registrados como globais após a inicialização —
         // eles só são necessários durante a construção do App. I18N é mantido
         // pois é acessado dinamicamente pelas traduções em toda a vida do app.

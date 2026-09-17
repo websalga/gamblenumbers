@@ -172,8 +172,8 @@ tr.row-r td:first-child{border-left:3px solid var(--red)}
 .topnav button{background:var(--panel2);border:1px solid var(--border);color:var(--muted);padding:6px 12px;border-radius:7px;cursor:pointer;font-size:12px;font-weight:700}
 .topnav button:hover,.topnav button.active{border-color:var(--avg);color:var(--txt)}
 #extratosView{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:14px}
-.statements-layout{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}
-.statement-card{background:var(--panel2);border:1px solid var(--border);border-radius:10px;padding:12px;overflow:auto}
+.statements-layout{display:grid;grid-template-columns:1fr auto 1fr;gap:12px;margin-top:12px;align-items:start}
+.statement-card{background:var(--panel2);border:1px solid var(--border);border-radius:10px;padding:12px;max-height:480px;overflow-y:auto}
 .statement-total{margin-top:12px;background:linear-gradient(135deg,#0f2a1a 0%,#0a1f2e 100%);border-color:#22c55e55}
 .statement-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;margin-bottom:10px}
 .statement-head h3,#extratosView h2,.statement-card h3{font-size:13px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-bottom:4px}
@@ -184,6 +184,24 @@ tr.row-r td:first-child{border-left:3px solid var(--red)}
 .statement-table{min-width:620px}.statement-table tr.in td:first-child{border-left:3px solid var(--green)}.statement-table tr.out td:first-child{border-left:3px solid var(--red)}.statement-table .empty{text-align:center;color:var(--muted);padding:18px}.total-value{font-size:28px;font-weight:800;color:var(--green);margin:8px 0}.total-grid{grid-template-columns:repeat(2,1fr)}
 .extratos-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px}.extratos-actions button{background:#1b2740;color:#e8edf7;border:1px solid #2b3a5c;border-radius:6px;padding:6px 10px;font-size:11px;cursor:pointer}
 @media(max-width:900px){.statements-layout{grid-template-columns:1fr}}
+.swap-wrap{justify-self:center;text-align:center}
+.swap-wrap h3{font-size:13px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-bottom:8px}
+.swap-widget{display:flex;align-items:center;justify-content:center;gap:0}
+.swap-widget .capsula-btn{width:48px;height:120px;border:none;background:none;cursor:pointer;padding:0;filter:drop-shadow(0 0 0 transparent);transition:filter 220ms ease;flex-shrink:0}
+.swap-widget .capsula-btn.on{filter:drop-shadow(0 0 8px var(--glow)) drop-shadow(0 0 16px var(--glow))}
+.swap-widget .capsula-btn:disabled{opacity:0.35;cursor:not-allowed}
+.swap-widget .lente{transition:opacity 220ms ease}
+.swap-widget input{width:110px;height:56px;text-align:center;border-radius:0;margin:0;position:relative;z-index:1;font-size:15px}
+#swapStatus{margin-top:8px}
+.term-card{background:#1a1006;border:0.5px solid var(--border);border-radius:12px;padding:1rem 1.25rem;font-family:var(--font-mono, monospace);margin-bottom:1rem}
+.term-line{display:flex;gap:10px;align-items:flex-start;padding:5px 0;font-size:13px}
+.term-num{width:20px;text-align:right;color:#8a5a1a;flex-shrink:0}
+.term-ok{color:#ffb84d}
+.term-warn{color:#ff5c33}
+.term-dim{color:#6b4a20}
+
+@media(max-width:900px){.swap-widget .capsula-btn{width:40px;height:100px}.swap-widget input{height:48px}}
+
 
     </style>
 </head>
@@ -273,7 +291,7 @@ tr.row-r td:first-child{border-left:3px solid var(--red)}
     </div>
 
     <div class="side">
-      <div class="saldo-box"><div class="saldo-label" data-i18n="lbl_saldo_virtual">💰 Saldo virtual disponível</div><div class="saldo-row"><input id="saldoVirtual" class="saldo-input" value="R$ 55.000,00" title="Seu saldo virtual para operar. Edite para alterar."><button id="btnAtualizarSaldo" class="saldo-refresh-btn" type="button" hidden title="Atualizar saldo a partir da blockchain">&#10227;</button><button id="btnSairApagar" class="saldo-danger-btn" type="button" title="Sair e apagar todos os meus dados deste site">&#128465;</button></div><div class="saldo-modo" id="saldoModo"></div></div>
+      <div class="saldo-box"><div class="saldo-label" data-i18n="lbl_saldo_virtual">💰 Saldo virtual disponível</div><div class="saldo-row"><input id="saldoVirtual" class="saldo-input" value="R$ 55.000,00" title="Seu saldo virtual para operar. Edite para alterar."><button id="btnAtualizarSaldo" class="saldo-refresh-btn" type="button" hidden title="Atualizar saldo a partir da blockchain">&#10227;</button><button id="btnConfigSaida" class="saldo-refresh-btn" type="button" hidden title="Configuração">&#9881;</button><button id="btnSacarExterno" class="saldo-refresh-btn" type="button" hidden title="Transferir para carteira externa">&#8599;</button><button id="btnSairApagar" class="saldo-refresh-btn" type="button" title="Sair (mantém suas moedas, use a senha pra voltar)">&#128272;</button></div><div class="saldo-modo" id="saldoModo"></div></div>
       <div class="field"><label id="lblOpValue" data-i18n="lbl_valor_compra_venda">Valor por operação</label><input id="opValue" value="R$ 100,00"></div>
       <div class="field"><label id="lblStop">Stop manual (R$)</label><input id="stop" value="R$ 0,00"></div>
       <div class="field"><label data-i18n="lbl_preco_alvo">Preço-alvo calculado</label><input id="target" readonly></div>
@@ -328,6 +346,53 @@ tr.row-r td:first-child{border-left:3px solid var(--red)}
     </div>
     <div class="statements-layout">
       <div id="statementBTC" class="statement-card"></div>
+      <div class="swap-wrap">
+        <h3 data-i18n="extrato_transferencia">Transferência</h3>
+        <div id="swapWidget" class="swap-widget">
+          <button class="capsula-btn" id="swapBtnL" style="--glow:#3d7bd6" aria-label="Transferir BCH para BTC">
+            <svg viewBox="0 0 60 130" width="100%" height="100%">
+              <defs>
+                <radialGradient id="swapGradL" cx="50%" cy="38%" r="70%">
+                  <stop offset="0%" stop-color="#bcd6ff"/><stop offset="45%" stop-color="#3d7bd6"/><stop offset="100%" stop-color="#123a72"/>
+                </radialGradient>
+                <clipPath id="swapClipL"><rect x="8" y="8" width="44" height="114" rx="22"/></clipPath>
+              </defs>
+              <rect x="4" y="4" width="52" height="122" rx="26" fill="#0c0c0c" opacity="0.55"/>
+              <g id="swapLenteL" class="lente">
+                <rect x="8" y="8" width="44" height="114" rx="22" fill="url(#swapGradL)"/>
+                <g clip-path="url(#swapClipL)" stroke="#0a2c5c" stroke-width="1" opacity="0.35">
+                  <line x1="0" y1="20" x2="60" y2="20"/><line x1="0" y1="32" x2="60" y2="32"/><line x1="0" y1="44" x2="60" y2="44"/>
+                  <line x1="0" y1="56" x2="60" y2="56"/><line x1="0" y1="68" x2="60" y2="68"/><line x1="0" y1="80" x2="60" y2="80"/>
+                  <line x1="0" y1="92" x2="60" y2="92"/><line x1="0" y1="104" x2="60" y2="104"/><line x1="0" y1="116" x2="60" y2="116"/>
+                </g>
+                <polygon points="34,55 34,75 20,65" fill="#0c2c5c" opacity="0.55"/>
+              </g>
+            </svg>
+          </button>
+          <input type="number" id="swapVal" placeholder="..." step="0.00000001">
+          <button class="capsula-btn" id="swapBtnR" style="--glow:#3d7bd6" aria-label="Transferir BTC para BCH">
+            <svg viewBox="0 0 60 130" width="100%" height="100%">
+              <defs>
+                <radialGradient id="swapGradR" cx="50%" cy="38%" r="70%">
+                  <stop offset="0%" stop-color="#bcd6ff"/><stop offset="45%" stop-color="#3d7bd6"/><stop offset="100%" stop-color="#123a72"/>
+                </radialGradient>
+                <clipPath id="swapClipR"><rect x="8" y="8" width="44" height="114" rx="22"/></clipPath>
+              </defs>
+              <rect x="4" y="4" width="52" height="122" rx="26" fill="#0c0c0c" opacity="0.55"/>
+              <g id="swapLenteR" class="lente">
+                <rect x="8" y="8" width="44" height="114" rx="22" fill="url(#swapGradR)"/>
+                <g clip-path="url(#swapClipR)" stroke="#0a2c5c" stroke-width="1" opacity="0.35">
+                  <line x1="0" y1="20" x2="60" y2="20"/><line x1="0" y1="32" x2="60" y2="32"/><line x1="0" y1="44" x2="60" y2="44"/>
+                  <line x1="0" y1="56" x2="60" y2="56"/><line x1="0" y1="68" x2="60" y2="68"/><line x1="0" y1="80" x2="60" y2="80"/>
+                  <line x1="0" y1="92" x2="60" y2="92"/><line x1="0" y1="104" x2="60" y2="104"/><line x1="0" y1="116" x2="60" y2="116"/>
+                </g>
+                <polygon points="26,55 26,75 40,65" fill="#0c2c5c" opacity="0.55"/>
+              </g>
+            </svg>
+          </button>
+        </div>
+        <p id="swapStatus" class="opshint">Carregando mínimo...</p>
+      </div>
       <div id="statementBCH" class="statement-card"></div>
     </div>
     <div id="statementTotal" class="statement-card statement-total"></div>
@@ -336,7 +401,7 @@ tr.row-r td:first-child{border-left:3px solid var(--red)}
 
 <div id="tooltip"></div>
 <div id="toasts"></div>
-<script src="identity.js?v=1788998914"></script>
+<script src="identity.js?v=1788998929"></script>
 <script src="i18n.js?v=1786304232"></script>
 <script src="eventbus.js?v=1786304232"></script>
 <script src="datastore.js?v=gnforecast-20260907-1"></script>
@@ -350,8 +415,9 @@ tr.row-r td:first-child{border-left:3px solid var(--red)}
 <script src="controlpanel.js?v=1786492193"></script>
 <script src="operations.js?v=1787521417"></script>
 <script src="operationstable.js?v=1787524348"></script>
-<script src="app.js?v=1788998860"></script>
+<script src="app.js?v=1788998866"></script>
 <script src="extratos.js?v=1788997986"></script>
+<script src="swap.js?v=4"></script>
 </body>
 </html>
 

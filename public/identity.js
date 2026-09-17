@@ -98,11 +98,11 @@
   box-shadow:0 0 40px rgba(34,197,94,.1)}
 .t-title{color:#22c55e;font-size:11px;font-weight:700;margin-bottom:14px;
   border-bottom:1px solid #0f4a0f;padding-bottom:10px;letter-spacing:1px}
-.t-line{display:flex;align-items:center;gap:8px;margin-bottom:7px;
+.t-line{display:flex;align-items:flex-start;gap:8px;margin-bottom:7px;
   min-height:18px;opacity:0;transition:opacity .15s}
 .t-line.vis{opacity:1}
 .t-pr{color:#16a34a;flex-shrink:0}
-.t-tx{color:#86efac;flex:1}
+.t-tx{color:#86efac;flex:1;min-width:0;overflow-wrap:anywhere;word-break:break-word}
 .t-bar{display:inline-flex;gap:1px;flex-shrink:0}
 .t-bar span{display:inline-block;width:6px;height:10px;background:#0f4a0f;
   border-radius:1px;transition:background .07s}
@@ -127,7 +127,22 @@
 .gn-term-red .t-bar span{background:#4a0f0f}
 .gn-term-red .t-bar span.on{background:#ef4444}
 .gn-term-red .t-foot{border-top-color:#7c1d1d}
+#gn-term.gn-term-amber{border-color:#7c5a12;background:#170f02;
+  box-shadow:0 0 40px rgba(245,158,11,.12)}
+.gn-term-amber .t-title{color:#f59e0b;border-bottom-color:#7c5a12}
+.gn-term-amber .t-pr{color:#d97706}
+.gn-term-amber .t-tx{color:#fcd34d}
+.gn-term-amber .t-bar span{background:#4a2f02}
+.gn-term-amber .t-bar span.on{background:#f59e0b}
+.gn-term-amber .t-foot{border-top-color:#7c5a12}
 .gn-lang-modal{width:540px;text-align:center}
+#gn-modal.gn-modal-blue{border-color:#1e4a7c;box-shadow:0 0 60px rgba(56,131,238,.12)}
+.gn-modal-blue h2{color:#5ab0ff}
+.gn-modal-blue .gn-br{background:#3883ee;color:#04142a}
+.gn-warn-notice{background:#1a1204;border:1px solid #7c5a12;border-radius:8px;
+  padding:12px 14px;font-size:12px;color:#fcd34d;margin-bottom:20px;line-height:1.8}
+.gn-warn-notice b{color:#f59e0b}
+
 .gn-lang-hint{font-size:12px;color:#7d8aa3;margin-bottom:18px;letter-spacing:.3px}
 .gn-lang-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
 .gn-lang-btn{display:flex;flex-direction:column;align-items:center;gap:6px;background:#070c18;
@@ -187,24 +202,14 @@
       const ov = document.createElement('div'); ov.id='gn-overlay';
       ov.innerHTML=`<div id="gn-modal">
         <h2>${t('ident_titulo','🔐 Identificação Anônima')}</h2>
-        <p class="sub">${t('ident_sub','Informe seus endereços para operar de verdade.<br>Sem endereços, você entra em <b style="color:#f7c948">modo simulação</b>.')}</p>
-        <div class="gn-f"><label>${t('ident_label_btc','Endereço Bitcoin (BTC)')}</label>
-          <input id="gi-btc" placeholder="${t('ident_placeholder_btc','bc1q... ou 1... ou 3...')}" autocomplete="off" spellcheck="false"></div>
-        <div class="gn-f"><label>${t('ident_label_bch','Endereço Bitcoin Cash (BCH)')}</label>
-          <input id="gi-bch" placeholder="${t('ident_placeholder_bch','bitcoincash:q... ou q...')}" autocomplete="off" spellcheck="false"></div>
-        <div class="gn-notice">${t('ident_privacidade','<b>Privacidade:</b> seus endereços são públicos na blockchain e compõem seu identificador anônimo. Nenhum dado pessoal é coletado. Os endereços são usados para verificação de saldo e como destino de saques.')}</div>
+        <p class="sub">${t('ident_sub_v2','[PROVISÓRIO] O site vai gerar dois endereços (BTC e BCH) próprios pra você depositar, se quiser operar de verdade. Termos completos em breve.')}</p>
         <div class="gn-btns">
-          <button class="gn-br" id="gi-ok">${t('ident_btn_ok','Verificar e Ativar Modo Real')}</button>
+          <button class="gn-br" id="gi-ok">${t('ident_btn_ok_v2','Gerar meus endereços (modo real)')}</button>
           <button class="gn-bs" id="gi-sim">${t('ident_btn_sim','Simular apenas')}</button>
         </div></div>`;
       document.body.appendChild(ov);
-      document.getElementById('gi-sim').onclick = () => { ov.remove(); res({mode:'sim',btc:'',bch:''}); };
-      document.getElementById('gi-ok').onclick  = () => {
-        const btc = document.getElementById('gi-btc').value.trim();
-        const bch = document.getElementById('gi-bch').value.trim();
-        if (!btc && !bch) { alert(t('ident_alert_endereco','Informe ao menos um endereço.')); return; }
-        ov.remove(); res({mode:'real',btc,bch});
-      };
+      document.getElementById('gi-sim').onclick = () => { ov.remove(); res({mode:'sim'}); };
+      document.getElementById('gi-ok').onclick  = () => { ov.remove(); res({mode:'real'}); };
     });
   }
 
@@ -215,7 +220,7 @@
     return new Promise(res => {
       injectStyles();
       const ov = document.createElement('div'); ov.id='gn-overlay';
-      ov.innerHTML=`<div id="gn-term" class="${opts.danger ? 'gn-term-red' : ''}">
+      ov.innerHTML=`<div id="gn-term" class="${opts.danger ? 'gn-term-red' : (opts.theme==='amber' ? 'gn-term-amber' : '')}">
         <div class="t-title">${title}</div>
         <div id="t-lines"></div>
         <div class="t-foot" id="t-foot"></div></div>`;
@@ -237,8 +242,21 @@
         let fi=0;
         const iv = setInterval(()=>{ if(fi<10){ spans[fi].classList.add('on'); fi++; } }, (step.ms||800)/12);
 
-        let r;
-        try { r = await step.fn(); } catch(e){ r={ok:false,text:t('term_erro','ERRO')}; }
+        let r, excecaoJs = null;
+        try { r = await step.fn(); } catch(e){ excecaoJs = e; r={ok:false,text:t('term_erro','ERRO'), detail:String(e && e.message || e)}; }
+
+        console.log('[gn-terminal]', step.id, r);
+        if (!r.ok) {
+          try {
+            fetch('identity.php', {
+              method:'POST', headers:{'Content-Type':'application/json'},
+              body: JSON.stringify({
+                action:'log_cliente', etapa:'terminal_step_falhou',
+                dados:{ step_id: step.id, label: step.label, resultado: r, excecao_js: excecaoJs ? String(excecaoJs.stack||excecaoJs.message) : null },
+              }),
+            }).catch(()=>{});
+          } catch(e) {}
+        }
 
         clearInterval(iv); spans.forEach(s=>s.classList.add('on'));
         await new Promise(r2=>setTimeout(r2,80));
@@ -285,11 +303,47 @@
   const saveSess = d  => { try{ localStorage.setItem(SK,JSON.stringify(d)); }catch(e){} };
 
   /* --- Init principal --- */
+  function showLoginSenha() {
+    return new Promise(res => {
+      injectStyles();
+      const ov = document.createElement('div'); ov.id='gn-overlay';
+      ov.innerHTML = `<div id="gn-modal">
+        <h2>🔑 Já tem uma senha?</h2>
+        <p class="sub">${t('login_senha_sub','Se você já configurou uma senha de acesso em outro navegador ou aparelho, digite ela aqui pra recuperar suas moedas. Primeiro acesso, ou ainda não tem senha? Deixe em branco e clique em Continuar.')}</p>
+        <div class="gn-f"><label>${t('login_senha_label','Senha (opcional)')}</label>
+          <input id="li-senha" type="password" placeholder="${t('login_senha_placeholder','deixe em branco se não tiver')}" autocomplete="current-password"></div>
+        <div class="gn-btns">
+          <button class="gn-br" id="li-ok">${t('login_senha_btn','Continuar')}</button>
+        </div></div>`;
+      document.body.appendChild(ov);
+      const btn = document.getElementById('li-ok');
+      btn.onclick = async () => {
+        const senha = document.getElementById('li-senha').value;
+        if (!senha) { ov.remove(); res({status:'blank'}); return; }
+        btn.disabled = true; btn.textContent = '...';
+        try {
+          const r = await api('login_senha', {senha});
+          ov.remove();
+          if (r.matched) res({status:'matched', session:r});
+          else res({status:'no_match'});
+        } catch(e) { ov.remove(); res({status:'no_match'}); }
+      };
+    });
+  }
+
+  function avisarSenha(session, loginStatus) {
+    if (loginStatus === 'no_match') {
+      alert(t('aviso_senha_nao_bateu','A senha digitada não bateu com nenhum perfil. Você entrou como um usuário novo. Se quiser, configure uma senha em Configuração para não perder acesso.'));
+    } else if (session && session.tem_senha === false) {
+      alert(t('aviso_sem_senha','Você ainda não tem uma senha de acesso configurada. Sem ela, só consegue acessar suas moedas por este navegador/aparelho. Configure uma senha em Configuração pra poder acessar de qualquer lugar.'));
+    }
+  }
+
   async function init() {
     // Idioma primeiro: antes de qualquer outra mensagem do site.
     await ensureLanguage();
 
-    // Sessão já existente?
+    // Sessão já existente NESTE navegador? Se sim, entra direto — sem pedir senha de novo.
     const cached = loadSess();
     if (cached && cached.session_id) {
       try {
@@ -297,9 +351,25 @@
         if (ck.valid) {
           window.GNIdentity.session = ck;
           window.dispatchEvent(new CustomEvent('gn:identity:ready', {detail:ck}));
+          avisarSenha(ck, null);
           return;
         }
-      } catch(e) { /* continua para modal */ }
+      } catch(e) { /* continua para o login por senha / modal */ }
+    }
+
+    // Sem sessão local válida (primeiro acesso, ou depois de um "Sair"): oferece login por senha.
+    const login = await showLoginSenha();
+    if (login.status === 'matched') {
+      saveSess(login.session);
+      window.GNIdentity.session = login.session;
+      const idiomaConta = login.session.idioma_preferido;
+      if (idiomaConta && idiomaConta !== currentLang()) {
+        saveLang(idiomaConta);
+        location.reload();
+        return new Promise(() => {});
+      }
+      window.dispatchEvent(new CustomEvent('gn:identity:ready', {detail: login.session}));
+      return;
     }
 
     // Modal de endereços
@@ -316,47 +386,43 @@
     await showTerminal([
       { id:'fp',      label:t('term_step_fp','Coletando impressão digital do dispositivo'), ms:800,
         fn: async()=>{ fpData=await collectFingerprint(); return {ok:true}; } },
-      { id:'val-btc', label:t('term_step_val_btc','Validando endereço BTC na rede'), ms:1400,
-        fn: async()=>{
-          if(!modal.btc) return {ok:true,skip:true};
-          const r=await api('validate_address',{moeda:'BTC',address:modal.btc});
-          return r.valid
-            ? {ok:true, detail:'· '+r.balance+' BTC'}
-            : {ok:false, text:t('term_invalido','INVÁLIDO')};
-        }},
-      { id:'val-bch', label:t('term_step_val_bch','Validando endereço BCH na rede'), ms:1400,
-        fn: async()=>{
-          if(!modal.bch) return {ok:true,skip:true};
-          const r=await api('validate_address',{moeda:'BCH',address:modal.bch});
-          return r.valid
-            ? {ok:true, detail:'· '+r.balance+' BCH'}
-            : {ok:false, text:t('term_invalido','INVÁLIDO')};
-        }},
-      { id:'profile',  label:t('term_step_profile','Criando perfil anônimo'), ms:600,
+      { id:'profile',  label:t('term_step_profile','Gerando seus endereços de depósito'), ms:1200,
         fn: async()=>{
           const r=await api('create_profile',{
             fingerprint_hash: fpData.hash,
-            btc_address: modal.btc,
-            bch_address: modal.bch,
-            user_agent:  navigator.userAgent
+            user_agent:  navigator.userAgent,
+            idioma: currentLang(),
           });
           if(r.session_id){ saveSess(r); sessionData=r; window.GNIdentity.session=r; }
-          return r.session_id ? {ok:true} : {ok:false,text:t('term_erro','ERRO'),fatal:true};
+          return r.session_id
+            ? {ok:true, detail:'· BTC + BCH'}
+            : {ok:false,text:t('term_erro','ERRO'),fatal:true};
         }},
-      { id:'approve',  label:t('term_step_approve','Aprovando perfil para operações'), ms:400,
+      { id:'approve',  label:t('term_step_approve','Perfil pronto para operações'), ms:400,
         fn: async()=>{
-          const s=window.GNIdentity.session||{};
-          const parts=[];
-          if(s.btc_habilitado) parts.push('BTC');
-          if(s.bch_habilitado) parts.push('BCH');
-          return parts.length
-            ? {ok:true, detail:'· '+parts.join(' + ')+' '+t('term_habilitados','habilitado(s)')}
-            : {ok:false, text:t('term_sem_moedas','SEM MOEDAS VÁLIDAS')};
+          return sessionData
+            ? {ok:true, detail:'· '+t('term_habilitados','habilitado(s)')}
+            : {ok:false, text:t('term_sem_moedas','ERRO')};
         }}
     ]);
 
     window.dispatchEvent(new CustomEvent('gn:identity:ready',
       {detail: window.GNIdentity.session || {mode:'simulation'}}));
+    avisarSenha(window.GNIdentity.session, login.status);
+
+    // Exibição provisória dos endereços gerados (versão mínima, sem download/termos ainda)
+    if (sessionData && sessionData.btc_address) {
+      injectStyles();
+      const ov = document.createElement('div'); ov.id='gn-overlay';
+      ov.innerHTML = `<div id="gn-modal">
+        <h2>${t('ident_enderecos_titulo','[PROVISÓRIO] Seus endereços de depósito reais')}</h2>
+        <div class="gn-f"><label>BTC</label><input readonly value="${sessionData.btc_address}" onclick="this.select()"></div>
+        <div class="gn-f"><label>BCH</label><input readonly value="${sessionData.bch_address}" onclick="this.select()"></div>
+        <div class="gn-notice">${t('ident_enderecos_aviso','Guarde estes endereços — qualquer valor real enviado a eles passa a valer como seu saldo no site. Tela de termos completos e download ainda em construção.')}</div>
+        <div class="gn-btns"><button class="gn-br" id="gi-fechar">OK</button></div></div>`;
+      document.body.appendChild(ov);
+      document.getElementById('gi-fechar').onclick = () => ov.remove();
+    }
   }
 
   /* --- Reconsulta saldo on-chain dos enderecos ja salvos (botao "atualizar saldo") ---
@@ -454,13 +520,285 @@
 
   function wireWipeButton() {
     const btn = document.getElementById('btnSairApagar');
-    if (btn && !btn._gnWired) { btn._gnWired = true; btn.addEventListener('click', wipe); }
+    if (btn && !btn._gnWired) { btn._gnWired = true; btn.addEventListener('click', logoutSimples); }
   }
 
-  window.GNIdentity = { session: null, init, refresh, wipe };
+  function logoutSimples() {
+    if (!confirm(t('logout_confirm','Sair deste navegador? Suas moedas continuam salvas — use sua senha pra acessar de novo, aqui ou em qualquer outro aparelho.'))) return;
+    try { localStorage.removeItem(SK); } catch(e) {}
+    location.reload();
+  }
+
+  window.GNIdentity = { session: null, init, refresh, wipe, showTerminal, _api: api, _saveSess: saveSess, _injectStyles: injectStyles, logoutSimples };
   if (document.readyState==='loading') {
     document.addEventListener('DOMContentLoaded', init);
     document.addEventListener('DOMContentLoaded', wireWipeButton);
   } else { init(); wireWipeButton(); }
 
+})();
+
+/* ============================================================
+ * Configuração de saída + Saque para carteira externa
+ * ============================================================ */
+(function(){
+  function t(key, fallback) {
+    const s = window.I18N && window.I18N.t ? window.I18N.t(key) : null;
+    return (s && s !== key) ? s : fallback;
+  }
+  function showConfigSaida(atual) {
+    window.GNIdentity._injectStyles();
+    const ov = document.createElement('div'); ov.id='gn-overlay';
+    ov.innerHTML = `<div id="gn-modal" class="gn-modal-blue" style="max-height:88vh;overflow-y:auto">
+      <h2>⚙️ ${t('cfg_titulo','Configuração')}</h2>
+
+      <h3 style="font-size:13px;color:#5ab0ff;margin:18px 0 6px">${t('cfg_secao_endereco','Endereço de saída')}</h3>
+      <p class="sub">${t('cfg_endereco_sub','Escolha a moeda e o endereço externo pra onde você vai querer transferir tudo, ou usar ao encerrar sua conta. Pode alterar depois, mas só antes de sacar tudo ou fazer o wipe.')}</p>
+      <div class="gn-f"><label>${t('cfg_moeda_label','Moeda de saída')}</label>
+        <select id="cfg-moeda">
+          <option value="BTC" ${atual&&atual.moeda_saida==='BTC'?'selected':''}>BTC</option>
+          <option value="BCH" ${atual&&atual.moeda_saida==='BCH'?'selected':''}>BCH</option>
+        </select></div>
+      <div class="gn-f"><label>${t('cfg_secao_endereco','Endereço de saída')}</label>
+        <input id="cfg-endereco" placeholder="${t('cfg_endereco_placeholder','seu endereço externo')}" value="${atual&&atual.endereco_saida?atual.endereco_saida:''}" autocomplete="off" spellcheck="false"></div>
+      <div class="gn-warn-notice"><b>${t('aviso_label','Atenção:')}</b> ${t('cfg_endereco_aviso','o endereço informado aqui será usado para escoar (transferir pra fora) o saldo real da sua conta no site. Se você informar um endereço errado, ou não tiver certeza e domínio total sobre ele, o valor enviado pode ser')} <b>${t('perdido_para_sempre','perdido para sempre')}</b>. ${t('cfg_endereco_aviso2','O site não tem como reverter isso e não se responsabiliza por endereço incorreto ou equívoco do usuário.')}</div>
+      <div class="gn-btns"><button class="gn-br" id="cfg-ok">${t('cfg_salvar_endereco_btn','Salvar endereço')}</button></div>
+      <div id="cfg-msg" style="font-size:12px;min-height:16px;margin-top:6px"></div>
+
+      <hr style="border:none;border-top:1px solid #1e2a44;margin:22px 0">
+
+      <h3 style="font-size:13px;color:#5ab0ff;margin:0 0 6px">🔑 ${t('cfg_secao_senha','Senha de acesso')}</h3>
+      <p class="sub">${t('cfg_senha_sub','Permite acessar suas mesmas moedas de qualquer navegador ou aparelho — celular, computador do trabalho, etc. Mínimo 8 caracteres, com maiúscula, minúscula e número.')}</p>
+      <div class="gn-f"><label>${t('cfg_senha_label','Senha')}</label>
+        <input id="sen-a" type="password" placeholder="${t('cfg_senha_placeholder','Mínimo 8 caracteres')}" autocomplete="new-password" spellcheck="false"></div>
+      <div class="gn-f"><label>${t('cfg_confirmar_senha_label','Confirmar senha')}</label>
+        <input id="sen-b" type="password" placeholder="${t('cfg_confirmar_senha_placeholder','Digite de novo')}" autocomplete="new-password" spellcheck="false"></div>
+      <div class="gn-f"><label style="display:flex;align-items:center;gap:8px;font-weight:400;text-transform:none">
+        <input type="checkbox" id="sen-ver" style="width:auto"> ${t('cfg_mostrar_senha','Mostrar senha')}</label></div>
+      <div class="gn-warn-notice"><b>${t('aviso_label','Atenção:')}</b> ${t('cfg_senha_aviso','essa senha é a ÚNICA forma de recuperar acesso às suas moedas em outro aparelho. Não existe "esqueci minha senha" — como o site é anônimo, não temos e-mail nem telefone seu pra te ajudar a recuperar.')} <b>${t('cfg_senha_aviso2','Anote em local seguro.')}</b></div>
+      <div class="gn-btns"><button class="gn-br" id="sen-ok">${t('cfg_salvar_senha_btn','Salvar senha')}</button></div>
+      <div id="sen-msg" style="font-size:12px;min-height:16px;margin-top:6px"></div>
+
+      <hr style="border:none;border-top:1px solid #1e2a44;margin:22px 0">
+
+      <h3 style="font-size:13px;color:#ef4444;margin:0 0 6px">🗑️ ${t('cfg_secao_encerrar','Encerrar conta')}</h3>
+      <p class="sub">${t('cfg_encerrar_sub','Apaga todo o seu perfil e histórico deste site permanentemente. Se você tiver saldo real, primeiro transfere tudo pro endereço de saída configurado acima — e só funciona se o saldo estiver concentrado numa moeda só.')}</p>
+      <div class="gn-btns"><button class="gn-bs" id="cfg-encerrar" style="border-color:#7c1d1d;color:#fca5a5">${t('cfg_encerrar_btn','Sair e apagar todos os meus dados')}</button></div>
+
+      <div class="gn-btns" style="margin-top:18px"><button class="gn-bs" id="cfg-fechar">${t('fechar_btn','Fechar')}</button></div>
+    </div>`;
+    document.body.appendChild(ov);
+    document.getElementById('cfg-fechar').onclick = () => ov.remove();
+    document.getElementById('cfg-encerrar').onclick = () => { ov.remove(); window.GNIdentity.wipe(); };
+    document.getElementById('sen-ver').onchange = (e) => {
+      const t = e.target.checked ? 'text' : 'password';
+      document.getElementById('sen-a').type = t;
+      document.getElementById('sen-b').type = t;
+    };
+
+    document.getElementById('cfg-ok').onclick = async () => {
+      const moeda = document.getElementById('cfg-moeda').value;
+      const endereco = document.getElementById('cfg-endereco').value.trim();
+      const msg = document.getElementById('cfg-msg');
+      if (!endereco) { msg.style.color='#fca5a5'; msg.textContent=t('cfg_endereco_vazio','Informe um endereço.'); return; }
+      const s = window.GNIdentity.session;
+      try {
+        const r = await window.GNIdentity._api('configurar_saida', { session_id: s.session_id, moeda, endereco });
+        if (r.ok) {
+          const merged = Object.assign({}, s, { moeda_saida: r.moeda_saida, endereco_saida: r.endereco_saida });
+          window.GNIdentity.session = merged; window.GNIdentity._saveSess(merged);
+          msg.style.color = '#86efac'; msg.textContent = t('cfg_endereco_salvo','Endereço salvo.');
+        } else { msg.style.color='#fca5a5'; msg.textContent = t('erro_prefixo','Erro:') + ' ' + (r.error||t('falhou','falhou')); }
+      } catch (e) { msg.style.color='#fca5a5'; msg.textContent = t('erro_rede_prefixo','Erro de rede:') + ' ' + e.message; }
+    };
+
+    document.getElementById('sen-ok').onclick = async () => {
+      const a = document.getElementById('sen-a').value;
+      const b = document.getElementById('sen-b').value;
+      const msg = document.getElementById('sen-msg');
+      if (a !== b) { msg.style.color='#fca5a5'; msg.textContent=t('senha_nao_confere','As duas senhas não são iguais.'); return; }
+      if (a.length < 8 || !/[A-Z]/.test(a) || !/[a-z]/.test(a) || !/[0-9]/.test(a)) {
+        msg.style.color='#fca5a5'; msg.textContent=t('senha_fraca','Senha fraca: mínimo 8 caracteres, com maiúscula, minúscula e número.'); return;
+      }
+      const s = window.GNIdentity.session;
+      try {
+        const r = await window.GNIdentity._api('configurar_senha', { session_id: s.session_id, senha: a });
+        if (r.ok) { msg.style.color='#86efac'; msg.textContent=t('senha_configurada','Senha configurada!'); }
+        else { msg.style.color='#fca5a5'; msg.textContent = 'Erro: ' + (r.error||'falhou'); }
+      } catch (e) { msg.style.color='#fca5a5'; msg.textContent = t('erro_rede_prefixo','Erro de rede:') + ' ' + e.message; }
+    };
+  }
+
+  function moedaExibicaoAtual() {
+    return (window.GNApp && window.GNApp.moedaExibicao) || 'BRL';
+  }
+  function simboloMoeda(m) {
+    const s = {BRL:'R$',USD:'US$',EUR:'€',GBP:'£',JPY:'¥',CNY:'¥',TRY:'₺',RUB:'₽'};
+    return s[m] || (m+' ');
+  }
+  function fmtFiat(v, moedaExib) {
+    return simboloMoeda(moedaExib) + ' ' + (v||0).toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2});
+  }
+
+  async function showSacarExterno(session) {
+    window.GNIdentity._injectStyles();
+    const btcSaldo = parseFloat(session.btc_saldo)||0;
+    const bchSaldo = parseFloat(session.bch_saldo)||0;
+    const opcoes = [];
+    if (btcSaldo > 0) opcoes.push(['BTC', btcSaldo]);
+    if (bchSaldo > 0) opcoes.push(['BCH', bchSaldo]);
+    if (!opcoes.length) { alert(t('saque_sem_saldo','Sem saldo real disponível ainda.')); return null; }
+
+    const moedaExib = moedaExibicaoAtual();
+    const cotacoes = {};
+    for (const [m] of opcoes) {
+      try {
+        cotacoes[m] = await window.GNIdentity._api('cotacao_saque', { moeda: m, moeda_exibicao: moedaExib });
+      } catch(e) { cotacoes[m] = null; }
+    }
+
+    return new Promise(res => {
+      const ov = document.createElement('div'); ov.id='gn-overlay';
+      ov.innerHTML = `<div id="gn-modal" class="gn-modal-blue">
+        <h2>↗ ${t('sac_titulo','Transferir para carteira externa')}</h2>
+        <div class="gn-f"><label>${t('sac_moeda_label','Moeda')}</label>
+          <select id="sac-moeda">
+            ${opcoes.map(([m,v])=>{
+              const c = cotacoes[m];
+              const fiat = c && c.ok ? fmtFiat(v * c.preco_unitario, moedaExib) : '';
+              return `<option value="${m}">${m} — ${t('sac_saldo_label','saldo:')} ${v}${fiat ? ' ('+fiat+')' : ''}</option>`;
+            }).join('')}
+          </select></div>
+        <div class="gn-f"><label>${t('sac_endereco_label','Endereço de destino')}</label>
+          <input id="sac-endereco" placeholder="${t('sac_endereco_placeholder','cole o endereço externo')}" value="${session.endereco_saida||''}" autocomplete="off" spellcheck="false"></div>
+        <div class="gn-f"><label style="display:flex;align-items:center;gap:8px;font-weight:400;text-transform:none">
+          <input type="checkbox" id="sac-tudo" checked style="width:auto"> ${t('sac_tudo_label','Sacar tudo dessa moeda')}</label></div>
+        <div class="gn-f" id="sac-valor-wrap" style="display:none">
+          <label>${t('sac_valor_label','Valor (em {moeda})').replace('{moeda}', moedaExib)}</label>
+          <input id="sac-valor" placeholder="0,00" inputmode="decimal"></div>
+        <div class="gn-f" id="sac-taxa" style="font-size:12px;color:#7d8aa3"></div>
+        <div class="gn-warn-notice"><b>${t('aviso_label','Atenção:')}</b> ${t('sac_aviso','essa transferência é real e irreversível. Confira o endereço com cuidado antes de confirmar — se estiver errado, ou você não tiver domínio total sobre ele, o valor pode ser')} <b>${t('perdido_para_sempre','perdido para sempre')}</b>, ${t('sac_aviso2','sem possibilidade de recuperação pelo site.')}</div>
+        <div class="gn-btns">
+          <button class="gn-br" id="sac-ok">${t('confirmar_btn','Confirmar')}</button>
+          <button class="gn-bs" id="sac-cancel">${t('cancelar_btn','Cancelar')}</button>
+        </div></div>`;
+      document.body.appendChild(ov);
+
+      function atualizarTaxa() {
+        const moeda = document.getElementById('sac-moeda').value;
+        const c = cotacoes[moeda];
+        const taxaEl = document.getElementById('sac-taxa');
+        if (c && c.ok) {
+          taxaEl.textContent = t('sac_taxa_estimada','Taxa de rede estimada: {fiat} ({cripto} {moeda})')
+            .replace('{fiat}', fmtFiat(c.taxa_rede_exib, moedaExib)).replace('{cripto}', c.taxa_rede_cripto).replace('{moeda}', moeda);
+        } else {
+          taxaEl.textContent = t('sac_taxa_indisponivel','Taxa de rede: indisponível no momento');
+        }
+      }
+      atualizarTaxa();
+      document.getElementById('sac-moeda').onchange = atualizarTaxa;
+
+      document.getElementById('sac-tudo').onchange = (e) => {
+        document.getElementById('sac-valor-wrap').style.display = e.target.checked ? 'none' : 'block';
+      };
+      document.getElementById('sac-cancel').onclick = () => { ov.remove(); res(null); };
+      document.getElementById('sac-ok').onclick = () => {
+        const moeda = document.getElementById('sac-moeda').value;
+        const endereco = document.getElementById('sac-endereco').value.trim();
+        const tudo = document.getElementById('sac-tudo').checked;
+        if (!endereco) { alert(t('saque_sem_endereco','Informe o endereço de destino.')); return; }
+
+        let valorCripto = null;
+        if (!tudo) {
+          const valorFiatStr = document.getElementById('sac-valor').value.replace(',', '.');
+          const valorFiat = parseFloat(valorFiatStr);
+          const c = cotacoes[moeda];
+          if (!valorFiat || valorFiat <= 0) { alert(t('saque_valor_invalido','Informe um valor válido em {moeda}.').replace('{moeda}', moedaExib)); return; }
+          if (!c || !c.ok || !(c.preco_unitario > 0)) { alert(t('saque_cotacao_indisponivel','Cotação indisponível — tente novamente em instantes.')); return; }
+          valorCripto = valorFiat / c.preco_unitario;
+        }
+        ov.remove(); res({moeda, endereco, valor: valorCripto});
+      };
+    });
+  }
+
+  function fluxoConfigSaida() {
+    const s = window.GNIdentity.session;
+    if (!s || !s.session_id) { alert(t('sessao_nao_encontrada','Sessão não encontrada.')); return; }
+    showConfigSaida(s);
+  }
+
+  async function fluxoSacarExterno() {
+    const s = window.GNIdentity.session;
+    if (!s || !s.session_id) { alert(t('sessao_nao_encontrada','Sessão não encontrada.')); return; }
+    const pedido = await showSacarExterno(s);
+    if (!pedido) return;
+
+    function sleep(ms){ return new Promise(r=>setTimeout(r,ms)); }
+    const steps = [
+      { id:'valida', label:t('sac_step_valida','Validando pedido de saque'), ms:500, fn: async()=>({ok:true}) },
+      { id:'enviar', label:t('sac_step_enviar','Enviando transação'), ms:1200,
+        fn: async()=>{
+          const r = await window.GNIdentity._api('sacar_externa', {
+            session_id: s.session_id, moeda: pedido.moeda,
+            endereco_destino: pedido.endereco, valor: pedido.valor,
+          });
+          if (!r.ok) {
+            const msg = r.error || t('falhou','falhou');
+            return { ok:false, text: r.precisa_consolidar ? t('sac_consolide_primeiro','CONSOLIDE PRIMEIRO') : t('term_falhou_status','FALHOU'), detail: msg, fatal:true };
+          }
+          window._lastSaque = r;
+          return { ok:true, text: r.foi_total ? t('sac_total','TOTAL') : t('sac_parcial','PARCIAL'), detail: (r.txid||'').slice(0,10)+'...' };
+        }},
+      { id:'recuperacao', label:t('sac_step_recuperacao','Guarde esta informação'), ms:400,
+        fn: async()=>{
+          const r = window._lastSaque;
+          if (!r) return { ok:false, text:t('term_falhou_status','FALHOU'), fatal:true };
+          return { ok:true, text:'TXID', detail: `${pedido.moeda} · ${r.txid} · ${t('sac_destino_label','destino')} ${pedido.endereco}` };
+        }},
+      { id:'confirmando', label:t('sac_step_confirmando','Aguardando confirmação na rede'), ms:2000,
+        fn: async()=>{
+          const r = window._lastSaque;
+          if (!r) return { ok:false, text:t('term_falhou_status','FALHOU'), fatal:true };
+          const MAX_TENTATIVAS = 240;
+          for (let i=0;i<MAX_TENTATIVAS;i++){
+            try {
+              const st = await window.GNIdentity._api('status_saque', { txid:r.txid, moeda:pedido.moeda });
+              if (st.ok && st.confirmations > 0) {
+                return { ok:true, text:t('sac_confirmado','CONFIRMADO'), detail: st.confirmations + ' ' + t('sac_confirmacoes','confirmação(ões)') };
+              }
+            } catch(e) {}
+            await sleep(7000);
+          }
+          return { ok:false, text:t('sac_demorou','DEMOROU'), detail:t('sac_ainda_nao_confirmou','ainda não confirmou — o TXID acima continua válido pra checar depois'), fatal:false };
+        }},
+      { id:'atualiza', label:t('sac_step_atualiza','Atualizando saldo'), ms:500,
+        fn: async()=>{
+          const r = window._lastSaque;
+          if (r) {
+            const merged = Object.assign({}, window.GNIdentity.session, {
+              btc_saldo: r.btc_saldo, bch_saldo: r.bch_saldo, modo_real: r.modo_real,
+            });
+            window.GNIdentity.session = merged;
+            window.GNIdentity._saveSess(merged);
+            window.dispatchEvent(new CustomEvent('gn:identity:updated', { detail: merged }));
+          }
+          return { ok:true };
+        }}
+    ];
+    await window.GNIdentity.showTerminal(steps, {
+      title: t('sac_term_titulo','▶ GAMBLENUMBERS · SAQUE PARA CARTEIRA EXTERNA'),
+      theme: 'amber',
+      okText: t('sac_term_ok','✓ SAQUE CONFIRMADO NA REDE'),
+      failText: t('sac_term_fail','✗ SAQUE NÃO CONCLUÍDO — DADOS DE RECUPERAÇÃO ACIMA'),
+    });
+  }
+
+  document.addEventListener('DOMContentLoaded', function(){
+    const bc = document.getElementById('btnConfigSaida');
+    const bs = document.getElementById('btnSacarExterno');
+    const bp = document.getElementById('btnConfigSenha');
+    if (bc) bc.addEventListener('click', fluxoConfigSaida);
+    if (bs) bs.addEventListener('click', fluxoSacarExterno);
+    if (bp) bp.addEventListener('click', fluxoConfigSenha);
+  });
 })();
