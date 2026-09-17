@@ -8,3 +8,9 @@ config.php
 chumbrega.php
 !docs/*.sql
 !infra/**/*.sql
+wallet_config.php
+private/cache/
+teste_setas_vintage.html
+sideshift_config.php
+sideshift_jobs/
+private/logs/

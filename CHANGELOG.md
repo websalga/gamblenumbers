@@ -6,6 +6,38 @@ Todas as mudanças relevantes do GambleNumbers são documentadas aqui, em inglê
 
 ---
 
+## [v1.6.0] — 2026-09-17
+
+### English
+
+**New: real custody mode — auto-generated deposit addresses**
+Visitors can now opt into "real mode": the site generates a dedicated BTC and BCH deposit address for them straight from the node wallets, so operations can move real funds instead of only simulated ones.
+
+**New: optional password for cross-device access**
+Visitors can set a password to recover their session — and the funds tied to it — from another browser or device. Without a password, access stays tied to the browser that created the session.
+
+**New: BTC↔BCH transfer bridge**
+A "Transfer" widget was added to the Statements screen, letting a real BTC↔BCH conversion be requested directly from the account's own on-chain balance through a third-party swap provider (SideShift): quote confirmation, execution, and on-chain status tracking are shown live in a terminal-style log.
+
+**Improved: client-side error reporting**
+Failures during the account-setup and transfer flows are now also logged server-side (including the JS exception, when there is one), making issues easier to diagnose after the fact.
+
+### Português
+
+**Novo: modo de custódia real — endereços de depósito gerados automaticamente**
+Visitantes agora podem optar pelo "modo real": o site gera um endereço de depósito dedicado em BTC e BCH pra eles direto a partir das wallets dos nós, permitindo que as operações movimentem fundos reais em vez de só simulados.
+
+**Novo: senha opcional para acesso multi-dispositivo**
+Visitantes podem definir uma senha para recuperar a sessão — e os fundos ligados a ela — a partir de outro navegador ou aparelho. Sem senha, o acesso fica preso ao navegador que criou a sessão.
+
+**Novo: ponte de transferência BTC↔BCH**
+Foi adicionado um widget de "Transferência" na tela de Extratos, permitindo solicitar uma conversão real BTC↔BCH direto do saldo on-chain da própria conta, através de um provedor de swap terceirizado (SideShift): confirmação de cotação, execução e acompanhamento do status on-chain aparecem ao vivo num log estilo terminal.
+
+**Melhorado: registro de erros do lado do cliente**
+Falhas durante os fluxos de configuração de conta e de transferência agora também são registradas no servidor (incluindo a exceção JS, quando houver), facilitando o diagnóstico posterior.
+
+---
+
 ## [v1.5.0] — 2026-09-10
 
 ### English
