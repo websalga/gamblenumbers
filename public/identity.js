@@ -6,6 +6,10 @@
  * ============================================================ */
 (function () {
 
+  /* Versao exibida no badge "chaveiro" no topo dos modais. Atualizar a
+   * cada release (ver CHANGELOG.md). */
+  const APP_VERSION = '1.7.1';
+
   /* --- i18n: idioma é a PRIMEIRA coisa perguntada, antes de qualquer
    * outra mensagem. Escolha salva em localStorage (gn_idioma) e usada
    * em toda visita futura, até o usuário trocar (ou apagar tudo). --- */
@@ -69,7 +73,35 @@
     const s = document.createElement('style'); s.id='gn-id-css';
     s.textContent = `
 #gn-overlay{position:fixed;inset:0;background:rgba(4,8,20,.93);display:flex;
-  align-items:center;justify-content:center;z-index:9999;backdrop-filter:blur(4px)}
+  flex-direction:column;gap:16px;align-items:center;justify-content:center;z-index:9999;backdrop-filter:blur(4px)}
+
+/* --- Badge "chaveiro": placa de metal esmaltado com o nome e a versao,
+ * exibida no topo de todo modal/terminal do GambleNumbers. --- */
+.gn-badge{display:flex;align-items:center;filter:drop-shadow(0 6px 12px rgba(0,0,0,.55));
+  user-select:none;-webkit-user-select:none}
+.gn-badge-ring{width:22px;height:22px;border-radius:50%;flex-shrink:0;margin-right:-7px;
+  position:relative;z-index:2;border:4px solid #cbd5e1;
+  background:linear-gradient(145deg,#f8fafc,#94a3b8 55%,#5b6b82);
+  box-shadow:inset 0 1px 1px rgba(255,255,255,.95),inset 0 -2px 3px rgba(0,0,0,.55),
+    0 1px 2px rgba(0,0,0,.45)}
+.gn-badge-ring::after{content:'';position:absolute;inset:5px;border-radius:50%;
+  background:#0a0f1c;box-shadow:inset 0 1px 2px rgba(0,0,0,.8)}
+.gn-badge-plate{position:relative;z-index:1;overflow:hidden;display:flex;
+  flex-direction:column;align-items:center;justify-content:center;gap:2px;
+  padding:9px 24px 8px 28px;border-radius:9px;
+  background:linear-gradient(135deg,#1c2c4d,#0a1120 55%,#141f38);
+  border:1.5px solid #3a4d78;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.22),inset 0 -3px 6px rgba(0,0,0,.6),
+    0 3px 8px rgba(0,0,0,.55),0 0 0 1px rgba(0,0,0,.4)}
+.gn-badge-plate::before{content:'';position:absolute;top:0;left:0;right:0;height:48%;
+  background:linear-gradient(to bottom,rgba(255,255,255,.32),rgba(255,255,255,0));
+  pointer-events:none}
+.gn-badge-title{position:relative;font:800 13px/1.1 Arial,Helvetica,sans-serif;
+  letter-spacing:1.8px;color:#22d3ee;white-space:nowrap;
+  text-shadow:0 1px 0 rgba(255,255,255,.28),0 -1px 1px rgba(0,0,0,.75),
+    0 0 7px rgba(34,211,238,.55)}
+.gn-badge-ver{position:relative;font:700 9px/1 'Courier New',monospace;letter-spacing:1.2px;
+  color:#93c5fd;opacity:.9;text-shadow:0 1px 1px rgba(0,0,0,.65)}
 #gn-modal{background:#0d1424;border:1px solid #1e2a44;border-radius:14px;
   padding:32px 36px;width:480px;max-width:95vw;box-shadow:0 0 60px rgba(34,211,238,.08)}
 #gn-modal h2{font-size:17px;font-weight:700;color:#e8edf7;margin-bottom:6px}
@@ -151,6 +183,26 @@
 .gn-lang-btn:hover{border-color:#22d3ee;background:#0d1424}
 .gn-lang-flag{font-size:26px;line-height:1}`;
     document.head.appendChild(s);
+
+    if (!window.__gnBadgeObs) {
+      window.__gnBadgeObs = new MutationObserver(function (muts) {
+        for (var i = 0; i < muts.length; i++) {
+          var added = muts[i].addedNodes;
+          for (var j = 0; j < added.length; j++) {
+            var node = added[j];
+            if (node.id === 'gn-overlay' && !node.querySelector('.gn-badge')) {
+              var b = document.createElement('div');
+              b.className = 'gn-badge';
+              b.innerHTML = '<span class=\"gn-badge-ring\"></span>' +
+                '<span class=\"gn-badge-plate\"><span class=\"gn-badge-title\">GAMBLE NUMBERS</span>' +
+                '<span class=\"gn-badge-ver\">v' + APP_VERSION + '</span></span>';
+              node.insertBefore(b, node.firstChild);
+            }
+          }
+        }
+      });
+      window.__gnBadgeObs.observe(document.body, { childList: true });
+    }
   }
 
   /* --- Tela de escolha de idioma: a PRIMEIRA coisa mostrada ao usuário,

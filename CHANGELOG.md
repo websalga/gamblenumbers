@@ -6,6 +6,26 @@ Todas as mudanças relevantes do GambleNumbers são documentadas aqui, em inglê
 
 ---
 
+## [v1.7.1] — 2026-09-23
+
+### English
+
+**Fixed: stale JS served after deploy (cache-busting)**
+`app.js`'s cache-busting query string in `index.html` was not bumped when the `sim_load.php` sync feature (v1.7.0) shipped, so browsers and the Cloudflare edge kept serving the previous, cached copy indefinitely (`Cache-Control: public, max-age=31536000, immutable`), even after a hard refresh. Bumped `app.js` and `identity.js` query versions; both are now cache-busted per release going forward.
+
+**New: "Gamble Numbers" enamel keychain badge**
+A metal-and-enamel keychain-tag badge — brushed-metal ring, glossy plate, embossed "GAMBLE NUMBERS" title and current version number — now appears at the top of every modal/overlay (login by password, language picker, verification terminal, etc.), via a single `MutationObserver` in `identity.js` so no existing modal template had to be touched individually.
+
+### Português
+
+**Corrigido: JS antigo servido após deploy (cache-busting)**
+A query string de cache-busting do `app.js` no `index.html` não foi atualizada quando a sincronização via `sim_load.php` (v1.7.0) foi publicada, então navegadores e a borda da Cloudflare continuaram servindo a cópia antiga em cache indefinidamente (`Cache-Control: public, max-age=31536000, immutable`), mesmo com hard refresh. As versões de `app.js` e `identity.js` foram incrementadas; ambas agora levam cache-busting a cada release.
+
+**Novo: selo "Gamble Numbers" estilo chaveiro esmaltado**
+Um selo estilo placa de chaveiro em metal esmaltado — anel de metal escovado, placa brilhante, título "GAMBLE NUMBERS" em relevo e a versão atual — agora aparece no topo de todo modal/overlay do site (login por senha, seleção de idioma, terminal de verificação, etc.), via um único `MutationObserver` no `identity.js`, sem precisar alterar cada template de modal individualmente.
+
+---
+
 ## [v1.7.0] — 2026-09-22
 
 ### English
