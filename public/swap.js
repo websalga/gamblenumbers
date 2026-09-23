@@ -58,6 +58,10 @@
     return txid ? (txid.slice(0,8) + '...') : '—';
   }
 
+  function sessionId(){
+    try { return JSON.parse(localStorage.getItem('gn_session') || '{}').session_id || ''; } catch(_) { return ''; }
+  }
+
   function sleep(ms){ return new Promise(r => setTimeout(r, ms)); }
 
   async function executarComTerminal(fromCoin, toCoin, quote){
@@ -74,7 +78,7 @@
         id: 'envio', label: 'Enviando fundos', ms: 1200,
         fn: async () => {
           try {
-            const job = await chamarApi('execute', { fromCoin, toCoin, quoteId: quote.id, amount: quote.depositAmount });
+            const job = await chamarApi('execute', { fromCoin, toCoin, quoteId: quote.id, amount: quote.depositAmount, sessionId: sessionId() });
             window._lastSwapJob = job;
             return { ok: true, text: 'ENVIADO', detail: abbr(job.depositTxid) };
           } catch(e) {
@@ -151,6 +155,7 @@
 
     if(state === 'idle'){
       if(!v || v <= 0){ status('Informe um valor', true); return; }
+      if(!sessionId()){ status('Sessão não encontrada. Recarregue a página.', true); return; }
       dir = which; state = 'validating';
       document.getElementById(outroBtnId).disabled = true;
       piscar(lado, 'validando');

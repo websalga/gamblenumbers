@@ -33,6 +33,132 @@ function db() {
   ]);
 }
 
+/**
+ * Conexao de LEITURA (somente SELECT) para as tabelas de baixo nivel
+ * GN_BTC_TxMovements / GN_BCH_TxMovements, usando as mesmas credenciais
+ * de baixo privilegio ja usadas pelos jobs de sync do cache Fulcrum
+ * (gn_btc_sync / gn_bch_sync). Usada so para anexar o TXID aos extratos —
+ * nenhuma permissao nova precisa ser concedida no SQL Server.
+ * Retorna null (silenciosamente) se o arquivo de credenciais nao existir
+ * ou a conexao falhar, para que os extratos continuem funcionando mesmo
+ * sem essa funcionalidade extra.
+ */
+function syncDb(string $asset): ?PDO {
+  static $conns = [];
+  if (array_key_exists($asset, $conns)) return $conns[$asset];
+  global $SYNC_SQL_SERVER, $SYNC_SQL_DATABASE, $SYNC_SQL_PORT, $SYNC_BTC_USER, $SYNC_BTC_PASS, $SYNC_BCH_USER, $SYNC_BCH_PASS;
+  $cfgFile = __DIR__ . '/../private/sync_config.php';
+  if (!file_exists($cfgFile)) { $conns[$asset] = null; return null; }
+  require_once $cfgFile;
+  [$user, $pass] = $asset === 'BTC' ? [$SYNC_BTC_USER, $SYNC_BTC_PASS] : [$SYNC_BCH_USER, $SYNC_BCH_PASS];
+  try {
+    $dsn = "sqlsrv:Server={$SYNC_SQL_SERVER},{$SYNC_SQL_PORT};Database={$SYNC_SQL_DATABASE};Encrypt=1;TrustServerCertificate=1";
+    $conns[$asset] = new PDO($dsn, $user, $pass, [
+      PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+      PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+    ]);
+  } catch (Throwable $e) {
+    error_log('api.php syncDb erro (' . $asset . '): ' . $e->getMessage());
+    $conns[$asset] = null;
+  }
+  return $conns[$asset];
+}
+
+/**
+ * Anexa o campo 'tx_hash' a cada evento do extrato, casando por endereco +
+ * altura do bloco com as tabelas GN_BTC_TxMovements / GN_BCH_TxMovements.
+ * Quando ha mais de uma transacao no mesmo endereco/altura (raro), desempata
+ * pelo delta em satoshis mais proximo do evento.
+ */
+function forecastDb(): ?PDO {
+  static $conn = null;
+  static $tried = false;
+  if ($tried) return $conn;
+  $tried = true;
+  global $FORECAST_SQL_SERVER, $FORECAST_SQL_DATABASE, $FORECAST_SQL_PORT, $FORECAST_READER_USER, $FORECAST_READER_PASS;
+  $cfgFile = __DIR__ . '/../private/forecast_config.php';
+  if (!file_exists($cfgFile)) return null;
+  require_once $cfgFile;
+  try {
+    $dsn = "sqlsrv:Server={$FORECAST_SQL_SERVER},{$FORECAST_SQL_PORT};Database={$FORECAST_SQL_DATABASE};Encrypt=1;TrustServerCertificate=1";
+    $conn = new PDO($dsn, $FORECAST_READER_USER, $FORECAST_READER_PASS, [
+      PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+      PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+    ]);
+  } catch (Throwable $e) {
+    error_log('api.php forecastDb erro: ' . $e->getMessage());
+    $conn = null;
+  }
+  return $conn;
+}
+
+function anexarTxHash(array &$events): void {
+  $porAtivo = [];
+  foreach ($events as $i => $ev) {
+    $asset = $ev['asset'] ?? '';
+    $addr  = $ev['address'] ?? '';
+    $h     = $ev['block_height'] ?? null;
+    if ($asset === '' || $addr === '' || $h === null) continue;
+    $porAtivo[$asset][] = $i;
+  }
+  foreach ($porAtivo as $asset => $indices) {
+    $tabela = $asset === 'BTC' ? 'dbo.GN_BTC_TxMovements' : 'dbo.GN_BCH_TxMovements';
+    $pdo = syncDb($asset);
+    if (!$pdo) continue;
+
+    $enderecos = [];
+    $alturas = [];
+    foreach ($indices as $i) {
+      $enderecos[$events[$i]['address']] = true;
+      $alturas[(int)$events[$i]['block_height']] = true;
+    }
+    $enderecos = array_keys($enderecos);
+    $alturas = array_keys($alturas);
+    if (!$enderecos || !$alturas) continue;
+
+    $phEnd = implode(',', array_fill(0, count($enderecos), '?'));
+    $phAlt = implode(',', array_fill(0, count($alturas), '?'));
+    $candidatos = [];
+    try {
+      $stmt = $pdo->prepare(
+        "SELECT address, height, tx_hash, value_in_sat, value_out_sat
+         FROM {$tabela}
+         WHERE address IN ({$phEnd}) AND height IN ({$phAlt})"
+      );
+      $stmt->execute(array_merge($enderecos, $alturas));
+      while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+        $key = $row['address'] . '|' . $row['height'];
+        $candidatos[$key][] = $row;
+      }
+    } catch (Throwable $e) {
+      error_log('api.php anexarTxHash erro (' . $asset . '): ' . $e->getMessage());
+      continue;
+    }
+
+    foreach ($indices as $i) {
+      $key = $events[$i]['address'] . '|' . (int)$events[$i]['block_height'];
+      $lista = $candidatos[$key] ?? [];
+      if (!$lista) { $events[$i]['tx_hash'] = null; continue; }
+      if (count($lista) === 1) {
+        $events[$i]['tx_hash'] = $lista[0]['tx_hash'];
+        continue;
+      }
+      // Mais de uma tx no mesmo endereco/altura: desempata pelo delta em sat.
+      $alvo = isset($events[$i]['delta_sat']) ? (int)$events[$i]['delta_sat'] : null;
+      $melhor = $lista[0];
+      if ($alvo !== null) {
+        $menorDiff = null;
+        foreach ($lista as $c) {
+          $net = (int)$c['value_in_sat'] - (int)$c['value_out_sat'];
+          $diff = abs($net - $alvo);
+          if ($menorDiff === null || $diff < $menorDiff) { $menorDiff = $diff; $melhor = $c; }
+        }
+      }
+      $events[$i]['tx_hash'] = $melhor['tx_hash'];
+    }
+  }
+}
+
 // --- Whitelists ---
 const MOEDAS_CRYPTO = [
   'BTC' => 'dbo.snapshots',
@@ -188,9 +314,13 @@ try {
     $stmt = $pdo->prepare("SELECT asset, address, last_checked_utc, last_height, total_coin, tx_count, utxo_count, status, last_error, price_brl, price_ts_utc, value_brl FROM dbo.vw_GN_AddressStatementSummary WHERE session_id = ? ORDER BY asset");
     $stmt->execute([$sessionId]);
     $summary = $stmt->fetchAll(PDO::FETCH_ASSOC);
-    $stmt = $pdo->prepare("SELECT TOP (200) asset, address, observed_at_utc, block_height, event_type, total_coin, delta_coin, price_brl, value_brl, delta_value_brl, source_host FROM dbo.vw_GN_AddressStatementEvents WHERE session_id = ? ORDER BY observed_at_utc DESC, asset");
+    $stmt = $pdo->prepare("SELECT TOP (200) asset, address, observed_at_utc, block_height, event_type, total_coin, delta_coin, delta_sat, price_brl, value_brl, delta_value_brl, source_host FROM dbo.vw_GN_AddressStatementEvents WHERE session_id = ? ORDER BY observed_at_utc DESC, asset");
     $stmt->execute([$sessionId]);
     $events = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    // Anexa o TXID de cada evento (via credenciais de sync, somente leitura)
+    // para permitir rastreio no mempool.space (BTC) / bchmempool.cash (BCH).
+    anexarTxHash($events);
 
     // Converte os valores monetarios (nativamente em BRL nas views) para a
     // moeda de exibicao escolhida pelo usuario (?moeda_exibicao=USD|EUR|...).
@@ -246,6 +376,57 @@ try {
     }
     echo json_encode(['ok' => true, 'ativo' => $moeda, 'cotacao' => $moedaExibicao,
                       'tipo' => $tipo, 'config' => $cfg ?: null]);
+    exit;
+  }
+
+  // ── Endpoint de previsao estatistica (motor forecast, lsql2019) ───────
+  // Linha de referencia pontilhada no grafico: NAO substitui a simulacao
+  // client-side existente, e' so um traco informativo. Cobre no maximo
+  // 24h a frente (horizonte validado por validacao cruzada rolling-origin).
+  if ($acao === 'previsao') {
+    $ativoPrev = in_array($moeda, ['BTC', 'BCH'], true) ? $moeda : 'BTC';
+    $fdb = forecastDb();
+    if (!$fdb) {
+      echo json_encode(['ok' => false, 'error' => 'motor de previsao indisponivel']);
+      exit;
+    }
+    $stmt = $fdb->prepare(
+      "SELECT TOP 1 r.run_id, r.ancora_t_utc, r.ancora_preco, r.gerado_em_utc,
+              mc.modelo, mc.horizonte_min, mc.mape_oos
+       FROM forecast.Runs r
+       JOIN forecast.Model_Config mc ON mc.id = r.model_config_id
+       WHERE r.ativo = ? AND mc.horizonte_min = 1440
+       ORDER BY r.run_id DESC"
+    );
+    $stmt->execute([$ativoPrev]);
+    $run = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$run) {
+      echo json_encode(['ok' => false, 'error' => 'sem previsao disponivel para ' . $ativoPrev]);
+      exit;
+    }
+    $stmt2 = $fdb->prepare(
+      "SELECT target_t_utc, y_hat, y_lo, y_hi
+       FROM forecast.Points WHERE run_id = ? ORDER BY target_t_utc ASC"
+    );
+    $stmt2->execute([$run['run_id']]);
+    $pontos = [];
+    while ($p = $stmt2->fetch(PDO::FETCH_ASSOC)) {
+      $pontos[] = [
+        't'      => toMs($p['target_t_utc']),
+        'avg'    => (float)$p['y_hat'],
+        'avg_lo' => $p['y_lo'] !== null ? (float)$p['y_lo'] : null,
+        'avg_hi' => $p['y_hi'] !== null ? (float)$p['y_hi'] : null,
+      ];
+    }
+    echo json_encode([
+      'ok'            => true,
+      'ativo'         => $ativoPrev,
+      'modelo'        => $run['modelo'],
+      'mape_oos'      => $run['mape_oos'] !== null ? (float)$run['mape_oos'] : null,
+      'gerado_em_utc' => $run['gerado_em_utc'],
+      'ancora'        => ['t' => toMs($run['ancora_t_utc']), 'avg' => (float)$run['ancora_preco']],
+      'pontos'        => $pontos,
+    ]);
     exit;
   }
 

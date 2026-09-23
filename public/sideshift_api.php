@@ -77,6 +77,11 @@ function rpcCall(string $coin, string $method, array $params = []) {
         [$host, $port, $user, $pass] = [$RPC_BCH_HOST, $RPC_BCH_PORT, $RPC_BCH_USER, $RPC_BCH_PASS];
         $url = "http://{$host}:{$port}/";
     }
+    // Bitcoin Core/BCHN rejeitam valores em notacao cientifica no campo amount.
+    // Formata qualquer float pequeno como string decimal simples antes de serializar.
+    array_walk_recursive($params, function(&$v){
+        if (is_float($v)) $v = sprintf('%.8f', $v);
+    });
     $payload = json_encode(['jsonrpc' => '1.0', 'id' => 'sideshift', 'method' => $method, 'params' => $params]);
     $ch = curl_init($url);
     curl_setopt_array($ch, [
@@ -102,6 +107,67 @@ function rpcCall(string $coin, string $method, array $params = []) {
 
 function coinNetwork(string $coin): string {
     return $coin === 'BTC' ? 'bitcoin' : 'bitcoincash';
+}
+
+/* Transfere de um endereco ESPECIFICO da wallet compartilhada (nao a wallet
+ * inteira) para outro endereco, usando so os UTXOs daquele endereco como
+ * entrada, com o troco voltando garantidamente pro mesmo endereco de
+ * origem -- mesmo padrao ja usado em identity.php (transferir_de_endereco),
+ * pra nunca misturar fundos de usuarios diferentes nem perder troco em
+ * enderecos novos que o portal nao rastreia. */
+function transferirDeEnderecoOrigem(string $coin, string $enderecoOrigem, string $enderecoDestino, float $valor): array {
+    $utxos = rpcCall($coin, 'listunspent', [1, 9999999, [$enderecoOrigem]]);
+    if (empty($utxos)) {
+        throw new RuntimeException('Sem saldo confirmado no endereço de origem');
+    }
+
+    $totalDisponivel = 0.0;
+    $inputs = [];
+    foreach ($utxos as $u) {
+        $totalDisponivel += (float)$u['amount'];
+        $inputs[] = ['txid' => $u['txid'], 'vout' => $u['vout']];
+    }
+
+    if ($valor <= 0) {
+        throw new RuntimeException('Valor de transferência inválido');
+    }
+    if ($valor > $totalDisponivel) {
+        throw new RuntimeException("Saldo insuficiente no endereço de origem: disponível {$totalDisponivel}, necessário {$valor}");
+    }
+    $ehTotal = abs($valor - $totalDisponivel) < 0.00000001;
+
+    $rawtx = rpcCall($coin, 'createrawtransaction', [$inputs, [$enderecoDestino => $valor]]);
+
+    $fundOpts = ['add_inputs' => false];
+    if ($ehTotal) {
+        $fundOpts['subtractFeeFromOutputs'] = [0];
+    } else {
+        // Troco volta pro MESMO endereço de origem (mantém a segregação por usuário).
+        $fundOpts['changeAddress'] = $enderecoOrigem;
+    }
+    $funded = rpcCall($coin, 'fundrawtransaction', [$rawtx, $fundOpts]);
+
+    $signed = rpcCall($coin, 'signrawtransactionwithwallet', [$funded['hex']]);
+    if (empty($signed['complete'])) {
+        throw new RuntimeException('Falha ao assinar a transação de saída');
+    }
+
+    $txid = rpcCall($coin, 'sendrawtransaction', [$signed['hex']]);
+    return ['txid' => $txid, 'valor' => $ehTotal ? $totalDisponivel : $valor, 'total' => $ehTotal];
+}
+
+/* Busca os enderecos registrados (fixos) de BTC e BCH de uma sessao -- os
+ * mesmos enderecos "principais" ja mostrados nos extratos -- garantindo que
+ * troco e liquidacao do swap sempre voltem/cheguem em enderecos que o
+ * usuario ja ve e rastreia no portal, nunca em enderecos novos e orfaos. */
+function enderecosDaSessao(string $sessionId): array {
+    $st = db()->prepare('SELECT btc_address, bch_address FROM dbo.GN_Usuarios WHERE session_id = ?');
+    $st->execute([$sessionId]);
+    $row = $st->fetch();
+    if (!$row || empty($row['btc_address']) || empty($row['bch_address'])) {
+        throw new RuntimeException('Sessão sem endereços registrados');
+    }
+    return ['BTC' => $row['btc_address'], 'BCH' => $row['bch_address']];
 }
 
 function saveJob(string $jobId, array $data): void {
@@ -154,20 +220,36 @@ function actionExecute(array $in): array {
     $toCoin = strtoupper($in['toCoin'] ?? '');
     $quoteId = $in['quoteId'] ?? '';
     $amount = $in['amount'] ?? '';
+    $sessionId = $in['sessionId'] ?? '';
     if (!in_array($fromCoin, ['BTC', 'BCH'], true) || !in_array($toCoin, ['BTC', 'BCH'], true) || $fromCoin === $toCoin || $quoteId === '') {
         throw new InvalidArgumentException('Parâmetros inválidos');
     }
-
-    // Verifica saldo real antes de qualquer coisa.
-    $balance = (float)rpcCall($fromCoin, 'getbalance');
-    if ($balance < (float)$amount) {
-        throw new RuntimeException("Saldo insuficiente em {$fromCoin}: disponível {$balance}, necessário {$amount}");
+    if (!preg_match('/^[a-f0-9]{64}$/', $sessionId)) {
+        throw new InvalidArgumentException('Sessão inválida');
     }
 
-    // Endereço de destino: gerado pela própria wallet gamblenumbers (soberania do lado do recebimento).
-    $settleAddress = rpcCall($toCoin, 'getnewaddress', ['sideshift-settle']);
-    // Endereço de reembolso: também nosso, no lado de origem, caso o shift falhe.
-    $refundAddress = rpcCall($fromCoin, 'getnewaddress', ['sideshift-refund']);
+    // Enderecos fixos/"principais" do usuario -- os mesmos ja mostrados nos
+    // extratos -- nunca enderecos novos e nao rastreados.
+    $enderecos = enderecosDaSessao($sessionId);
+    $enderecoOrigem  = $enderecos[$fromCoin];
+    $enderecoDestino = $enderecos[$toCoin];
+
+    // Verifica saldo real do ENDEREÇO DE ORIGEM da sessão (não da wallet
+    // inteira, que é compartilhada entre todos os usuários) antes de
+    // qualquer coisa.
+    $utxosOrigem = rpcCall($fromCoin, 'listunspent', [1, 9999999, [$enderecoOrigem]]);
+    $saldoOrigem = 0.0;
+    foreach ($utxosOrigem as $u) { $saldoOrigem += (float)$u['amount']; }
+    if ($saldoOrigem < (float)$amount) {
+        throw new RuntimeException("Saldo insuficiente em {$fromCoin}: disponível {$saldoOrigem}, necessário {$amount}");
+    }
+
+    // Endereço de liquidação: o endereço fixo do usuário para a moeda de
+    // destino, o mesmo já mostrado nos extratos -- não um endereço novo.
+    $settleAddress = $enderecoDestino;
+    // Endereço de reembolso: o endereço fixo do próprio usuário no lado de
+    // origem, caso o shift falhe.
+    $refundAddress = $enderecoOrigem;
 
     $shift = sideshiftRequest('POST', '/shifts/fixed', [
         'affiliateId' => $GLOBALS['SIDESHIFT_ACCOUNT_ID'],
@@ -176,14 +258,11 @@ function actionExecute(array $in): array {
         'refundAddress' => $refundAddress,
     ]);
 
-    // Envia o valor exato da nossa própria wallet pro endereço de depósito do shift.
-    $depositTxid = rpcCall($fromCoin, 'sendtoaddress', [
-        $shift['depositAddress'],
-        (float)$shift['depositAmount'],
-        'SideShift shift ' . $shift['id'],
-        '',
-        false,
-    ]);
+    // Envia o valor exato a partir do ENDEREÇO REGISTRADO do usuário (não da
+    // wallet inteira) pro endereço de depósito do shift -- o troco volta
+    // garantidamente pro mesmo endereço de origem.
+    $envio = transferirDeEnderecoOrigem($fromCoin, $enderecoOrigem, $shift['depositAddress'], (float)$shift['depositAmount']);
+    $depositTxid = $envio['txid'];
 
     $job = [
         'jobId' => $shift['id'],

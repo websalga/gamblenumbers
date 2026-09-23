@@ -111,6 +111,31 @@ class SeriesRenderer {
   }
 }
 
+/* Linha de referência: previsão ESTATÍSTICA real do motor (backend),
+ * pontilhada numa cor distinta da simulação. Puramente informativa -
+ * não ancora vendas nem participa de nenhum cálculo do simulador. */
+class ForecastRefLineRenderer {
+  draw(plot, data) {
+    const ctx = plot.ctx; if (!ctx) return;
+    const ref = data.refForecast;
+    if (!ref || ref.length < 2) return;
+    ctx.beginPath();
+    ctx.strokeStyle = plot.color('forecastRef');
+    ctx.lineWidth = 1.4;
+    ctx.setLineDash([2, 3]);
+    ctx.globalAlpha = 0.9;
+    let started = false;
+    for (const pt of ref) {
+      const v = pt.avg;
+      if (v == null || !Number.isFinite(+v)) continue;
+      const x = plot.X(pt.t), y = plot.Y(v);
+      if (!started) { ctx.moveTo(x, y); started = true; } else { ctx.lineTo(x, y); }
+    }
+    if (started) ctx.stroke();
+    ctx.globalAlpha = 1; ctx.setLineDash([]);
+  }
+}
+
 /* Linha de alvo horizontal + rótulo. */
 class TargetLineRenderer {
   draw(plot, data) {
@@ -303,7 +328,7 @@ class SpreadBandRenderer {
 const Renderers = {
   ProjectionBgRenderer, PriceAxisRenderer, TimeAxisRenderer, SeriesRenderer,
   TargetLineRenderer, NowDividerRenderer, CursorRenderer, LotMarkerRenderer, SellMarkerRenderer,
-  TrailRenderer, SpreadBandRenderer,
+  TrailRenderer, SpreadBandRenderer, ForecastRefLineRenderer,
 };
 
 if (typeof module !== 'undefined' && module.exports) module.exports = Renderers;
