@@ -33,6 +33,17 @@ class OperationsController {
     this._getRates = deps.getRates || (() => null);
     // getFee(t) -> feerate em sat/vB (BTC) ou sat/byte (BCH) no instante t
     this._getFee = deps.getFee || (() => 1.0);
+
+    // De onde vem o session_id para o espelho SQL (sim_sync.php). Default
+    // le window.GNIdentity.session, que e' onde identity.js ja guarda a
+    // sessao atual -- mesma fonte usada em app.js para salvar_idioma via
+    // sendBeacon. Injetavel so' para facilitar teste.
+    this._getSessionId = deps.getSessionId || (() => {
+      try {
+        const sess = window.GNIdentity && window.GNIdentity.session;
+        return (sess && sess.session_id) || null;
+      } catch (e) { return null; }
+    });
     // Tamanho típico de transação: BTC SegWit P2WPKH ~140 vB, BCH P2PKH ~225 bytes
     this._txSize = (String(this._moeda).toUpperCase() === 'BCH') ? 225 : 140;
     // Veto de clique: durante/logo após um arraste (pan), o clique não deve
@@ -442,7 +453,36 @@ class OperationsController {
     tip.style.left = (e.clientX + 14) + 'px'; tip.style.top = (e.clientY + 14) + 'px';
   }
   _toast(type, message) { this._bus.emit('toast', { type, message }); }
-  _changed(reason, subject) { this._bus.emit('operations:changed', { reason, subject, lots: this.lots, sells: this.sells }); }
+  _changed(reason, subject) {
+    this._bus.emit('operations:changed', { reason, subject, lots: this.lots, sells: this.sells });
+    this._syncToServer(reason, subject);
+  }
+
+  /**
+   * Espelha o evento no SQL Server (sim_sync.php), fire-and-forget.
+   * NUNCA lanca, nunca bloqueia a UI, nunca depende de resposta -- se
+   * falhar (rede caiu, endpoint fora), o navegador continua sendo a
+   * fonte de verdade normalmente.
+   */
+  _syncToServer(reason, subject) {
+    const sid = this._getSessionId();
+    if (!sid || !subject) return;
+    const body = JSON.stringify({
+      session_id: sid,
+      moeda: this._moeda,
+      moeda_exib: this._moedaExib,
+      reason,
+      subject,
+    });
+    try {
+      if (navigator.sendBeacon) {
+        navigator.sendBeacon('sim_sync.php', new Blob([body], { type: 'application/json' }));
+      } else {
+        fetch('sim_sync.php', { method: 'POST', body, keepalive: true, headers: { 'Content-Type': 'application/json' } })
+          .catch(() => {});
+      }
+    } catch (e) { /* nunca deixa o sync quebrar a UI */ }
+  }
 }
 
 if (typeof module !== 'undefined' && module.exports) module.exports = { OperationsController };

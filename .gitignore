@@ -14,3 +14,8 @@ teste_setas_vintage.html
 sideshift_config.php
 sideshift_jobs/
 private/logs/
+private/sync_config.php
+private/forecast_config.php
+private/backups/
+__pycache__/
+*.pyc

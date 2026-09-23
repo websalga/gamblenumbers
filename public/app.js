@@ -94,6 +94,11 @@
       this.projected = new ProjectedSeries({
         real: this.real, forecast: window.Forecast, premium: PREMIUM, frozen: this.frozen,
       });
+      // Traço de referência: previsão ESTATÍSTICA real do motor (backend em
+      // lsql2019, validação cruzada rolling-origin). Só informativo - não
+      // participa da simulação client-side nem de nenhuma venda.
+      this.backendForecast = (typeof BackendForecast !== 'undefined')
+        ? new BackendForecast({ moeda: this.moeda }) : null;
       // Persistência local (IndexedDB) da projeção e das operações.
       this.localStore = new LocalStore({ moeda: this.moeda, moedaExibicao: this.moedaExibicao });
       // cofre das OPERACOES: separado so por carteira (moeda), nao por
@@ -132,6 +137,7 @@
         lots: new LotMarkerRenderer(), sells: new SellMarkerRenderer(), cursor: new CursorRenderer(),
         trail: new TrailRenderer(),
         spreadBand: new SpreadBandRenderer(),
+        forecastRef: new ForecastRefLineRenderer(),
       };
       this.panel = new ControlPanel({ doc, bus: this.bus, defaults: {}, fmt: { brl: BRL }, moedaExibicao: this.moedaExibicao });
       this.operations = new OperationsController({
@@ -701,6 +707,8 @@
           execPrice: s.execPrice != null ? this.operations.converterPreco(s.execPrice, s.moedaExib) : s.execPrice,
         })),
         mouse: this.mouse,
+        // linha de referência: previsão estatística real do backend (até 24h)
+        refForecast: (this.backendForecast && this.backendForecast.ready) ? this.backendForecast.pontos : [],
         // rastro: o que a projeção previu para o trecho que já virou passado
         trail: this.frozen ? this.frozen.pastTrail(endT, this.period().stepMs) : [],
         // faixa de spread: min/max entre exchanges no ponto mais recente do histórico
@@ -718,6 +726,7 @@
       this.renderers.spreadBand.draw(this.plot, data);   // faixa de spread entre exchanges
       this.renderers.trail.draw(this.plot, data);   // por baixo das séries
       this.renderers.series.draw(this.plot, data);
+      this.renderers.forecastRef.draw(this.plot, data);
       this.renderers.target.draw(this.plot, data);
       this.renderers.now.draw(this.plot, data);
       this.renderers.lots.draw(this.plot, data);
@@ -956,6 +965,13 @@
       // Uma segunda passada, idempotente, corrige sem custo perceptivel.
       setTimeout(() => { this.renderSidePanel(); this.renderChart(); }, 600);
       setInterval(() => { this.store.refresh(); }, 8000);
+      // Previsão estatística real (backend): atualiza pouco depois de cada
+      // ciclo de geração do motor (a cada 5min em lsql2019) - 60s é
+      // suficiente e barato (uma única consulta leve por atualização).
+      if (this.backendForecast) {
+        this.backendForecast.refresh().then(() => this.renderChart());
+        setInterval(() => { this.backendForecast.refresh().then(() => this.renderChart()); }, 60000);
+      }
       if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') window.addEventListener('resize', () => this.renderChart());
     }
   }
@@ -972,7 +988,7 @@
         // pois é acessado dinamicamente pelas traduções em toda a vida do app.
         ['DataStore', 'EventBus', 'ControlPanel', 'OperationsController',
          'OperationsTable', 'LocalStore', 'FrozenForecast', 'RealSeries',
-         'ProjectedSeries', 'PlotArea', 'ExchangeCard', 'Forecast'].forEach(function (k) {
+         'ProjectedSeries', 'PlotArea', 'ExchangeCard', 'Forecast', 'BackendForecast'].forEach(function (k) {
           try { delete window[k]; } catch (_) {}
         });
       });
