@@ -6,6 +6,44 @@ Todas as mudanças relevantes do GambleNumbers são documentadas aqui, em inglê
 
 ---
 
+## [v1.7.0] — 2026-09-22
+
+### English
+
+**New: real statistical price forecast (backend)**
+A reference trace on the chart now shows the engine's real statistical forecast (rolling-origin cross-validation, computed on lsql2019), refreshed roughly every 5 minutes. It is informational only — it never feeds the client-side simulation or any sell logic.
+
+**New: simulated operations sync endpoint**
+Buy/sell operations made in the chart (previously kept only in the browser's IndexedDB) are now also synced to SQL Server (`GN_SimLotes`/`GN_SimVendas`) via a best-effort `sendBeacon`/`fetch(keepalive)` call, for backup and auditing purposes.
+
+**Fixed: XSS hardening on dynamic text**
+Text originating from i18n/database content and rendered via `innerHTML` (operations table, statements) is now HTML-escaped.
+
+**Added: more currency symbols**
+JPY, CNY, TRY and RUB symbols added to the display-currency formatter.
+
+**New: confirmation reconciliation script**
+`reconciliar_confirmacoes.py` added under `private/scripts/` to reconcile pending on-chain confirmations.
+
+### Português
+
+**Novo: previsão estatística real de preço (backend)**
+Um traço de referência no gráfico agora mostra a previsão estatística real do motor (validação cruzada rolling-origin, calculada no lsql2019), atualizado a cada ~5 minutos. É apenas informativo — nunca alimenta a simulação client-side nem qualquer lógica de venda.
+
+**Novo: endpoint de sincronização das operações simuladas**
+Operações de compra/venda feitas no gráfico (antes mantidas só no IndexedDB do navegador) agora também são sincronizadas com o SQL Server (`GN_SimLotes`/`GN_SimVendas`) via `sendBeacon`/`fetch(keepalive)` best-effort, para backup e auditoria.
+
+**Corrigido: reforço contra XSS em textos dinâmicos**
+Textos vindos de i18n/banco e renderizados via `innerHTML` (tabela de operações, extratos) agora passam por escape de HTML.
+
+**Adicionado: mais símbolos de moeda**
+Símbolos de JPY, CNY, TRY e RUB adicionados ao formatador de moeda de exibição.
+
+**Novo: script de reconciliação de confirmações**
+`reconciliar_confirmacoes.py` adicionado em `private/scripts/` para reconciliar confirmações on-chain pendentes.
+
+---
+
 ## [v1.6.0] — 2026-09-17
 
 ### English
