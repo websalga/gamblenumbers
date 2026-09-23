@@ -292,6 +292,40 @@
     }
 
     /**
+     * Busca no SQL Server operações simuladas (compra/venda) que ainda não
+     * estão neste navegador - por exemplo, um INSERT manual feito direto no
+     * banco, ou uma operação sincronizada de outro navegador/aparelho - e
+     * mescla no estado em memória. Só ADICIONA o que falta (por id); nunca
+     * sobrescreve nem re-executa lógica de negócio - os valores (pnl, status,
+     * preço de execução etc.) já vêm prontos do banco, como sim_sync.php
+     * gravou. Best-effort: qualquer falha aqui é silenciosa e nunca deve
+     * atrapalhar quem está operando no gráfico.
+     */
+    async _mergeServerOps() {
+      try {
+        const sid = window.GNIdentity && window.GNIdentity.session && window.GNIdentity.session.session_id;
+        if (!sid) return false;
+        const url = 'sim_load.php?session_id=' + encodeURIComponent(sid) + '&moeda=' + encodeURIComponent(this.moeda);
+        const resp = await fetch(url, { cache: 'no-store' });
+        const j = await resp.json();
+        if (!j || !j.ok) return false;
+
+        let mudou = false;
+        const lotIds = new Set(this.operations.lots.map(l => l.id));
+        for (const lot of (j.lots || [])) {
+          if (!lotIds.has(lot.id)) { this.operations.lots.push(lot); mudou = true; }
+          if (lot.seq > this.operations.lotSeq) this.operations.lotSeq = lot.seq;
+        }
+        const sellIds = new Set(this.operations.sells.map(s => s.id));
+        for (const sell of (j.sells || [])) {
+          if (!sellIds.has(sell.id)) { this.operations.sells.push(sell); mudou = true; }
+          if (sell.seq > this.operations.sellSeq) this.operations.sellSeq = sell.seq;
+        }
+        return mudou;
+      } catch (e) { return false; /* mescla é best-effort */ }
+    }
+
+    /**
      * Liga a navegação horizontal: arrastar com o mouse, roda e teclado.
      * IMPORTANTE: o canvas já tem clique para marcar venda (operations.js).
      * Por isso o arraste só "vira pan" depois de passar de um limiar de
@@ -939,7 +973,16 @@
       // Calibration has a stable seven-day window, separate from the viewport.
       await this._loadForecastHistory();
       // Persistência: abre o IndexedDB e recupera projeção/operações salvas.
-      try { await this.localStore.open(); await this.opsStore.open(); await this._restore(); } catch (e) { /* segue sem persistir */ }
+      try {
+        await this.localStore.open(); await this.opsStore.open(); await this._restore();
+        await this._mergeServerOps();
+        if (typeof window !== 'undefined' && typeof window.addEventListener === 'function' && !this._mergeOpsListenerLigado) {
+          this._mergeOpsListenerLigado = true;
+          window.addEventListener('gn:identity:ready', () => {
+            this._mergeServerOps().then(mudou => { if (mudou) { this.renderChart(); this.renderSidePanel(); this.operationsTable.render(); } });
+          });
+        }
+      } catch (e) { /* segue sem persistir */ }
       this._forecastReady = true;
       // Converter saldo se o usuário trocou de moeda desde a última sessão
       { const _sm = sessionStorage.getItem('gn_saldo_moeda') || 'BRL';
