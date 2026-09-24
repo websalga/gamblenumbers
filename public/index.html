@@ -183,6 +183,36 @@ tr.row-r td:first-child{border-left:3px solid var(--red)}
 .statement-kpis div{background:#070c18;border:1px solid var(--border);border-radius:8px;padding:8px}.statement-kpis span,.statement-kpis small{display:block;color:var(--muted);font-size:10px}.statement-kpis b{display:block;margin-top:3px;color:var(--txt);font-size:12px}
 .statement-table{min-width:620px}.statement-table tr.in td:first-child{border-left:3px solid var(--green)}.statement-table tr.out td:first-child{border-left:3px solid var(--red)}.statement-table .empty{text-align:center;color:var(--muted);padding:18px}.total-value{font-size:28px;font-weight:800;color:var(--green);margin:8px 0}.total-grid{grid-template-columns:repeat(2,1fr)}.tx-link{color:var(--yellow);text-decoration:none;font-family:monospace;font-size:11px;border-bottom:1px dotted var(--yellow)}.tx-link:hover{color:#ffdd7a;border-bottom-style:solid}.tx-link:visited{color:var(--yellow)}
 .extratos-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px}.extratos-actions button{background:#1b2740;color:#e8edf7;border:1px solid #2b3a5c;border-radius:6px;padding:6px 10px;font-size:11px;cursor:pointer}
+#automatosView{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:14px}
+#automatosView h2{font-size:13px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-bottom:4px}
+.automatos-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px}
+.automatos-actions button{background:#1b2740;color:#e8edf7;border:1px solid #2b3a5c;border-radius:6px;padding:6px 10px;font-size:11px;cursor:pointer}
+.automatos-layout{display:grid;grid-template-columns:1fr 340px;gap:14px;margin-top:12px;align-items:start}
+.robos-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px}
+.robo-card{background:var(--panel2);border:1px solid var(--border);border-radius:10px;padding:12px;position:relative}
+.robo-card.ativo{border-color:#22c55e77}
+.robo-card h4{font-size:13px;color:var(--txt);margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;gap:6px}
+.robo-badge{font-size:9px;text-transform:uppercase;letter-spacing:.5px;padding:2px 6px;border-radius:20px;background:#0f2a1a;color:var(--green);border:1px solid #22c55e55;white-space:nowrap}
+.robo-badge.off{background:#241014;color:var(--red);border-color:#ef444455}
+.robo-card dl{display:grid;grid-template-columns:auto 1fr;gap:3px 8px;font-size:11px;color:var(--muted);margin-bottom:10px}
+.robo-card dl b{color:var(--txt);font-weight:600}
+.robo-card .robo-actions{display:flex;gap:6px}
+.robo-card .robo-actions button{flex:1;font-size:10px;padding:5px 6px;border-radius:6px;border:1px solid var(--border);background:#0f172a;color:var(--muted);cursor:pointer}
+.robo-card .robo-actions button:hover{color:var(--txt);border-color:var(--avg)}
+.robo-form{background:var(--panel2);border:1px solid var(--border);border-radius:10px;padding:14px}
+.robo-form h3{font-size:12px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-bottom:10px}
+.robo-form .field{margin-bottom:10px}
+.robo-form label{display:block;font-size:11px;color:var(--muted);margin-bottom:4px}
+.robo-form input,.robo-form select{width:100%;box-sizing:border-box}
+.robo-form .field-hint{font-size:10px;color:#7d8aa3;margin-top:3px}
+.robo-form .field-checkbox{display:flex;align-items:center;gap:8px}
+.robo-form .field-checkbox input{width:auto}
+.robo-form .form-actions{display:flex;gap:8px;margin-top:12px}
+.robo-form .form-actions button{flex:1}
+#automatosStatus{font-size:11px;color:var(--muted)}
+.robos-empty{color:var(--muted);padding:18px;text-align:center;grid-column:1/-1}
+#automatosContador{font-size:11px;color:var(--muted);margin-left:auto}
+@media(max-width:900px){.automatos-layout{grid-template-columns:1fr}}
 @media(max-width:900px){.statements-layout{grid-template-columns:1fr}}
 .swap-wrap{justify-self:center;text-align:center}
 .swap-wrap h3{font-size:13px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-bottom:8px}
@@ -265,6 +295,7 @@ tr.row-r td:first-child{border-left:3px solid var(--red)}
 
     <nav class="topnav">
       <button id="navExtratos" type="button" data-i18n="nav_extratos">Extratos</button>
+      <button id="navAutomatos" type="button" data-i18n="nav_automatos">Autômatos</button>
     </nav>
     <div class="status">
       <div><span class="dot"></span><span data-i18n="sistema_ativo">Sistema ativo</span></div>
@@ -395,7 +426,21 @@ tr.row-r td:first-child{border-left:3px solid var(--red)}
       </div>
       <div id="statementBCH" class="statement-card"></div>
     </div>
-    <div id="statementTotal" class="statement-card statement-total"></div>
+
+
+  <section id="automatosView" hidden>
+    <h2 data-i18n="automatos_titulo">Autômatos</h2>
+    <p data-i18n="automatos_subtitulo">Configure seus robôs de negociação automatizada.</p>
+    <div class="automatos-actions">
+      <button id="automatosRefresh" type="button" data-i18n="automatos_atualizar">Atualizar</button>
+      <button id="automatosBack" type="button" data-i18n="automatos_voltar">Voltar ao simulador</button>
+      <span id="automatosStatus" class="opshint"></span>
+      <span id="automatosContador"></span>
+    </div>
+    <div class="automatos-layout">
+      <div id="robosGrid" class="robos-grid"></div>
+      <div id="automatosForm" class="robo-form"></div>
+    </div>
   </section>
 </div>
 
@@ -418,6 +463,7 @@ tr.row-r td:first-child{border-left:3px solid var(--red)}
 <script src="operationstable.js?v=1787524348"></script>
 <script src="app.js?v=gnforecast-20260923-2"></script>
 <script src="extratos.js?v=1789690267"></script>
+<script src="automatos.js?v=gnautomatos-20260923-1"></script>
 <script src="swap.js?v=5"></script>
 </body>
 </html>
