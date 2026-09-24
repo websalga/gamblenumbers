@@ -198,6 +198,14 @@ tr.row-r td:first-child{border-left:3px solid var(--red)}
 .robo-card dl b{color:var(--txt);font-weight:600}
 .robo-card .robo-actions{display:flex;gap:6px}
 .robo-card .robo-actions button{flex:1;font-size:10px;padding:5px 6px;border-radius:6px;border:1px solid var(--border);background:#0f172a;color:var(--muted);cursor:pointer}
+.automatos-nav-group{display:flex;flex-direction:column;align-items:center;gap:4px}
+.robos-status-btn{width:26px;height:26px;border-radius:50%;border:1px solid var(--border);background:var(--panel2);color:#5b6b85;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;line-height:1;transition:color .15s,border-color .15s}
+.robos-status-btn svg{width:14px;height:14px}
+.robos-status-btn[data-state="none"]{opacity:.55;cursor:not-allowed;color:#3a4257;border-color:var(--border)}
+.robos-status-btn[data-state="idle"]{color:#e8edf7;border-color:#8792a8}
+.robos-status-btn[data-state="ativo"]{color:#22c55e;border-color:#22c55e;animation:robosStatusPulse 1.3s ease-in-out infinite}
+@keyframes robosStatusPulse{0%,100%{box-shadow:0 0 0 0 #22c55e66}50%{box-shadow:0 0 0 6px #22c55e00}}
+
 .robo-card .robo-actions button:hover{color:var(--txt);border-color:var(--avg)}
 .robo-form{background:var(--panel2);border:1px solid var(--border);border-radius:10px;padding:14px}
 .robo-form h3{font-size:12px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-bottom:10px}
@@ -295,7 +303,21 @@ tr.row-r td:first-child{border-left:3px solid var(--red)}
 
     <nav class="topnav">
       <button id="navExtratos" type="button" data-i18n="nav_extratos">Extratos</button>
-      <button id="navAutomatos" type="button" data-i18n="nav_automatos">Autômatos</button>
+      <div class="automatos-nav-group">
+        <button id="navAutomatos" type="button" data-i18n="nav_automatos">Autômatos</button>
+        <button id="robosStatusBtn" type="button" class="robos-status-btn" data-state="none" disabled title="Nenhum robô configurado">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <rect x="6" y="9" width="12" height="10" rx="2"></rect>
+            <rect x="9.5" y="3" width="5" height="4" rx="1"></rect>
+            <rect x="11" y="6" width="2" height="3"></rect>
+            <circle cx="9.7" cy="14.2" r="1.3" fill="#0b1220"></circle>
+            <circle cx="14.3" cy="14.2" r="1.3" fill="#0b1220"></circle>
+            <rect x="8" y="17" width="8" height="1.6" rx="0.8" fill="#0b1220"></rect>
+            <rect x="2.5" y="12" width="2" height="4" rx="1"></rect>
+            <rect x="19.5" y="12" width="2" height="4" rx="1"></rect>
+          </svg>
+        </button>
+      </div>
     </nav>
     <div class="status">
       <div><span class="dot"></span><span data-i18n="sistema_ativo">Sistema ativo</span></div>
@@ -464,7 +486,7 @@ tr.row-r td:first-child{border-left:3px solid var(--red)}
 <script src="operationstable.js?v=1787524348"></script>
 <script src="app.js?v=gnforecast-20260923-2"></script>
 <script src="extratos.js?v=1789690267"></script>
-<script src="automatos.js?v=gnautomatos-20260923-1"></script>
+<script src="automatos.js?v=gnautomatos-20260924-2"></script>
 <script src="swap.js?v=5"></script>
 </body>
 </html>
