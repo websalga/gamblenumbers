@@ -8,7 +8,7 @@
 
   /* Versao exibida no badge "chaveiro" no topo dos modais. Atualizar a
    * cada release (ver CHANGELOG.md). */
-  const APP_VERSION = '1.7.1';
+  const APP_VERSION = '1.7.2';
 
   /* --- i18n: idioma é a PRIMEIRA coisa perguntada, antes de qualquer
    * outra mensagem. Escolha salva em localStorage (gn_idioma) e usada
