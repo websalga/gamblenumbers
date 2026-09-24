@@ -6,6 +6,20 @@ Todas as mudanças relevantes do GambleNumbers são documentadas aqui, em inglê
 
 ---
 
+## [v1.8.0] — 2026-09-23
+
+### English
+
+**New: "Bots" screen — bot creation and configuration**
+Added a "Bots" (Autômatos) button next to "Statements" that opens a dedicated screen for creating and configuring trading bots. Each bot has a nickname, currency (BTC/BCH), amount per trade and desired return percentage (both defaulting from the main screen's own fields, editable per bot), and an active/inactive toggle. The daily loss limit is fixed at 10% and cannot be edited — the bot shuts itself down after accumulating that much loss since it started, matching the agreed decision rules. Up to 5 bots per account for now (the cap that opens up when a bot is published to the marketplace, per the product plan, isn't implemented yet). Backed by a new `GN_Robos` table and three endpoints (`robos_load.php`, `robos_save.php`, `robos_delete.php`); the bot's own buy/sell decision engine is a separate project, not built yet — this release is only the configuration screen. All UI strings ship in the site's 11 supported languages.
+
+### Português
+
+**Novo: tela "Autômatos" — criação e configuração de robôs**
+Adicionado um botão "Autômatos" ao lado de "Extratos" que abre uma tela dedicada para criar e configurar robôs de negociação. Cada robô tem apelido, moeda (BTC/BCH), valor por operação e retorno desejado (%) — ambos pré-preenchidos a partir dos campos da tela principal, editáveis por robô — e um interruptor ativo/inativo. O limite de perda diária é fixo em 10% e não pode ser editado: o robô se desliga sozinho ao acumular essa perda desde o início, conforme as regras já combinadas. Por enquanto, até 5 robôs por conta (o limite que se abre ao publicar um robô no marketplace, conforme o plano de produto, ainda não foi implementado). Sustentado por uma nova tabela `GN_Robos` e três endpoints (`robos_load.php`, `robos_save.php`, `robos_delete.php`); o motor de decisão de compra/venda do robô é um projeto à parte, ainda não construído — este release é só a tela de configuração. Todos os textos da interface já saem nos 11 idiomas suportados pelo site.
+
+---
+
 ## [v1.7.2] — 2026-09-23
 
 ### English
