@@ -205,9 +205,83 @@
       if (contador) contador.textContent = robos.length + ' / ' + MAX_ROBOS;
       if (window.I18N) I18N.applyToDom(document.getElementById('automatosView'));
       if (status) status.textContent = new Date().toLocaleTimeString();
+      atualizarStatusBtn();
     } catch (e) {
       if (status) status.textContent = t('falha_backend');
     }
+  }
+
+  /* ------------------------------------------------------------
+   * Botão de status/kill-switch dos robôs (fica no topo da tela
+   * principal, embaixo do botão "Autômatos"). Três estados:
+   *   - "none"  : sem robôs configurados -> cinza, desabilitado
+   *   - "idle"  : tem robô(s), nenhum ativo -> branco, sem piscar
+   *   - "ativo" : pelo menos um robô ativo -> verde, piscando
+   * Clicar (quando não "none") pausa TODOS os robôs de uma vez.
+   * ------------------------------------------------------------ */
+  const STATUS_POLL_MS = 15000;
+  let _statusTimer = null;
+
+  function computeState(robos) {
+    if (!robos || !robos.length) return 'none';
+    return robos.some(r => r.ativo) ? 'ativo' : 'idle';
+  }
+
+  function statusLabelKey(state) {
+    if (state === 'ativo') return 'automatos_status_btn_ativo';
+    if (state === 'idle') return 'automatos_status_btn_idle';
+    return 'automatos_status_btn_none';
+  }
+
+  function applyStatusBtn(state) {
+    const btn = document.getElementById('robosStatusBtn');
+    if (!btn) return;
+    btn.dataset.state = state;
+    btn.disabled = (state === 'none');
+    btn.title = t(statusLabelKey(state));
+    btn.setAttribute('aria-label', t(statusLabelKey(state)));
+  }
+
+  async function atualizarStatusBtn() {
+    const sid = sessionId();
+    if (!sid) { applyStatusBtn('none'); return; }
+    try {
+      const j = await carregarRobos();
+      if (!j || !j.ok) return;
+      applyStatusBtn(computeState(j.robos || []));
+    } catch (_) { /* silencioso: não deve incomodar a tela principal */ }
+  }
+
+  async function pausarTodosOsRobos() {
+    const sid = sessionId();
+    if (!sid) return;
+    const btn = document.getElementById('robosStatusBtn');
+    if (btn) btn.disabled = true;
+    try {
+      const r = await fetch('robos_pause_all.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id: sid }),
+      });
+      await r.json().catch(() => ({}));
+    } catch (_) { /* ignore falha de rede aqui, o polling corrige o estado */ }
+    await atualizarStatusBtn();
+    const view = document.getElementById('automatosView');
+    if (view && !view.hidden) refresh();
+  }
+
+  function initStatusBtn() {
+    const btn = document.getElementById('robosStatusBtn');
+    if (!btn) return;
+    btn.addEventListener('click', () => {
+      if (btn.dataset.state === 'none' || btn.disabled) return;
+      if (!window.confirm(t('automatos_confirmar_pausar_todos'))) return;
+      pausarTodosOsRobos();
+    });
+    atualizarStatusBtn();
+    setTimeout(atualizarStatusBtn, 2000); // reforco: cobre o caso do I18N ainda carregando no primeiro tick
+    if (_statusTimer) clearInterval(_statusTimer);
+    _statusTimer = setInterval(atualizarStatusBtn, STATUS_POLL_MS);
   }
 
   function showAutomatos(show) {
@@ -224,6 +298,7 @@
     document.getElementById('navAutomatos')?.addEventListener('click', () => showAutomatos(true));
     document.getElementById('automatosBack')?.addEventListener('click', () => showAutomatos(false));
     document.getElementById('automatosRefresh')?.addEventListener('click', refresh);
+    initStatusBtn();
   }
 
   window.GNRobos = { init, refresh, showAutomatos };

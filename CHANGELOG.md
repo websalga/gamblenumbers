@@ -1,5 +1,19 @@
 # Changelog
 
+## [v1.8.1] — 2026-09-24
+
+### English
+
+**New: robot status/kill-switch icon on the main screen**
+Added a small robot icon button right under the "Bots" (Autômatos) button, at the top of the main screen. It has three states: gray and disabled when the account has no bots configured; white and static when bots exist but none are active; and green and blinking when at least one bot is active. Clicking it (when enabled) immediately pauses every bot on the account at once — their configurations are kept, only the active/inactive switch is turned off, and they can be reactivated individually later from the Bots screen. Backed by a new `robos_pause_all.php` endpoint.
+
+### Português
+
+**Novo: ícone de status/kill-switch dos robôs na tela principal**
+Adicionado um pequeno botão com ícone de robô logo abaixo do botão "Autômatos", no topo da tela principal. Ele tem três estados: cinza e desabilitado quando a conta não tem nenhum robô configurado; branco e parado quando há robôs mas nenhum está ativo; e verde piscando quando pelo menos um robô está ativo. Clicar nele (quando habilitado) pausa imediatamente todos os robôs da conta de uma só vez — as configurações são mantidas, só o interruptor ativo/inativo é desligado, e cada um pode ser reativado individualmente depois na tela de Autômatos. Sustentado por um novo endpoint `robos_pause_all.php`.
+
+---
+
 All notable changes to GambleNumbers are documented here, in English and Portuguese.
 
 Todas as mudanças relevantes do GambleNumbers são documentadas aqui, em inglês e português.
