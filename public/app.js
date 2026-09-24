@@ -293,13 +293,25 @@
 
     /**
      * Busca no SQL Server operações simuladas (compra/venda) que ainda não
-     * estão neste navegador - por exemplo, um INSERT manual feito direto no
-     * banco, ou uma operação sincronizada de outro navegador/aparelho - e
-     * mescla no estado em memória. Só ADICIONA o que falta (por id); nunca
-     * sobrescreve nem re-executa lógica de negócio - os valores (pnl, status,
-     * preço de execução etc.) já vêm prontos do banco, como sim_sync.php
-     * gravou. Best-effort: qualquer falha aqui é silenciosa e nunca deve
-     * atrapalhar quem está operando no gráfico.
+     * estão neste navegador - por exemplo, um INSERT/UPDATE manual feito
+     * direto no banco, uma operação gerada por um robô, ou sincronizada de
+     * outro navegador/aparelho - e mescla no estado em memória.
+     *
+     * Registros que já existiam aqui ANTES desta função existir, ou que
+     * foram criados pelo próprio usuário nesta aba (clique de compra/
+     * venda), NUNCA são sobrescritos por esta função - eles não carregam a
+     * marca `_remote`, e esta aba continua sendo a única responsável por
+     * decidir o ciclo de vida deles (aberto→fechado, pendente→executado/
+     * expirado). Só um registro que já chegou aqui via merge (`_remote:
+     * true`) pode ser atualizado numa leitura seguinte - assim uma
+     * operação de um robô ou de outro aparelho tem seu status corrigido
+     * (ex.: de "pending" pra "executed") quando a mudança é gravada no
+     * banco, sem essa aba nunca decidir sozinha por um registro alheio.
+     *
+     * Chamada tanto no carregamento da página quanto por um polling
+     * periódico (ver init()), pra refletir na tela operações de um robô
+     * quase em tempo real. Best-effort: qualquer falha aqui é silenciosa e
+     * nunca deve atrapalhar quem está operando no gráfico.
      */
     async _mergeServerOps() {
       try {
@@ -311,14 +323,36 @@
         if (!j || !j.ok) return false;
 
         let mudou = false;
-        const lotIds = new Set(this.operations.lots.map(l => l.id));
+        const lotById = new Map(this.operations.lots.map(l => [l.id, l]));
         for (const lot of (j.lots || [])) {
-          if (!lotIds.has(lot.id)) { this.operations.lots.push(lot); mudou = true; }
+          const existente = lotById.get(lot.id);
+          if (!existente) {
+            lot._remote = true;
+            this.operations.lots.push(lot);
+            lotById.set(lot.id, lot);
+            mudou = true;
+          } else if (existente._remote) {
+            const antes = JSON.stringify(existente);
+            Object.assign(existente, lot);
+            existente._remote = true;
+            if (JSON.stringify(existente) !== antes) mudou = true;
+          }
           if (lot.seq > this.operations.lotSeq) this.operations.lotSeq = lot.seq;
         }
-        const sellIds = new Set(this.operations.sells.map(s => s.id));
+        const sellById = new Map(this.operations.sells.map(s => [s.id, s]));
         for (const sell of (j.sells || [])) {
-          if (!sellIds.has(sell.id)) { this.operations.sells.push(sell); mudou = true; }
+          const existente = sellById.get(sell.id);
+          if (!existente) {
+            sell._remote = true;
+            this.operations.sells.push(sell);
+            sellById.set(sell.id, sell);
+            mudou = true;
+          } else if (existente._remote) {
+            const antes = JSON.stringify(existente);
+            Object.assign(existente, sell);
+            existente._remote = true;
+            if (JSON.stringify(existente) !== antes) mudou = true;
+          }
           if (sell.seq > this.operations.sellSeq) this.operations.sellSeq = sell.seq;
         }
         return mudou;
@@ -979,7 +1013,7 @@
         if (typeof window !== 'undefined' && typeof window.addEventListener === 'function' && !this._mergeOpsListenerLigado) {
           this._mergeOpsListenerLigado = true;
           window.addEventListener('gn:identity:ready', () => {
-            this._mergeServerOps().then(mudou => { if (mudou) { this.renderChart(); this.renderSidePanel(); this.operationsTable.render(); } });
+            this._mergeServerOps().then(mudou => { if (mudou) { this.renderChart(); this.renderSidePanel(); this.operationsTable.render(); this._persist(); } });
           });
         }
       } catch (e) { /* segue sem persistir */ }
@@ -1008,6 +1042,14 @@
       // Uma segunda passada, idempotente, corrige sem custo perceptivel.
       setTimeout(() => { this.renderSidePanel(); this.renderChart(); }, 600);
       setInterval(() => { this.store.refresh(); }, 8000);
+      // Espelho quase em tempo real de operações gravadas por fora desta
+      // aba (robô, outro navegador, INSERT/UPDATE manual no SQL Server) -
+      // ver _mergeServerOps() para as regras de o que pode ser atualizado.
+      setInterval(() => {
+        this._mergeServerOps().then(mudou => {
+          if (mudou) { this.renderChart(); this.renderSidePanel(); this.operationsTable.render(); this._persist(); }
+        });
+      }, 4000);
       // Previsão estatística real (backend): atualiza pouco depois de cada
       // ciclo de geração do motor (a cada 5min em lsql2019) - 60s é
       // suficiente e barato (uma única consulta leve por atualização).

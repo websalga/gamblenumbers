@@ -6,6 +6,20 @@ Todas as mudanças relevantes do GambleNumbers são documentadas aqui, em inglê
 
 ---
 
+## [v1.7.2] — 2026-09-23
+
+### English
+
+**New: near real-time mirror + upsert for server-side operations**
+`app.js` now polls `sim_load.php` every 4 seconds (in addition to page load) so buy/sell operations created directly in SQL Server — by a bot, another device, or a manual `INSERT`/`UPDATE` — appear on screen within a few seconds, with no page reload needed. `_mergeServerOps()` was changed from add-only to an upsert: any record already merged from the server (flagged `_remote`) can now have its fields refreshed on a later poll (e.g. a scheduled sell moving from `pending` to `executed`). Records that predate this feature, or were created by the user clicking in this same tab, are never touched by the merge — this tab stays the sole authority over their lifecycle.
+
+### Português
+
+**Novo: espelho quase em tempo real + upsert de operações vindas do servidor**
+O `app.js` agora consulta o `sim_load.php` a cada 4 segundos (além do carregamento da página), então operações de compra/venda criadas direto no SQL Server — por um robô, outro aparelho, ou um `INSERT`/`UPDATE` manual — aparecem na tela em poucos segundos, sem precisar recarregar a página. O `_mergeServerOps()` deixou de só adicionar e passou a fazer upsert: um registro que já veio do servidor (marcado `_remote`) agora pode ter seus campos atualizados numa leitura seguinte (ex.: uma venda agendada passando de `pending` pra `executed`). Registros anteriores a essa funcionalidade, ou criados pelo próprio usuário clicando nesta mesma aba, nunca são tocados pelo merge — essa aba continua sendo a única responsável pelo ciclo de vida deles.
+
+---
+
 ## [v1.7.1] — 2026-09-23
 
 ### English
