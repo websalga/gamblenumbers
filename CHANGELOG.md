@@ -1,5 +1,19 @@
 # Changelog
 
+## [v1.9.0] — 2026-09-24
+
+### English
+
+**New: `GN_RoboComprar` stored procedure — the buy mechanism bots will use**
+Added a SQL Server stored procedure (`dbo.GN_RoboComprar`) that performs the actual buy operation: it opens a new lot in `GN_SimLotes` using the real, current average cross-exchange quote (`media_exchanges_brl`, the same "Average" line shown on the chart) as the price, sized by the amount in BRL it receives as a parameter. It only does the mechanics of the purchase — it does not decide when to buy or what the sell target should be; that decision logic is the separate, not-yet-built bot engine, which will call this procedure once it exists. Lots opened this way are tagged with the originating bot's id (new nullable `robo_client_id` column on `GN_SimLotes`) for traceability, and also logged to `GN_SimSyncLog` for auditing, same as manual purchases.
+
+### Português
+
+**Novo: stored procedure `GN_RoboComprar` — o mecanismo de compra que os robôs vão usar**
+Adicionada uma stored procedure no SQL Server (`dbo.GN_RoboComprar`) que executa a operação de compra em si: ela abre um novo lote em `GN_SimLotes` usando a cotação real média entre as exchanges (`media_exchanges_brl`, a mesma linha "Média" mostrada no gráfico) como preço, dimensionado pelo valor em BRL recebido como parâmetro. Ela só cuida da mecânica da compra — não decide quando comprar nem qual deveria ser a meta de venda; essa lógica de decisão é o motor dos robôs, ainda não construído, que vai chamar essa procedure quando existir. Lotes abertos assim ficam marcados com o id do robô de origem (nova coluna `robo_client_id`, opcional, em `GN_SimLotes`) para rastreabilidade, e também são registrados em `GN_SimSyncLog` para auditoria, igual às compras manuais.
+
+---
+
 ## [v1.8.1] — 2026-09-24
 
 ### English
