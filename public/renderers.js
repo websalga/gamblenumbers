@@ -335,7 +335,7 @@ class CursorRenderer {
   draw(plot, data) {
     const ctx = plot.ctx; if (!ctx || !data.mouse || !data.mouse.inside) return;
     const { x, y } = data.mouse;
-    ctx.strokeStyle = 'rgba(125,138,163,0.4)'; ctx.setLineDash([2, 3]); ctx.lineWidth = 1;
+    ctx.strokeStyle = plot.color('mutedLine') || 'rgba(125,138,163,0.4)'; ctx.setLineDash([2, 3]); ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(x, plot.pad.t); ctx.lineTo(x, plot.h - plot.pad.b); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(plot.pad.l, y); ctx.lineTo(plot.w - plot.pad.r, y); ctx.stroke();
     ctx.setLineDash([]);
@@ -378,8 +378,8 @@ class LotMarkerRenderer {
       if (!plot.inViewT(l.time)) continue;
       const x = plot.X(l.time), y = plot.Y(l.price);
       let color = plot.color('binance'), suffix = '';
-      if (l.realized > 1e-6) { color = '#22c55e'; suffix = ' • L'; }
-      else if (l.realized < -1e-6) { color = '#ef4444'; suffix = ' • P'; }
+      if (l.realized > 1e-6) { color = plot.color('pos') || '#22c55e'; suffix = ' • L'; }
+      else if (l.realized < -1e-6) { color = plot.color('neg') || '#ef4444'; suffix = ' • P'; }
       ctx.fillStyle = color; ctx.beginPath(); ctx.arc(x, y, 4, 0, 7); ctx.fill();
       ctx.fillStyle = color; ctx.font = 'bold 10px monospace'; ctx.textAlign = 'center';
       ctx.fillText(l.id + suffix, x, y - 8);
@@ -400,7 +400,7 @@ class SellMarkerRenderer {
       let color = plot.color('binance'), label = v.id;
       if (v.status === 'executed') {
         const profit = v._profit != null ? v._profit >= 0 : true;
-        color = profit ? '#22c55e' : '#ef4444';
+        color = profit ? (plot.color('pos') || '#22c55e') : (plot.color('neg') || '#ef4444');
         label = (profit ? 'L' : 'P') + v.seq;
       } else if (v.status === 'pending') { color = plot.color('binance'); label = 'V' + v.seq; }
       else continue;
@@ -436,7 +436,7 @@ class SpreadBandRenderer {
     ctx.save();
 
     /* ── preenchimento semitransparente ── */
-    ctx.fillStyle = 'rgba(34,211,238,0.06)';   // ciano suave
+    ctx.fillStyle = 'rgba(' + (plot.color('accentRgb') || '34,211,238') + ',0.06)';   // ciano suave
     ctx.fillRect(r.x, yHi, r.w, bh);
 
     /* ── hachura diagonal (clip para não vazar) ── */
@@ -444,7 +444,7 @@ class SpreadBandRenderer {
     ctx.beginPath();
     ctx.rect(r.x, yHi, r.w, bh);
     ctx.clip();
-    ctx.strokeStyle = 'rgba(34,211,238,0.13)';
+    ctx.strokeStyle = 'rgba(' + (plot.color('accentRgb') || '34,211,238') + ',0.13)';
     ctx.lineWidth = 0.8;
     ctx.setLineDash([]);
     const step = 12;
@@ -457,7 +457,7 @@ class SpreadBandRenderer {
     ctx.restore();
 
     /* ── bordas tracejadas ── */
-    ctx.strokeStyle = 'rgba(34,211,238,0.40)';
+    ctx.strokeStyle = 'rgba(' + (plot.color('accentRgb') || '34,211,238') + ',0.40)';
     ctx.lineWidth   = 1;
     ctx.setLineDash([5, 4]);
 
@@ -473,7 +473,7 @@ class SpreadBandRenderer {
 
     /* ── rótulo no canto direito ── */
     ctx.font      = '9px monospace';
-    ctx.fillStyle = 'rgba(34,211,238,0.60)';
+    ctx.fillStyle = 'rgba(' + (plot.color('accentRgb') || '34,211,238') + ',0.60)';
     ctx.textAlign = 'right';
     const lbl = window.I18N ? I18N.t('spread_zona') : 'zona de negociação';
     ctx.fillText(lbl, r.x + r.w - 4, yHi - 3);

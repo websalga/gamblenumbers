@@ -412,11 +412,11 @@ class OperationsController {
         this.openLots().slice(0, 4).forEach(l => {
           const pL = this.precoOp(l);
           const luc = l.remaining * (_mp - pL) - (l.fee_brl || 0) - _sf;
-          _pnl0 += `<span style="color:${luc >= 0 ? '#22c55e' : '#ef4444'}">${_esc(l.id)} ${luc >= 0 ? abrevL0 : abrevP0} ${this._fmt.brl(Math.abs(luc))}</span> `;
+          _pnl0 += `<span style="color:${luc >= 0 ? 'var(--green)' : 'var(--red)'}">${_esc(l.id)} ${luc >= 0 ? abrevL0 : abrevP0} ${this._fmt.brl(Math.abs(luc))}</span> `;
         });
-        const _feeHtml0 = _sf >= 0.005 ? `<br><span style="color:#94a3b8;font-size:0.9em">⛓ Taxa rede: <b>${this._fmt.brl(_sf)}</b> (${_esc(this._feeLabel(_sfr))})</span>` : '';
+        const _feeHtml0 = _sf >= 0.005 ? `<br><span style="color:var(--muted);font-size:0.9em">⛓ Taxa rede: <b>${this._fmt.brl(_sf)}</b> (${_esc(this._feeLabel(_sfr))})</span>` : '';
         const _cancelLabel = (window.I18N ? I18N.t('tooltip_cancelar_venda') : null) || 'Clique para cancelar';
-        this._showTip(e, `<b>${_esc(_ps.id)}</b> — ${_esc(_dt0)}<br>${_esc(this._t('tooltip_preco_livre'))} <b>${this._fmt.brl(_mp)}</b><br>${_pnl0}${_feeHtml0}<br><span style="color:#7d8aa3">${_esc(_cancelLabel)}</span>`);
+        this._showTip(e, `<b>${_esc(_ps.id)}</b> — ${_esc(_dt0)}<br>${_esc(this._t('tooltip_preco_livre'))} <b>${this._fmt.brl(_mp)}</b><br>${_pnl0}${_feeHtml0}<br><span style="color:var(--muted)">${_esc(_cancelLabel)}</span>`);
         this._bus.emit('chart:mouse', { ...this.mouse });
         return;
       }
@@ -427,10 +427,10 @@ class OperationsController {
       // Feerate atual para estimar taxa de venda neste ponto
       const _futFeerate = this._getFee(this._now());
       const _futSellFee = this._calcFeeBrl(_futFeerate, price);
-      let html = `<b>${_esc(this._t('tooltip_previa_venda'))}</b> <span style="color:#a0aec0;font-size:0.88em">${_esc(_dt2)}</span><br>${_esc(this._t('tooltip_preco_livre'))} <b>${this._fmt.brl(price)}</b><br>`;
+      let html = `<b>${_esc(this._t('tooltip_previa_venda'))}</b> <span style="color:var(--muted);font-size:0.88em">${_esc(_dt2)}</span><br>${_esc(this._t('tooltip_preco_livre'))} <b>${this._fmt.brl(price)}</b><br>`;
       const open = this.openLots();
       if (open.length) {
-        html += '<span style="color:#7d8aa3">' + _esc(this._t('tooltip_lotes_verdes')) + '</span><br>';
+        html += '<span style="color:var(--muted)">' + _esc(this._t('tooltip_lotes_verdes')) + '</span><br>';
         const abrevL = _esc(this._t('tooltip_lucro_abrev')), abrevP = _esc(this._t('tooltip_prejuizo_abrev'));
         open.slice(0, 4).forEach(l => {
           const precoLote = this.precoOp(l);
@@ -440,11 +440,11 @@ class OperationsController {
           const win = netPrice > precoLote;
           const lucro = l.remaining * (price - precoLote) - (l.fee_brl || 0) - _futSellFee;
           const lucroStr = this._fmt.brl(Math.abs(lucro));
-          html += `<span style="color:${win ? '#22c55e' : '#ef4444'}">${_esc(l.id)} ${win ? abrevL : abrevP} ${lucroStr}</span> `;
+          html += `<span style="color:${win ? 'var(--green)' : 'var(--red)'}">${_esc(l.id)} ${win ? abrevL : abrevP} ${lucroStr}</span> `;
         });
-      } else html += '<span style="color:#7d8aa3">' + _esc(this._t('tooltip_sem_lotes')) + '</span>';
-      const _feeStr = _futSellFee >= 0.005 ? `<br><span style="color:#94a3b8;font-size:0.9em">⛓ Taxa rede: <b>${this._fmt.brl(_futSellFee)}</b> (${_esc(this._feeLabel(_futFeerate))})</span>` : '';
-      html += _feeStr + '<br><span style="color:#7d8aa3">' + _esc(this._t('tooltip_clique_venda')) + '</span>';
+      } else html += '<span style="color:var(--muted)">' + _esc(this._t('tooltip_sem_lotes')) + '</span>';
+      const _feeStr = _futSellFee >= 0.005 ? `<br><span style="color:var(--muted);font-size:0.9em">⛓ Taxa rede: <b>${this._fmt.brl(_futSellFee)}</b> (${_esc(this._feeLabel(_futFeerate))})</span>` : '';
+      html += _feeStr + '<br><span style="color:var(--muted)">' + _esc(this._t('tooltip_clique_venda')) + '</span>';
       this.mouse.blinkUntil = Date.now() + 99999;
       this._showTip(e, html);
     } else {
@@ -455,9 +455,9 @@ class OperationsController {
         const _histFeerate = this._getFee(best.t);  // busca feerate no store via timestamp
         const _histFee = this._calcFeeBrl(_histFeerate, best.avg);
         const _feeHtml = _histFee >= 0.005
-          ? `<br><span style="color:#94a3b8;font-size:0.9em">⛓ Taxa rede: <b>${this._fmt.brl(_histFee)}</b> (${_esc(this._feeLabel(_histFeerate))})</span>`
+          ? `<br><span style="color:var(--muted);font-size:0.9em">⛓ Taxa rede: <b>${this._fmt.brl(_histFee)}</b> (${_esc(this._feeLabel(_histFeerate))})</span>`
           : '';
-        this._showTip(e, `<b>${_esc(this._t('tooltip_cotacao_real'))}</b> <span style="color:#a0aec0;font-size:0.88em">${_esc(_dt)}</span><br>${_esc(this._t('tooltip_media_lbl'))} <b>${this._fmt.brl(best.avg)}</b>${_feeHtml}<br><span style="color:#7d8aa3">${_esc(this._t('tooltip_botao_direito'))}</span>`);
+        this._showTip(e, `<b>${_esc(this._t('tooltip_cotacao_real'))}</b> <span style="color:var(--muted);font-size:0.88em">${_esc(_dt)}</span><br>${_esc(this._t('tooltip_media_lbl'))} <b>${this._fmt.brl(best.avg)}</b>${_feeHtml}<br><span style="color:var(--muted)">${_esc(this._t('tooltip_botao_direito'))}</span>`);
       }
       this.mouse.blinkUntil = 0;
     }

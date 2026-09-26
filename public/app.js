@@ -684,6 +684,10 @@
     }
 
     _wire() {
+      // Troca de tema (theme.js): o canvas e os cards leem as cores na hora de desenhar; so' redesenha.
+      if (typeof window !== 'undefined') window.addEventListener('gn:theme', () => {
+        try { this.renderCards(); this.renderChart(); this.renderSidePanel(); this.operationsTable.render(); } catch (e) { /* tela ainda montando */ }
+      });
       this._wireZoom();
       this._wireSeletores();
       this._wireIdentity();
@@ -915,11 +919,11 @@
       if (feeTotalEl) feeTotalEl.textContent = BRL(totalFees);
       const netPnl = realized + unreal;
       const pnlEl = this.doc.getElementById('pnl');
-      if (pnlEl) { pnlEl.textContent = BRL(netPnl); pnlEl.className = ''; pnlEl.style.color = netPnl >= 0 ? '#22c55e' : '#ef4444'; }
+      if (pnlEl) { pnlEl.textContent = BRL(netPnl); pnlEl.className = ''; pnlEl.style.color = netPnl >= 0 ? 'var(--green)' : 'var(--red)'; }
       const cost = this.operations.openLots().reduce((sum, l) => sum + l.remaining * this.operations.precoOp(l), 0);
       const ret = cost > 0 ? unreal / cost * 100 : 0;
       const retEl = this.doc.getElementById('retNow');
-      if (retEl) { retEl.textContent = PCT(ret); retEl.style.color = ret >= 0 ? '#22c55e' : '#ef4444'; }
+      if (retEl) { retEl.textContent = PCT(ret); retEl.style.color = ret >= 0 ? 'var(--green)' : 'var(--red)'; }
     }
 
     toast(type, message) {
@@ -1038,7 +1042,7 @@
         return;
       }
       if ('hidden' in el) el.hidden = false;
-      if (el.style) { el.style.display = ''; el.style.color = err.mape < 2 ? '#22c55e' : (err.mape < 5 ? '#f7c948' : '#ef4444'); }
+      if (el.style) { el.style.display = ''; el.style.color = err.mape < 2 ? 'var(--green)' : (err.mape < 5 ? 'var(--yellow)' : 'var(--red)'); }
       const sinalKey = err.bias >= 0 ? 'sinal_acima' : 'sinal_abaixo';
       const sinal = window.I18N ? I18N.t(sinalKey) : (err.bias >= 0 ? 'acima' : 'abaixo');
       el.textContent = window.I18N
