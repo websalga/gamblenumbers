@@ -404,6 +404,18 @@ try {
       echo json_encode(['ok' => false, 'error' => 'sem previsao disponivel para ' . $ativoPrev]);
       exit;
     }
+    // Miolo do "sino": a faixa completa (y_lo..y_hi, nominal 80%) abre demais nas pontas. O site desenha so' o
+    // MIOLO: y_hat +/- fator*(y_hi-y_hat), com o fator calibrado em forecast.Config para que a metade dos casos
+    // reais (faixa_central_pct = 50) caia dentro. A faixa completa segue disponivel em avg_lo80/avg_hi80.
+    $fator = 0.4; $centralPct = 50;
+    try {
+      $cs = $fdb->prepare("SELECT valor FROM forecast.Config WHERE chave = ?");
+      $cs->execute(['faixa_central_fator_' . $ativoPrev]);
+      $v = $cs->fetchColumn(); if ($v !== false && is_numeric($v) && $v > 0) $fator = (float)$v;
+      $cs->execute(['faixa_central_pct']);
+      $v = $cs->fetchColumn(); if ($v !== false && is_numeric($v)) $centralPct = (int)$v;
+    } catch (Throwable $e) { /* usa os padroes */ }
+
     $stmt2 = $fdb->prepare(
       "SELECT target_t_utc, y_hat, y_lo, y_hi
        FROM forecast.Points WHERE run_id = ? ORDER BY target_t_utc ASC"
@@ -411,13 +423,86 @@ try {
     $stmt2->execute([$run['run_id']]);
     $pontos = [];
     while ($p = $stmt2->fetch(PDO::FETCH_ASSOC)) {
+      $yh = (float)$p['y_hat'];
+      $lo80 = $p['y_lo'] !== null ? (float)$p['y_lo'] : null;
+      $hi80 = $p['y_hi'] !== null ? (float)$p['y_hi'] : null;
       $pontos[] = [
-        't'      => toMs($p['target_t_utc']),
-        'avg'    => (float)$p['y_hat'],
-        'avg_lo' => $p['y_lo'] !== null ? (float)$p['y_lo'] : null,
-        'avg_hi' => $p['y_hi'] !== null ? (float)$p['y_hi'] : null,
+        't'        => toMs($p['target_t_utc']),
+        'avg'      => $yh,
+        'avg_lo'   => $lo80 !== null ? $yh - $fator * ($yh - $lo80) : null,   // miolo (mínimo)
+        'avg_hi'   => $hi80 !== null ? $yh + $fator * ($hi80 - $yh) : null,   // miolo (máximo)
+        'avg_lo80' => $lo80,
+        'avg_hi80' => $hi80,
       ];
     }
+
+    // CENARIO ilustrativo: a curva da Mimetagem (copia o futuro real do trecho passado que melhor se encaixou).
+    // NAO e' a previsao (a previsao e' 'pontos', do modelo publicado): e' um desenho plausivel de como o preco
+    // poderia se mover, igual para todos os usuarios, regenerado a cada 15 min. Modelo em sombra servido de
+    // forma explicita e rotulada; se estiver velho (>45 min) ou ausente, simplesmente nao vai.
+    $cenario = null;
+    try {
+      $cq = $fdb->prepare(
+        "SELECT TOP 1 r.run_id, r.ancora_t_utc, r.ancora_preco, r.gerado_em_utc, mc.modelo
+         FROM forecast.Runs r JOIN forecast.Model_Config mc ON mc.id = r.model_config_id
+         WHERE r.ativo = ? AND mc.horizonte_min = 1440 AND mc.modelo = 'mimetagem_trajetoria'
+           AND r.gerado_em_utc >= DATEADD(MINUTE, -45, SYSUTCDATETIME())
+         ORDER BY r.run_id DESC"
+      );
+      $cq->execute([$ativoPrev]);
+      $cr = $cq->fetch(PDO::FETCH_ASSOC);
+      if ($cr) {
+        $cp = $fdb->prepare("SELECT target_t_utc, y_hat FROM forecast.Points WHERE run_id = ? ORDER BY target_t_utc ASC");
+        $cp->execute([$cr['run_id']]);
+        $cpts = [];
+        while ($q = $cp->fetch(PDO::FETCH_ASSOC)) $cpts[] = ['t' => toMs($q['target_t_utc']), 'avg' => (float)$q['y_hat']];
+        if (count($cpts) > 1) {
+          $cenario = [
+            'modelo'        => $cr['modelo'],
+            'gerado_em_utc' => $cr['gerado_em_utc'],
+            'ancora'        => ['t' => toMs($cr['ancora_t_utc']), 'avg' => (float)$cr['ancora_preco']],
+            'pontos'        => $cpts,
+          ];
+        }
+      }
+    } catch (Throwable $e) { $cenario = null; }
+
+    // CURVAS ANTERIORES da Mimetagem: para o usuario ver se ela previu certo, o trecho que ja virou passado
+    // continua desenhado (pontilhado) do lado da cotacao real. Para cada antecedencia (forecast.Config
+    // 'cenario_passado_min', padrao 60,180,360 min), a curva gerada naquela hora, cortada no AGORA. So' curvas
+    // densas (>= 100 pontos), pois as antigas tinham poucos marcos. Teste: ?lb=15,30 sobrescreve as antecedencias.
+    $passado = [];
+    try {
+      $lbs = [60, 180, 360];
+      $parse = function ($txt) {
+        $v = array_values(array_unique(array_filter(array_map('intval', explode(',', (string)$txt)), function ($x) { return $x >= 5 && $x <= 1440; })));
+        return array_slice($v, 0, 8);
+      };
+      $cv = $fdb->query("SELECT valor FROM forecast.Config WHERE chave = 'cenario_passado_min'")->fetchColumn();
+      if ($cv !== false && count($parse($cv))) $lbs = $parse($cv);
+      if (isset($_GET['lb']) && count($parse($_GET['lb']))) $lbs = $parse($_GET['lb']);
+      sort($lbs);
+      $pq = $fdb->prepare(
+        "SELECT TOP 1 r.run_id, r.ancora_t_utc, r.ancora_preco
+         FROM forecast.Runs r JOIN forecast.Model_Config mc ON mc.id = r.model_config_id
+         WHERE r.ativo = ? AND mc.horizonte_min = 1440 AND mc.modelo = 'mimetagem_trajetoria'
+           AND r.ancora_t_utc <= DATEADD(MINUTE, CAST(? AS INT), SYSUTCDATETIME())
+           AND r.ancora_t_utc >= DATEADD(MINUTE, CAST(? AS INT), SYSUTCDATETIME())
+           AND (SELECT COUNT(*) FROM forecast.Points p WHERE p.run_id = r.run_id) >= 100
+         ORDER BY r.ancora_t_utc DESC"
+      );
+      $pp = $fdb->prepare("SELECT target_t_utc, y_hat FROM forecast.Points WHERE run_id = ? AND target_t_utc <= SYSUTCDATETIME() ORDER BY target_t_utc ASC");
+      foreach ($lbs as $lb) {
+        $pq->execute([$ativoPrev, -$lb, -($lb + 20)]);
+        $pr = $pq->fetch(PDO::FETCH_ASSOC);
+        if (!$pr) continue;
+        $pp->execute([$pr['run_id']]);
+        $pts = [];
+        while ($q = $pp->fetch(PDO::FETCH_ASSOC)) $pts[] = ['t' => toMs($q['target_t_utc']), 'avg' => (float)$q['y_hat']];
+        if (count($pts) > 1) $passado[] = ['lookback_min' => $lb, 'ancora' => ['t' => toMs($pr['ancora_t_utc']), 'avg' => (float)$pr['ancora_preco']], 'pontos' => $pts];
+      }
+    } catch (Throwable $e) { error_log('api.php cenario_passado erro: ' . $e->getMessage()); $passado = []; }
+
     echo json_encode([
       'ok'            => true,
       'ativo'         => $ativoPrev,
@@ -425,7 +510,10 @@ try {
       'mape_oos'      => $run['mape_oos'] !== null ? (float)$run['mape_oos'] : null,
       'gerado_em_utc' => $run['gerado_em_utc'],
       'ancora'        => ['t' => toMs($run['ancora_t_utc']), 'avg' => (float)$run['ancora_preco']],
+      'faixa'         => ['central_pct' => $centralPct, 'fator' => $fator],
       'pontos'        => $pontos,
+      'cenario'       => $cenario,
+      'cenario_passado' => $passado,
     ]);
     exit;
   }
