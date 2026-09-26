@@ -74,3 +74,47 @@ GO
 
 GRANT EXECUTE ON forecast.usp_AvaliarPromocao TO forecast_writer;
 GRANT SELECT ON forecast.Config, forecast.Promocoes, forecast.Backtest_Resumo TO forecast_reader;
+
+-- =============================================================================
+-- Adendo 2026-09-26: Mimetagem, grade de 5 min e precisao por antecedencia
+--   * Candidatos em sombra 'mimetagem' (ultimas 4 cotacoes) e 'mimetagem_longa' (12 cotacoes): metodo das
+--     analogias (k-NN) - sobrepoe a janela atual a todos os trechos do historico (biblioteca ate 20000 janelas),
+--     40 vizinhos diversos, previsao = mediana ponderada do que veio depois, banda = quantis dos vizinhos.
+--   * Motor v3: serie reamostrada em GRADE REGULAR de 5 min (1 cotacao por janela). O BTC grava ~2 cotacoes por
+--     janela (pares a segundos); contando passos por cotacao, 12 passos valiam ~30 min e a volatilidade por passo
+--     saia subestimada (faixa do BTC cobria 66-74% em vez de 80%). Apos a correcao a faixa publicada de 24h do BTC
+--     ficou ~1,45x mais larga e a cobertura no backtest passou a 83-86%. O ponto previsto (naive) nao mudou.
+--   * Backtest v2: agregado + por antecedencia (Backtest_Resumo.antecedencia_min; NULL = agregado).
+-- =============================================================================
+ALTER TABLE forecast.Backtest_Resumo ADD antecedencia_min FLOAT NULL;
+GO
+CREATE VIEW forecast.vw_Precisao_Antecedencia AS
+SELECT r.ativo, mc.horizonte_min, mc.modelo,
+       CAST(ROUND(DATEDIFF(SECOND, r.ancora_t_utc, c.target_t_utc) / 60.0, 0) AS INT) AS antecedencia_min,
+       COUNT(*) AS n_pontos, AVG(c.erro_abs_pct) AS mape_pct,
+       AVG(ABS(r.ancora_preco - c.y_real) / c.y_real * 100.0) AS mape_naive_pct,
+       (1.0 - AVG(c.erro_abs_pct) / NULLIF(AVG(ABS(r.ancora_preco - c.y_real) / c.y_real * 100.0), 0)) * 100.0 AS skill_vs_naive_pct,
+       AVG((c.y_hat - c.y_real) / c.y_real * 100.0) AS vies_pct,
+       AVG(CAST(c.dentro_da_faixa AS FLOAT)) * 100.0 AS cobertura_faixa_pct
+FROM forecast.Coverage c JOIN forecast.Runs r ON r.run_id = c.run_id JOIN forecast.Model_Config mc ON mc.id = r.model_config_id
+GROUP BY r.ativo, mc.horizonte_min, mc.modelo, CAST(ROUND(DATEDIFF(SECOND, r.ancora_t_utc, c.target_t_utc) / 60.0, 0) AS INT);
+GO
+GRANT SELECT ON forecast.vw_Precisao_Antecedencia TO forecast_reader;
+
+-- =============================================================================
+-- Adendo 2026-09-26 (2): miolo da faixa, cenario da Mimetagem e o que o site desenha
+--   * Miolo do "sino": a faixa completa (y_lo..y_hi, nominal 80%) abria demais nas pontas. O api.php serve como
+--     avg_lo/avg_hi apenas o MIOLO = y_hat +/- fator*(y_hi-y_hat); a faixa completa segue em avg_lo80/avg_hi80.
+--     O fator faz a metade dos casos reais cair dentro (calibrado em 21 dias de grade de 5 min: a distribuicao real
+--     e' mais concentrada no centro que a normal, cujo fator seria 0,527). Recalibrar com o mesmo metodo se a
+--     volatilidade mudar muito: mediana de |real-ancora| / (1,28*sigma*raiz(n)).
+INSERT INTO forecast.Config (chave, valor, descricao) VALUES
+ ('faixa_central_pct','50',N'largura nominal do miolo servido ao site'),
+ ('faixa_central_fator_BTC','0.367',N'fator do miolo, BTC'),
+ ('faixa_central_fator_BCH','0.405',N'fator do miolo, BCH');
+--   * mimetagem_trajetoria (candidato em SOMBRA): grava 144 marcos por curva de 24h (1 ponto a cada 10 min).
+--     O api.php a serve num campo separado e rotulado ('cenario'), so' como desenho ilustrativo igual para todos;
+--     a PREVISAO continua sendo 'pontos', do modelo publicado.
+--   * Grafico: com a previsao do servidor disponivel, a projecao local (simulacao congelada no navegador) deixa de
+--     ser desenhada e de entrar na escala; a escala tambem so' considera lotes/vendas cujo marcador aparece na janela.
+-- =============================================================================
