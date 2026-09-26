@@ -12,6 +12,11 @@
 -- isso fica para o motor de decisao dos robos "Automatos", que ainda nao foi
 -- construido e vai chamar esta procedure como seu metodo de compra.
 --
+-- ATUALIZADA em 2026-09-25: passou a debitar o saldo virtual da sessao
+-- (dbo.GN_SimSaldo, ver GN_Saldo.sql) na MESMA transacao que grava o lote, e a
+-- recusar a compra sem saldo suficiente (erro 50012) ou sem saldo registrado
+-- (50013). Nada mais mudou na mecanica da compra.
+--
 -- Pre-requisito: coluna dbo.GN_SimLotes.robo_client_id (VARCHAR(20) NULL),
 -- adicionada nesta mesma mudanca, para rastrear qual robo (GN_Robos) originou
 -- o lote (NULL = compra manual feita pelo usuario no simulador).
@@ -76,6 +81,16 @@ BEGIN
 
     SET @lote_client_id = 'LT' + CAST(@seq AS VARCHAR(10));
 
+    /* 2) debita o saldo virtual da sessao (recusa a compra se nao houver saldo) */
+    DECLARE @saldo_depois DECIMAL(18,2), @versao_saldo BIGINT, @delta DECIMAL(18,2) = -@valor;
+    EXEC dbo.GN_SaldoAjustar
+        @session_id   = @session_id,
+        @delta_brl    = @delta,
+        @origem       = 'robo',
+        @ref          = @lote_client_id,
+        @saldo_depois = @saldo_depois OUTPUT,
+        @versao       = @versao_saldo OUTPUT;
+
     DECLARE @agora_ms BIGINT = DATEDIFF_BIG(MILLISECOND, '19700101', SYSUTCDATETIME());
 
     INSERT INTO dbo.GN_SimLotes
@@ -94,6 +109,7 @@ BEGIN
             ',"preco":', CAST(@preco AS VARCHAR(40)),
             ',"valor":', CAST(@valor AS VARCHAR(40)),
             ',"qtd":', CAST(@qtd AS VARCHAR(40)),
+            ',"saldo_depois":', CAST(@saldo_depois AS VARCHAR(40)),
             ',"time_cliente_ms":', CAST(@agora_ms AS VARCHAR(20)),
             '}'
         ),

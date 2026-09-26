@@ -101,6 +101,22 @@ class OperationsController {
     return (valor / tOrigem) * tAtual;
   }
 
+  /** Converte um valor entre duas moedas (pivo USD, mesmas taxas de converterPreco).
+   *  Diferente de converterPreco, devolve null se nao ha cotacao de cambio. */
+  converterValor(valor, de, para) {
+    const o = String(de || 'BRL').toUpperCase(), d = String(para || 'BRL').toUpperCase();
+    if (o === d) return valor;
+    const rates = this._getRates();
+    if (!rates) return null;
+    const taxa = {
+      USD: 1,
+      BRL: rates.usd_brl, EUR: rates.usd_eur, GBP: rates.usd_gbp,
+      JPY: rates.usd_jpy, CNY: rates.usd_cny, TRY: rates.usd_try, RUB: rates.usd_rub,
+    };
+    if (!(taxa[o] > 0) || !(taxa[d] > 0)) return null;
+    return (valor / taxa[o]) * taxa[d];
+  }
+
   /** Preco de um lote/venda ja convertido para a moeda de exibicao atual. */
   precoOp(op) { return this.converterPreco(op.price != null ? op.price : op.markPrice, op.moedaExib); }
 
@@ -227,7 +243,7 @@ class OperationsController {
       feerate:  _feerate,  // sat/vB ou sat/byte registrado no momento da compra
     };
     this.lots.push(lot);
-    if (this._panel && typeof this._panel.debitSaldo === 'function') this._panel.debitSaldo(value + _feeBrl);
+    if (this._panel && typeof this._panel.debitSaldo === 'function') this._panel.debitSaldo(value + _feeBrl, lot.id);
     const _feeInfo = _feeBrl > 0.005 ? ' | taxa: ' + this._fmt.brl(_feeBrl) + ' (' + this._feeLabel(_feerate) + ')' : '';
     this._toast('ok', this._t('toast_compra_registrada', { id: lot.id, qtd: this._fmt.btc(qty), moeda: this._moeda, preco: this._fmt.brl(price) }) + _feeInfo);
     this._changed('buy', lot);
@@ -294,7 +310,7 @@ class OperationsController {
     sell._pnl    = _netPnl;
     sell._value  = orderQty * execPrice - _sellFeeBrl;  // recebimento líquido
     sell._ret = orderCost > 0 ? _netPnl / orderCost * 100 : 0;
-    if (this._panel && typeof this._panel.creditSaldo === 'function') this._panel.creditSaldo(sell._value);
+    if (this._panel && typeof this._panel.creditSaldo === 'function') this._panel.creditSaldo(sell._value, sell.id);
     this._changed('sell:executed', sell);
     return sell;
   }
