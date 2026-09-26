@@ -1,5 +1,25 @@
 # Changelog
 
+## [v1.14.0] — 2026-09-26
+
+### English
+
+**New: color themes**
+Five themes (Night, Graphite, Light, Forest, High contrast) chosen with a single round button in the top bar; the choice is saved in the browser and the chart, cards and panels follow it. Colors now live in one place (`public/theme.js`) as CSS variables.
+
+**Changed: the average includes Morningstar (average of 4 quotes)**
+`media_exchanges_*` is now the average of Binance, Kraken, Coinbase and Morningstar, for the whole history and for new rows (the collector applies it once per row; the original 3-quote average is kept in `dbo.snapshots_media3`). This reverses the v1.13.0 decision, and also affects the forecast engine, the bots and the statements, which read the same column. Note: Morningstar before 2026-09-26 ~15:10 UTC is an estimate (-0.0922% vs the 3-exchange average), real readings after that.
+
+### Português
+
+**Novo: temas de cores**
+Cinco temas (Noite, Grafite, Claro, Floresta, Alto contraste) escolhidos por uma bolinha na barra do topo; a escolha fica salva no navegador e o gráfico, os cards e os painéis acompanham. As cores agora ficam num só lugar (`public/theme.js`) como variáveis CSS.
+
+**Alterado: a Média inclui a Morningstar (média de 4 cotações)**
+`media_exchanges_*` passa a ser a média de Binance, Kraken, Coinbase e Morningstar, em todo o histórico e nas linhas novas (o coletor aplica uma vez por linha; a média original de 3 fica em `dbo.snapshots_media3`). Isso reverte a decisão da v1.13.0 e também afeta o motor de previsão, os robôs e os extratos, que leem a mesma coluna. Atenção: a Morningstar antes de 26/09/2026 ~15:10 UTC é estimada (−0,0922% sobre a média das 3 exchanges); depois disso, são leituras reais.
+
+---
+
 ## [v1.13.1] — 2026-09-26
 
 ### English

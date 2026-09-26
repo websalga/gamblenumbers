@@ -3,11 +3,9 @@
 -- Banco: bitcoin (SQL Server / lsql2019)
 --
 -- Objetivo
---   Adicionar uma fonte independente chamada Morningstar ao grafico do BTC. O site
---   le os valores historicos de dbo.snapshots e desenha Morningstar como serie
---   propria; a serie Media continua sendo a media das exchanges (Binance, Kraken
---   e Coinbase) para evitar degraus quando a fonte externa chega em horarios
---   ligeiramente diferentes.
+--   Adicionar a Morningstar como QUARTA cotacao do BTC. O site le os valores historicos de
+--   dbo.snapshots; a serie Media (media_exchanges_*) e' a media das 4 cotacoes (Binance,
+--   Kraken, Coinbase e Morningstar) e alimenta tambem o motor de previsao, os robos e os extratos.
 --
 -- Fonte operacional
 --   A cotacao e o BTC/USD exibido pelo Google Finance. O disclaimer do Google
@@ -20,9 +18,12 @@
 --   dbo.snapshots.price_usd_morningstar decimal(19,6) NULL
 --   dbo.snapshots.price_brl_morningstar decimal(19,6) NULL
 --
--- Cobertura observada em 2026-09-26
---   Primeiro ponto preenchido: 2026-01-26 02:00:18 UTC
---   Linhas preenchidas: >126 mil
+-- Cobertura em 2026-09-26
+--   Ate 2026-09-26 ~15:10 UTC (26/01 em diante) o Morningstar foi ESTIMADO, nao medido: leitura unica
+--   em 2026-09-26 mostrou -0,0922% em relacao a media das 3 exchanges e esse percentual foi aplicado a
+--   todo o historico (Morningstar acompanha o Coinbase: 0,0000% de diferenca na mesma leitura).
+--   Dali em diante o coletor (lsql2019: /root/coletar_morningstar.py, coletar-morningstar.timer, 1 min)
+--   grava a leitura REAL na linha de snapshot mais recente ainda sem valor (janela de 8 min).
 --
 -- Contrato com o site
 --   public/api.php seleciona price_*_morningstar para pares BTC/fiat e expõe o
@@ -37,7 +38,9 @@
 --   2. Gravar price_usd_morningstar no snapshot BTC correspondente.
 --   3. Gravar price_brl_morningstar = price_usd_morningstar * usd_brl da mesma
 --      linha ou da taxa FX aplicada no ciclo.
---   4. Nao recalcular media_exchanges_* com Morningstar; ela nao e exchange.
+--   4. Recalcular media_exchanges_{usd,brl,eur,gbp} da linha como media de 4: multiplicar a media
+--      de 3 por (3 + Morningstar/Media3)/4, UMA unica vez por linha (controle: dbo.snapshots_media3,
+--      que guarda a media de 3 original — auditoria e reversao).
 --   5. Em falha de rede, markup alterado, captcha ou valor invalido, deixar NULL
 --      e nao bloquear o coletor principal de Binance/Kraken/Coinbase.
 -- =============================================================================
@@ -86,4 +89,15 @@ FROM dbo.snapshots
 WHERE price_usd_morningstar IS NOT NULL
    OR price_brl_morningstar IS NOT NULL
 ORDER BY ts_utc DESC;
+GO
+
+-- Media de 4 (2026-09-26): tabela de controle/reversao e conversao unica do historico.
+IF OBJECT_ID('dbo.snapshots_media3') IS NULL
+    CREATE TABLE dbo.snapshots_media3 (
+        id BIGINT NOT NULL PRIMARY KEY,
+        media_exchanges_usd DECIMAL(19,6) NULL, media_exchanges_brl DECIMAL(19,6) NULL,
+        media_exchanges_eur DECIMAL(19,6) NULL, media_exchanges_gbp DECIMAL(19,6) NULL,
+        convertido_em DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME());
+GO
+-- Reversao: UPDATE s SET media_exchanges_usd = m.media_exchanges_usd, ... FROM dbo.snapshots s JOIN dbo.snapshots_media3 m ON m.id = s.id;
 GO

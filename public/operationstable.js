@@ -31,7 +31,7 @@ class OperationsTable {
       if (sell.status !== 'cancelled' && sell.status !== 'expired') body.appendChild(this._sellRow(sell));
     }
     if (!this._ops.lots.length && !this._ops.sells.length) {
-      body.innerHTML = '<tr><td colspan="10" style="color:#7d8aa3;text-align:center;padding:20px">' + _escT(this._t('op_nenhuma')) + '</td></tr>';
+      body.innerHTML = '<tr><td colspan="10" style="color:var(--muted);text-align:center;padding:20px">' + _escT(this._t('op_nenhuma')) + '</td></tr>';
     }
   }
 
@@ -92,14 +92,14 @@ class OperationsTable {
       ret = this._fmt.pct(lot.realized / (lot.sold * lot.price) * 100);
     } else {
       const current = this._ops.currentAvg(), unreal = lot.remaining * (current - price);
-      result = '<span style="color:#7d8aa3">' + this._fmt.brl(unreal) + ' ' + _escT(this._t('op_proj')) + '</span>';
+      result = '<span style="color:var(--muted)">' + this._fmt.brl(unreal) + ' ' + _escT(this._t('op_proj')) + '</span>';
       ret = this._fmt.pct(price > 0 ? (current - price) / price * 100 : 0);
     }
     const tr = this._doc.createElement('tr'); tr.className = cls;
     tr.innerHTML = `<td><b>${_escT(lot.id)}</b></td><td><span class="tag tag-buy">${_escT(this._t('op_compra'))}</span></td>` +
       `<td>${this._fmt.utc(new Date(lot.time))}</td><td>${this._fmt.brl(price)}</td>` +
-      `<td>${this._fmt.btc(lot.qty)}<br><span style="color:#7d8aa3;font-size:10px">${this._t('op_rest')} ${this._fmt.btc(lot.remaining)}</span></td>` +
-      `<td>${this._fmt.brl(brlConv)}</td>` + `<td style="color:#94a3b8;font-size:0.9em">${(lot.fee_brl > 0.005) ? this._fmt.brl(this._ops.converterPreco(lot.fee_brl, lot.moedaExib)) + ' ⛓' : '—'}</td>` + `<td>${result}</td><td>${ret}</td>`;
+      `<td>${this._fmt.btc(lot.qty)}<br><span style="color:var(--muted);font-size:10px">${this._t('op_rest')} ${this._fmt.btc(lot.remaining)}</span></td>` +
+      `<td>${this._fmt.brl(brlConv)}</td>` + `<td style="color:var(--muted);font-size:0.9em">${(lot.fee_brl > 0.005) ? this._fmt.brl(this._ops.converterPreco(lot.fee_brl, lot.moedaExib)) + ' ⛓' : '—'}</td>` + `<td>${result}</td><td>${ret}</td>`;
     tr.appendChild(this._actionsCell('lot', lot));
     if (lot.hidden && tr.style) tr.style.opacity = '0.5';
     return tr;
@@ -120,14 +120,14 @@ class OperationsTable {
       qty = sell.qty;
     } else {
       const steps = Math.max(0, Math.ceil((sell.markTime - this._now()) / this._period().stepMs));
-      result = `${_escT(this._t('op_venda_condicional'))}<br><span style="color:#7d8aa3;font-size:10px">${_escT(this._t('op_faltam_passos', {n: steps}))}</span>`;
+      result = `${_escT(this._t('op_venda_condicional'))}<br><span style="color:var(--muted);font-size:10px">${_escT(this._t('op_faltam_passos', {n: steps}))}</span>`;
     }
     const tr = this._doc.createElement('tr'); tr.className = cls;
     const label = sell.status === 'executed' ? (sell._profit >= 0 ? 'L' : 'P') + (sell.seq ?? '') : (sell.id || ('V' + sell.seq));
     const when = sell.status === 'executed' ? sell.execTime : sell.markTime;
     tr.innerHTML = `<td><b>${_escT(label)}</b></td><td><span class="tag tag-sell">${_escT(this._t('op_venda'))}</span></td>` +
       `<td>${this._fmt.utc(new Date(when))}</td><td>${this._fmt.brl(price)}</td>` +
-      `<td>${this._fmt.btc(qty)}</td><td>${this._fmt.brl(value)}</td>` + `<td style="color:#94a3b8;font-size:0.9em">${(sell.status === 'executed' && sell.fee_brl > 0.005) ? this._fmt.brl(this._ops.converterPreco(sell.fee_brl, sell.moedaExib)) + ' ⛓' : '—'}</td>` + `<td>${result}</td><td>${ret}</td>`;
+      `<td>${this._fmt.btc(qty)}</td><td>${this._fmt.brl(value)}</td>` + `<td style="color:var(--muted);font-size:0.9em">${(sell.status === 'executed' && sell.fee_brl > 0.005) ? this._fmt.brl(this._ops.converterPreco(sell.fee_brl, sell.moedaExib)) + ' ⛓' : '—'}</td>` + `<td>${result}</td><td>${ret}</td>`;
     tr.appendChild(this._actionsCell('sell', sell));
     if (sell.hidden && tr.style) tr.style.opacity = '0.5';
     return tr;

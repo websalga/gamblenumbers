@@ -171,7 +171,11 @@ class PlotArea {
     if (cfg.priceDecimals != null) this._priceDecimals = cfg.priceDecimals;
   }
   get pad() { return this._pad; }
-  color(name) { return this._colors[name]; }
+  color(name) {
+    // O tema ativo (theme.js) manda; a paleta passada no construtor e' so' o padrao/fallback.
+    const t = (typeof window !== 'undefined' && window.GNTheme) ? window.GNTheme.canvas(name) : undefined;
+    return t !== undefined ? t : this._colors[name];
+  }
   /** Retângulo útil de plotagem (dentro das margens). */
   get plotRect() {
     return { x: this._pad.l, y: this._pad.t, w: (this.w - this._pad.r) - this._pad.l, h: (this.h - this._pad.b) - this._pad.t };
