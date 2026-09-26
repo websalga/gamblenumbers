@@ -57,3 +57,31 @@ END
 SELECT @id;""", v, v, v)
         r = cur.fetchone(); print('linha', r[0] if r else None)
         print('gravado', v); c.commit()
+
+        # Lacunas: linhas de snapshot que ficaram sem leitura (>10 min, ultimas 24 h) recebem o Morningstar estimado com a MESMA razao
+        # Morningstar/Media3 da leitura anterior mais proxima (real ou ja estimada); a media da linha e' convertida para a media de 4 (uma vez).
+        cur.execute("""
+SET NOCOUNT ON;
+BEGIN TRAN;
+SELECT s.id, r.ru, r.rb INTO #g FROM dbo.snapshots s
+ CROSS APPLY (SELECT TOP 1 p.price_usd_morningstar / NULLIF(COALESCE(m3.media_exchanges_usd, p.media_exchanges_usd),0) AS ru,
+                           p.price_brl_morningstar / NULLIF(COALESCE(m3.media_exchanges_brl, p.media_exchanges_brl),0) AS rb
+                FROM dbo.snapshots p LEFT JOIN dbo.snapshots_media3 m3 ON m3.id = p.id
+               WHERE p.ts_utc < s.ts_utc AND p.price_brl_morningstar IS NOT NULL ORDER BY p.ts_utc DESC) r
+ WHERE s.ok=1 AND s.price_brl_morningstar IS NULL AND s.price_usd_morningstar IS NULL AND s.media_exchanges_brl IS NOT NULL AND r.rb IS NOT NULL
+   AND s.ts_utc < DATEADD(MINUTE,-10,SYSUTCDATETIME()) AND s.ts_utc >= DATEADD(DAY,-1,SYSUTCDATETIME())
+   AND NOT EXISTS (SELECT 1 FROM dbo.snapshots_media3 m WHERE m.id = s.id);
+INSERT INTO dbo.snapshots_media3 (id, media_exchanges_usd, media_exchanges_brl, media_exchanges_eur, media_exchanges_gbp)
+ SELECT s.id, s.media_exchanges_usd, s.media_exchanges_brl, s.media_exchanges_eur, s.media_exchanges_gbp FROM dbo.snapshots s JOIN #g g ON g.id = s.id;
+UPDATE s SET price_usd_morningstar = CASE WHEN g.ru IS NOT NULL AND s.media_exchanges_usd IS NOT NULL THEN CAST(s.media_exchanges_usd * g.ru AS DECIMAL(19,6)) END,
+             price_brl_morningstar = CAST(s.media_exchanges_brl * g.rb AS DECIMAL(19,6)),
+             media_exchanges_usd = CAST(s.media_exchanges_usd * (3.0 + g.rb)/4.0 AS DECIMAL(19,6)),
+             media_exchanges_brl = CAST(s.media_exchanges_brl * (3.0 + g.rb)/4.0 AS DECIMAL(19,6)),
+             media_exchanges_eur = CAST(s.media_exchanges_eur * (3.0 + g.rb)/4.0 AS DECIMAL(19,6)),
+             media_exchanges_gbp = CAST(s.media_exchanges_gbp * (3.0 + g.rb)/4.0 AS DECIMAL(19,6))
+  FROM dbo.snapshots s JOIN #g g ON g.id = s.id;
+DECLARE @n INT = @@ROWCOUNT;
+COMMIT;
+SELECT @n;""")
+        r2 = cur.fetchone(); print('lacunas preenchidas', r2[0] if r2 else 0)
+        c.commit()
