@@ -34,9 +34,9 @@ class PlotArea {
     this._ctx = deps.canvas.getContext ? deps.canvas.getContext('2d') : null;
     this._pad = Object.assign({ l: 8, r: 64, t: 10, b: 22 }, deps.padding || {});
     this._colors = Object.assign({
-      avg: '#22d3ee', binance: '#f7c948', kraken: '#a855f7', coinbase: '#3b82f6', morningstar: '#10b981',
+      avg: '#e2e8f0', binance: '#f7c948', kraken: '#a855f7', coinbase: '#3b82f6', morningstar: '#00e5ff',
       grid: 'rgba(30,42,68,0.6)', axisText: '#7d8aa3', target: '#22c55e',
-      now: 'rgba(232,237,247,0.55)', nowText: '#e8edf7', projBg: 'rgba(34,211,238,0.03)',
+      now: 'rgba(232,237,247,0.55)', nowText: '#e8edf7', projBg: 'rgba(0,229,255,0.035)',
       forecastRef: '#fb923c', scenario: '#f472b6',
     }, deps.colors || {});
     this._dpr = deps.dpr || (typeof window !== 'undefined' && window.devicePixelRatio) || 1;

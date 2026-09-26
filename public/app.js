@@ -3,7 +3,7 @@
 (function () {
   const MEDIA_POR_IDIOMA = { 'pt-BR': 'Média', 'en-US': 'Average', 'es-ES': 'Promedio' };
   const EXCH = (idioma) => ({ avg: MEDIA_POR_IDIOMA[idioma] || 'Média', binance: 'Binance', kraken: 'Kraken', coinbase: 'Coinbase', morningstar: 'Morningstar' });
-  const COL = { avg: '#22d3ee', binance: '#f7c948', kraken: '#a855f7', coinbase: '#3b82f6', morningstar: '#10b981' };
+  const COL = { avg: '#e2e8f0', binance: '#f7c948', kraken: '#a855f7', coinbase: '#3b82f6', morningstar: '#00e5ff' };
   const PREMIUM = { avg: 0, binance: 0.0015, kraken: -0.0020, coinbase: 0.0008, morningstar: 0 };
   const PERIODS = [
     { id: '5M', label: '5M', points: 60, stepMs: 5 * 60 * 1000 / 60 },
