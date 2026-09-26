@@ -1,22 +1,48 @@
 # Changelog
 
+## [v1.13.1] — 2026-09-26
+
+### English
+
+**Fixed: the UI accent color is separate from the Average line color**
+The Average series is now a neutral light gray (`#e2e8f0`) while the general interface accent stays cyan (`#22d3ee`). Period buttons, sliders, input focus states, hover borders and informational toasts no longer inherit the Average color. Morningstar remains the shimmering blue (`#00e5ff`), and the projection background uses that blue only as a very low-opacity tint.
+
+**Documented: Morningstar SQL columns and collector/backfill contract**
+Added `docs/GN_Morningstar.sql` documenting the `dbo.snapshots.price_usd_morningstar` and `price_brl_morningstar` columns, the expected collector behavior, and an idempotent backfill pattern. The site reads the stored historical values from SQL Server and only uses the Google Finance scrape/cache as a last-point overlay when the database has not filled that point yet.
+
+### Português
+
+**Corrigido: a cor de destaque da interface foi separada da cor da linha Média**
+A série Média agora é cinza-claro neutro (`#e2e8f0`), enquanto o destaque geral da interface continua ciano (`#22d3ee`). Botões de período, sliders, foco de campos, bordas de hover e toasts informativos não herdam mais a cor da Média. Morningstar permanece no azul cintilante (`#00e5ff`), e o fundo da zona de projeção usa esse azul só como tinta de baixíssima opacidade.
+
+**Documentado: colunas SQL da Morningstar e contrato do coletor/backfill**
+Adicionado `docs/GN_Morningstar.sql` documentando as colunas `dbo.snapshots.price_usd_morningstar` e `price_brl_morningstar`, o comportamento esperado do coletor e um padrão idempotente de backfill. O site lê os valores históricos gravados no SQL Server e só usa o scrape/cache do Google Finance como complemento do último ponto quando o banco ainda não preencheu aquele ponto.
+
+---
+
 ## [v1.13.0] — 2026-09-26
 
 ### English
 
 **New: Morningstar card using the BTC/USD quote displayed by Google Finance**
-The top quote area now includes a fifth card, "Morningstar", for BTC fiat views. The backend fetches the BTC/USD quote from Google Finance, whose crypto pricing source is identified by Google as Morningstar, caches it briefly, converts it to the selected display currency with the existing FX rates, and exposes it as `morningstar` in the API response. If the external page is unavailable or its markup changes, the field is omitted and the site continues to use Binance, Kraken and Coinbase.
+The top quote area now includes a fifth card, "Morningstar", for BTC fiat views. The backend exposes `morningstar` in API responses from the stored SQL Server columns when available. As a resilience fallback, the backend can fetch the BTC/USD quote displayed by Google Finance, whose crypto pricing source is identified by Google as Morningstar, cache it briefly, and use it only to complete the latest point when the database value is still missing.
 
-**Changed: the average quote includes Morningstar when available**
-For the most recent BTC fiat point, the `Média` card now averages Binance, Kraken, Coinbase and Morningstar when the Morningstar quote is present. Historical points keep the existing exchange-only average because Morningstar is fetched as a current reference quote, not as a stored historical series.
+**Changed: Morningstar is its own plotted source; Average stays exchange-only**
+Morningstar is drawn as a separate line/card and is not mixed into the `Média` series. This avoids a visible step in the Average line when Morningstar appears before the collector has backfilled the same timestamp. The `Média` series continues to represent the exchange average from Binance, Kraken and Coinbase.
+
+**Fixed: missing Morningstar values are treated as gaps, not zeroes**
+`datastore.js` no longer coerces `null` values to `0` during interpolation. This keeps the Morningstar historical line from jumping up from the bottom of the chart when a row has no Morningstar value.
 
 ### Português
 
 **Novo: card Morningstar usando a cotação BTC/USD exibida pelo Google Finance**
-A área superior de cotações agora inclui um quinto card, "Morningstar", nas visões BTC contra moeda fiat. O backend busca a cotação BTC/USD no Google Finance, cuja fonte de preço para cripto é identificada pelo Google como Morningstar, guarda em cache por alguns minutos, converte para a moeda de exibição selecionada com as taxas de câmbio já existentes e expõe o valor como `morningstar` na resposta da API. Se a página externa estiver indisponível ou mudar o HTML, o campo é omitido e o site continua usando Binance, Kraken e Coinbase.
+A área superior de cotações agora inclui um quinto card, "Morningstar", nas visões BTC contra moeda fiat. O backend expõe `morningstar` nas respostas da API a partir das colunas gravadas no SQL Server quando disponíveis. Como fallback de resiliência, o backend pode buscar a cotação BTC/USD exibida pelo Google Finance, cuja fonte de preço para cripto é identificada pelo Google como Morningstar, guardar em cache por alguns minutos e usar isso só para completar o último ponto quando o banco ainda não trouxe o valor.
 
-**Alterado: a cotação média inclui Morningstar quando disponível**
-No ponto BTC fiat mais recente, o card `Média` agora calcula a média entre Binance, Kraken, Coinbase e Morningstar quando a cotação Morningstar está presente. Os pontos históricos mantêm a média antiga só das exchanges, porque Morningstar entra como cotação atual de referência, não como série histórica gravada.
+**Alterado: Morningstar é uma fonte própria no gráfico; Média continua só das exchanges**
+Morningstar é desenhada como linha/card separado e não é misturada na série `Média`. Isso evita um degrau visível na linha da Média quando Morningstar aparece antes de o coletor preencher o mesmo timestamp. A série `Média` continua representando a média das exchanges Binance, Kraken e Coinbase.
+
+**Corrigido: valores ausentes de Morningstar viram lacuna, não zero**
+`datastore.js` não converte mais `null` para `0` durante a interpolação. Isso impede que a linha histórica da Morningstar suba a partir da base do gráfico quando uma linha não tem valor Morningstar.
 
 ---
 ## [v1.12.0] — 2026-09-26
