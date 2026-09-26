@@ -1,5 +1,19 @@
 # Changelog
 
+## [v1.14.2] — 2026-09-26
+
+### English
+
+**Changed: gaps are filled in the database, not patched on the chart**
+The chart-side gap interpolation added in v1.14.1 was removed from `datastore.js`. The snapshot rows that the Morningstar collector had missed (15:17, 15:48 and 16:03 UTC on 2026-09-26) were filled in SQL Server with the same estimate as the historical backfill (-0.0922% vs the 3-exchange average) and their average was converted to the 4-quote average.
+
+### Português
+
+**Alterado: lacunas são preenchidas no banco, não remendadas no gráfico**
+A interpolação de lacunas no gráfico, adicionada na v1.14.1, foi removida do `datastore.js`. As linhas de snapshot que o coletor do Morningstar tinha perdido (15:17, 15:48 e 16:03 UTC de 26/09/2026) foram preenchidas no SQL Server com a mesma estimativa do backfill histórico (−0,0922% sobre a média das 3 exchanges), e a média delas foi convertida para a média de 4 cotações.
+
+---
+
 ## [v1.14.1] — 2026-09-26
 
 ### English
