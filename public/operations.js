@@ -44,6 +44,9 @@ class OperationsController {
         return (sess && sess.session_id) || null;
       } catch (e) { return null; }
     });
+    // Fila confiavel de envio ao SQL Server (opssync.js). Sem ela (testes) cai no envio simples de antes.
+    this._outbox = deps.outbox || null;
+    this._empurrarFalhou = new Set();
     // Tamanho típico de transação: BTC SegWit P2WPKH ~140 vB, BCH P2PKH ~225 bytes
     this._txSize = (String(this._moeda).toUpperCase() === 'BCH') ? 225 : 140;
     // Veto de clique: durante/logo após um arraste (pan), o clique não deve
@@ -204,20 +207,22 @@ class OperationsController {
    */
   clearOperations(scope) {
     let apagadas = 0, mantidas = 0;
+    const removed = { lots: [], sells: [] };   // ids apagados: o SQL apaga (logicamente) os mesmos
     if (scope === 'sells' || scope === 'all') {
       for (const s of this.sells) if (s.status === 'pending') s.reserved = 0;
       apagadas += this.sells.length;
+      removed.sells = this.sells.map(x => x.id);
       this.sells = [];
     }
     if (scope === 'lots' || scope === 'all') {
       const restantes = [];
       for (const l of this.lots) {
-        if (this.canDeleteLot(l).ok) apagadas++;
+        if (this.canDeleteLot(l).ok) { apagadas++; removed.lots.push(l.id); }
         else { restantes.push(l); mantidas++; }
       }
       this.lots = restantes;
     }
-    this._changed('operations:cleared', { scope, apagadas, mantidas });
+    this._changed('operations:cleared', { scope, apagadas, mantidas }, { removed });
     if (mantidas > 0) {
       this._toast('warn', this._t('toast_limpeza_parcial', { apagadas, mantidas }));
     } else {
@@ -280,6 +285,7 @@ class OperationsController {
     // lot.price pode ter sido gravado numa moeda diferente (lote comprado
     // antes de trocar o par) - converte antes de calcular o PnL.
     let qty = sell.qty, orderPnl = 0, orderCost = 0, orderQty = 0;
+    const touched = [];   // lotes consumidos: vao ao SQL na mesma acao que a venda
     const lots = this.lots.filter(l => l.remaining > 1e-12).sort((a, b) => a.seq - b.seq);
     for (const lot of lots) {
       if (qty <= 1e-12) break;
@@ -289,6 +295,7 @@ class OperationsController {
       lot.remaining -= take;
       lot.sold += take;
       lot.realized += pnl;
+      touched.push(lot);
       if (lot.remaining <= 1e-10) { lot.remaining = 0; lot.status = 'closed'; }
       orderPnl += pnl; orderCost += take * precoLote; orderQty += take; qty -= take;
     }
@@ -311,7 +318,7 @@ class OperationsController {
     sell._value  = orderQty * execPrice - _sellFeeBrl;  // recebimento líquido
     sell._ret = orderCost > 0 ? _netPnl / orderCost * 100 : 0;
     if (this._panel && typeof this._panel.creditSaldo === 'function') this._panel.creditSaldo(sell._value, sell.id);
-    this._changed('sell:executed', sell);
+    this._changed('sell:executed', sell, { lots: touched });
     return sell;
   }
 
@@ -469,35 +476,165 @@ class OperationsController {
     tip.style.left = (e.clientX + 14) + 'px'; tip.style.top = (e.clientY + 14) + 'px';
   }
   _toast(type, message) { this._bus.emit('toast', { type, message }); }
-  _changed(reason, subject) {
+  _changed(reason, subject, extra) {
     this._bus.emit('operations:changed', { reason, subject, lots: this.lots, sells: this.sells });
-    this._syncToServer(reason, subject);
+    this._syncToServer(reason, subject, extra);
   }
 
   /**
-   * Espelha o evento no SQL Server (sim_sync.php), fire-and-forget.
-   * NUNCA lanca, nunca bloqueia a UI, nunca depende de resposta -- se
-   * falhar (rede caiu, endpoint fora), o navegador continua sendo a
-   * fonte de verdade normalmente.
+   * Espelha a acao do usuario no SQL Server (fonte de verdade) pela fila confiavel (OpsOutbox): o evento so' sai da
+   * fila quando o servidor confirma e, se a rede cair, e' reenviado. `extra`: { lots } lotes afetados pela execucao
+   * de uma venda, { removed } ids apagados por "limpar", { force } item antigo que so' existia no navegador.
+   * Sem fila injetada (testes) cai no envio simples de antes.
    */
-  _syncToServer(reason, subject) {
+  _syncToServer(reason, subject, extra) {
+    if (!subject) return;
+    const clone = o => JSON.parse(JSON.stringify(o));
+    const ev = { moeda: this._moeda, moeda_exib: this._moedaExib, reason, subject: clone(subject) };
+    if (extra && extra.lots) ev.lots = extra.lots.map(clone);
+    if (extra && extra.removed) ev.removed = extra.removed;
+    if (extra && extra.force) ev.force = true;
+    if (this._outbox) { this._outbox.enqueue(ev); return; }
     const sid = this._getSessionId();
-    if (!sid || !subject) return;
-    const body = JSON.stringify({
-      session_id: sid,
-      moeda: this._moeda,
-      moeda_exib: this._moedaExib,
-      reason,
-      subject,
-    });
+    if (!sid) return;
+    const body = JSON.stringify(Object.assign({ session_id: sid }, ev));
     try {
-      if (navigator.sendBeacon) {
-        navigator.sendBeacon('sim_sync.php', new Blob([body], { type: 'application/json' }));
-      } else {
-        fetch('sim_sync.php', { method: 'POST', body, keepalive: true, headers: { 'Content-Type': 'application/json' } })
-          .catch(() => {});
-      }
+      if (typeof navigator !== 'undefined' && navigator.sendBeacon) navigator.sendBeacon('sim_sync.php', new Blob([body], { type: 'application/json' }));
+      else fetch('sim_sync.php', { method: 'POST', body, keepalive: true, headers: { 'Content-Type': 'application/json' } }).catch(() => {});
     } catch (e) { /* nunca deixa o sync quebrar a UI */ }
+  }
+
+  /* ============ Estado do banco (fonte de verdade) ============ */
+
+  _arr(tipo) { return tipo === 'lote' ? this.lots : this.sells; }
+  _findOp(tipo, id) { return this._arr(tipo).find(o => o.id === id) || null; }
+  /** O banco manda: copia os campos dele para o item local, mantendo o mesmo objeto. */
+  _adotar(op, srv) { for (const k of Object.keys(srv)) op[k] = srv[k]; }
+  _seqAtLeast(m) {
+    if (!m) return;
+    if (m.lot > this.lotSeq) this.lotSeq = m.lot;
+    if (m.sell > this.sellSeq) this.sellSeq = m.sell;
+  }
+  _remover(tipo, id) {
+    const a = this._arr(tipo), i = a.findIndex(o => o.id === id);
+    if (i < 0) return false;
+    a.splice(i, 1);
+    return true;
+  }
+  /** Item que so' existe neste navegador (anterior ao espelho, ou nunca confirmado): grava no banco, sem checar versao. */
+  _empurrar(tipo, op) {
+    if (this._empurrarFalhou.has(tipo + ':' + op.id)) return;   // o banco ja recusou: nao insiste a cada ciclo
+    this._syncToServer(tipo === 'lote' ? 'lot:sync' : 'sell:sync', op, { force: true });
+  }
+
+  /** Confirmacao do servidor: registra a versao de cada item gravado e remove o que o banco tem como excluido. */
+  applyAck(resp) {
+    let mudou = false;
+    for (const it of (resp.itens || [])) {
+      const op = this._findOp(it.tipo, it.id);
+      if (it.excluido) { if (op) mudou = this._remover(it.tipo, it.id) || mudou; continue; }
+      if (op && it.v > 0 && op._v !== it.v) { op._v = it.v; mudou = true; }
+    }
+    this._seqAtLeast(resp.seq_max);
+    return mudou;
+  }
+
+  /**
+   * Conflito: o banco tem uma versao mais recente do item (um robo ou outro navegador mexeu) e NAO gravou nada.
+   * A tela adota o estado do banco. Excecao: colisao de id em item NOVO — se for a mesma operacao (reenvio de um
+   * evento ja gravado) so' registra a versao; senao o item recebe um id novo e e' reenviado.
+   */
+  applyConflict(ev, resp) {
+    let mudou = false;
+    const atuais = resp.atuais || { lots: [], sells: [] };
+    this._seqAtLeast(resp.seq_max);
+    const srvPor = { lote: new Map((atuais.lots || []).map(x => [x.id, x])), venda: new Map((atuais.sells || []).map(x => [x.id, x])) };
+    const mesma = (tipo, op, s) => tipo === 'lote'
+      ? (s.time === op.time && Math.abs((s.qty || 0) - (op.qty || 0)) < 1e-9 && Math.abs((s.price || 0) - (op.price || 0)) < 1e-6)
+      : (s.markTime === op.markTime && Math.abs((s.qty || 0) - (op.qty || 0)) < 1e-9 && Math.abs((s.markPrice || 0) - (op.markPrice || 0)) < 1e-6);
+    for (const c of (resp.conflitos || [])) {
+      if (c.motivo !== 'id_existente') continue;
+      const op = this._findOp(c.tipo, c.id), s = srvPor[c.tipo].get(c.id);
+      if (!op || !s || s.excluido || op._v !== undefined) continue;
+      if (mesma(c.tipo, op, s)) { this._adotar(op, s); mudou = true; continue; }
+      if (c.tipo === 'lote') { op.seq = ++this.lotSeq; op.id = 'LT' + op.seq; this._syncToServer('buy', op); }
+      else { op.seq = ++this.sellSeq; op.id = 'V' + op.seq; this._syncToServer(ev.reason, op, ev.lots ? { lots: ev.lots } : undefined); }
+      mudou = true;
+    }
+    for (const tipo of ['lote', 'venda']) {
+      for (const s of srvPor[tipo].values()) {
+        const op = this._findOp(tipo, s.id);
+        if (s.excluido) { if (op) mudou = this._remover(tipo, s.id) || mudou; continue; }
+        if (op) { if (op._v !== s._v) { this._adotar(op, s); mudou = true; } }
+        else { this._arr(tipo).push(Object.assign({}, s, { _remote: true })); mudou = true; }
+      }
+    }
+    this.lots.sort((a, b) => a.seq - b.seq);
+    this.sells.sort((a, b) => a.seq - b.seq);
+    return mudou;
+  }
+
+  /**
+   * Mescla o que o SQL Server tem (sim_load.php) com o estado local. O BANCO MANDA, exceto itens com envio
+   * pendente na fila (a acao do usuario ainda nao chegou la):
+   *   - item so' no banco -> entra; excluido no banco -> sai; mais novo no banco (versao maior) -> adota
+   *   - item local com versao conhecida que sumiu do banco -> sai (foi apagado la)
+   *   - item local antigo, sem versao (anterior ao espelho) -> vai para o banco (gravacao forcada)
+   * Devolve true se a tela precisa ser redesenhada.
+   */
+  mergeServer(j, temPendente) {
+    const pend = temPendente || (() => false);
+    let mudou = false;
+    const ex = j.excluidos || { lots: [], sells: [] };
+    const grupos = [
+      { tipo: 'lote',  campo: 'lots',  srv: j.lots || [],  exc: ex.lots || [] },
+      { tipo: 'venda', campo: 'sells', srv: j.sells || [], exc: ex.sells || [] },
+    ];
+    for (const g of grupos) {
+      const ativos = new Map(g.srv.map(x => [x.id, x]));
+      const apagados = new Map(g.exc.map(x => [x.id, x]));
+      const manter = [];
+      for (const op of this[g.campo]) {
+        if (pend(g.tipo, op.id)) { manter.push(op); continue; }
+        if (apagados.has(op.id)) { mudou = true; continue; }
+        const s = ativos.get(op.id);
+        if (s) {
+          if (op._v === undefined) {
+            if (op._remote) { this._adotar(op, s); mudou = true; }
+            else this._empurrar(g.tipo, op);
+          } else if (s._v > op._v) { this._adotar(op, s); mudou = true; }
+          manter.push(op);
+          continue;
+        }
+        if (op._v !== undefined) { mudou = true; continue; }
+        this._empurrar(g.tipo, op);
+        manter.push(op);
+      }
+      const ja = new Set(manter.map(o => o.id));
+      for (const s of g.srv) {
+        if (ja.has(s.id) || pend(g.tipo, s.id)) continue;
+        manter.push(Object.assign({}, s, { _remote: true }));
+        mudou = true;
+      }
+      manter.sort((a, b) => a.seq - b.seq);
+      this[g.campo] = manter;
+    }
+    this._seqAtLeast(j.seq_max);
+    return mudou;
+  }
+
+  /** Resultado de um envio (chamado pela fila). */
+  onSyncResult(r) {
+    let mudou = false;
+    if (r.tipo === 'ok') mudou = this.applyAck(r.resposta);
+    else if (r.tipo === 'conflito') {
+      mudou = this.applyConflict(r.evento, r.resposta);
+      this._toast('warn', 'Operação atualizada: o banco tinha uma versão mais recente (outro navegador ou um robô alterou). A tela mostra o estado do banco.');
+    } else {
+      for (const x of (r.evento.ids || [])) this._empurrarFalhou.add(x.t + ':' + x.id);
+      if (typeof console !== 'undefined') console.warn('sim_sync recusou um evento (descartado):', r.evento.reason, r.resposta && r.resposta.error);
+    }
+    if (mudou) this._bus.emit('operations:changed', { reason: 'sync', lots: this.lots, sells: this.sells });
   }
 }
 

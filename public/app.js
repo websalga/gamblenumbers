@@ -13,7 +13,13 @@
     { id: '1H', label: '1H', points: 60, stepMs: 60 * 60 * 1000 / 60 },
     { id: '6H', label: '6H', points: 72, stepMs: 6 * 3600 * 1000 / 72 },
     { id: '1D', label: '1D', points: 96, stepMs: 24 * 3600 * 1000 / 96 },
+    { id: '2D', label: '2D', points: 96, stepMs: 2 * 86400 * 1000 / 96 },
+    { id: '3D', label: '3D', points: 108, stepMs: 3 * 86400 * 1000 / 108 },
+    { id: '4D', label: '4D', points: 96, stepMs: 4 * 86400 * 1000 / 96 },
+    { id: '5D', label: '5D', points: 100, stepMs: 5 * 86400 * 1000 / 100 },
+    { id: '6D', label: '6D', points: 96, stepMs: 6 * 86400 * 1000 / 96 },
     { id: '7D', label: '7D', points: 84, stepMs: 7 * 86400 * 1000 / 84 },
+    { id: '15D', label: '15D', points: 90, stepMs: 15 * 86400 * 1000 / 90 },
     { id: '30D', label: '30D', points: 90, stepMs: 30 * 86400 * 1000 / 90 },
     { id: '60D', label: '60D', points: 90, stepMs: 60 * 86400 * 1000 / 90 },
     { id: '90D', label: '90D', points: 90, stepMs: 90 * 86400 * 1000 / 90 },
@@ -38,7 +44,9 @@
     const d = new Date(t);
     if (['5M', '10M', '20M', '30M', '1H'].includes(periodId)) return pad(d.getUTCHours()) + ':' + pad(d.getUTCMinutes());
     if (['6H', '1D'].includes(periodId)) return pad(d.getUTCHours()) + 'h';
-    if (['7D', '30D', '60D', '90D', '120D', '180D', '220D'].includes(periodId)) return pad(d.getUTCDate()) + '/' + pad(d.getUTCMonth() + 1);
+    // 2D e 3D: dia/mes + hora (eixo curto demais para so' o dia sem confundir)
+    if (['2D', '3D'].includes(periodId)) return pad(d.getUTCDate()) + '/' + pad(d.getUTCMonth() + 1) + ' ' + pad(d.getUTCHours()) + 'h';
+    if (['4D', '5D', '6D', '7D', '15D', '30D', '60D', '90D', '120D', '180D', '220D'].includes(periodId)) return pad(d.getUTCDate()) + '/' + pad(d.getUTCMonth() + 1);
     if (['2Y', '3Y', '5Y'].includes(periodId)) return MES[d.getUTCMonth()] + '/' + String(d.getUTCFullYear()).slice(2);
     return MES[d.getUTCMonth()];
   }
@@ -141,7 +149,17 @@
         scenario: new ScenarioLineRenderer(),
       };
       this.panel = new ControlPanel({ doc, bus: this.bus, defaults: {}, fmt: { brl: BRL }, moedaExibicao: this.moedaExibicao });
+      // Fila confiavel de envio das operacoes ao SQL Server (fonte de verdade).
+      this.opsOutbox = (typeof OpsOutbox !== 'undefined') ? new OpsOutbox({
+        resolveItem: (moeda, tipo, id) => (moeda === this.moeda && this.operations) ? this.operations._findOp(tipo, id) : null,
+        onResult: (r) => {
+          if (!this.operations) return;
+          this.operations.onSyncResult(r);
+          try { this.renderChart(); this.renderSidePanel(); this.operationsTable.render(); } catch (e) { /* tela ainda montando */ }
+        },
+      }) : null;
       this.operations = new OperationsController({
+        outbox: this.opsOutbox,
         doc, bus: this.bus, canvas: this.canvas, plot: this.plot, panel: this.panel,
         now: () => this.store.latestT() || 0,
         getSeries: () => this.seriesData(), getPeriod: () => this.period(),
@@ -322,45 +340,15 @@
       try {
         const sid = window.GNIdentity && window.GNIdentity.session && window.GNIdentity.session.session_id;
         if (!sid) return false;
+        const ob = this.opsOutbox;
+        const marca0 = ob ? ob.marca : 0;
         const url = 'sim_load.php?session_id=' + encodeURIComponent(sid) + '&moeda=' + encodeURIComponent(this.moeda);
         const resp = await fetch(url, { cache: 'no-store' });
         const j = await resp.json();
         if (!j || !j.ok) return false;
-
-        let mudou = false;
-        const lotById = new Map(this.operations.lots.map(l => [l.id, l]));
-        for (const lot of (j.lots || [])) {
-          const existente = lotById.get(lot.id);
-          if (!existente) {
-            lot._remote = true;
-            this.operations.lots.push(lot);
-            lotById.set(lot.id, lot);
-            mudou = true;
-          } else if (existente._remote) {
-            const antes = JSON.stringify(existente);
-            Object.assign(existente, lot);
-            existente._remote = true;
-            if (JSON.stringify(existente) !== antes) mudou = true;
-          }
-          if (lot.seq > this.operations.lotSeq) this.operations.lotSeq = lot.seq;
-        }
-        const sellById = new Map(this.operations.sells.map(s => [s.id, s]));
-        for (const sell of (j.sells || [])) {
-          const existente = sellById.get(sell.id);
-          if (!existente) {
-            sell._remote = true;
-            this.operations.sells.push(sell);
-            sellById.set(sell.id, sell);
-            mudou = true;
-          } else if (existente._remote) {
-            const antes = JSON.stringify(existente);
-            Object.assign(existente, sell);
-            existente._remote = true;
-            if (JSON.stringify(existente) !== antes) mudou = true;
-          }
-          if (sell.seq > this.operations.sellSeq) this.operations.sellSeq = sell.seq;
-        }
-        return mudou;
+        // Algo foi enviado/confirmado enquanto a leitura viajava: ela pode estar velha; a proxima leitura corrige.
+        if (ob && ob.marca !== marca0) return false;
+        return this.operations.mergeServer(j, ob ? ((t, id) => ob.temPendente(this.moeda, t, id)) : null);
       } catch (e) { return false; /* mescla é best-effort */ }
     }
 
@@ -738,13 +726,60 @@
       for (const c of this.cards) c.render(container, ctx, hasLots && c.key === bestKey);
     }
 
+    /**
+     * Previsao do SERVIDOR na moeda de exibicao. O servidor grava tudo em BRL (a serie que o motor usa); o grafico
+     * mostra na moeda escolhida, entao cada preco e' convertido aqui (mesma taxa de operations.converterValor).
+     * Sem cambio disponivel devolve null e o grafico NAO desenha a previsao (melhor nada que valor na moeda errada).
+     * Para a legenda previsto x real, cada curva anterior leva `ancoraReal`: o preco REAL da hora da ancora na moeda
+     * exibida (do proprio historico), pois converter com o cambio de hoje distorceria variacoes da ordem de 0,1%.
+     */
+    _servidorNaMoedaExib() {
+      const bf = this.backendForecast;
+      if (!bf || !bf.ready) return null;
+      const para = this.moedaExibicao;
+      const cv = v => (v == null || !Number.isFinite(+v)) ? null : this.operations.converterValor(+v, 'BRL', para);
+      const teste = cv(1);
+      if (!(teste > 0)) return null;
+      const pt = p => ({ t: p.t, avg: cv(p.avg), avg_lo: cv(p.avg_lo), avg_hi: cv(p.avg_hi) });
+      const ancoraReal = t => {
+        try {
+          const n = this.store.nearest(t);
+          return (n && Math.abs(n.t - t) <= 600000 && n.avg > 0) ? +n.avg : null;
+        } catch (e) { return null; }
+      };
+      // A curva do cenario nasce ate 15 min antes do AGORA: reancora no ultimo preco real, para que a ESCALA do grafico
+      // enxergue exatamente os valores que serao desenhados (o renderizador reancora igual, entao fica idempotente).
+      let cen = (bf.cenario || []).map(p => ({ t: p.t, avg: cv(p.avg) }));
+      const ult = this.store.latest(), nowT = this.store.latestT();
+      if (ult && ult.avg > 0 && nowT != null && cen.length > 1 && nowT <= cen[cen.length - 1].t) {
+        let yNow = null;
+        if (nowT <= cen[0].t) yNow = cen[0].avg;
+        else for (let i = 1; i < cen.length; i++) {
+          if (nowT <= cen[i].t) { const a0 = cen[i - 1], b0 = cen[i]; yNow = a0.avg + (b0.avg - a0.avg) * ((nowT - a0.t) / ((b0.t - a0.t) || 1)); break; }
+        }
+        if (yNow > 0) { const k = +ult.avg / yNow; cen = cen.map(p => ({ t: p.t, avg: p.avg * k })); }
+      }
+      return {
+        pontos: bf.pontos.map(pt),
+        cenario: cen,
+        cenarioPassado: (bf.cenarioPassado || []).map(r => ({
+          lookback_min: r.lookback_min,
+          ancora: { t: r.ancora.t, avg: cv(r.ancora.avg) },
+          ancoraReal: ancoraReal(r.ancora.t),
+          pontos: (r.pontos || []).map(p => ({ t: p.t, avg: cv(p.avg) })),
+        })),
+        faixaPct: bf.faixaPct,
+      };
+    }
+
     renderChart() {
       const endT = this.store.latestT(); if (endT == null) return;
       const { hist, fut: futLocal } = this.seriesData();
       // Com a previsao do SERVIDOR disponivel, a projecao local (simulacao congelada por navegador: diverge entre
       // usuarios e pode estar velha) deixa de ser desenhada e de entrar na escala do grafico. Sem servidor, volta ao
       // comportamento antigo. (So' o desenho muda: vendas, alvo e operacoes nao dependem dela.)
-      const usarServidor = !!(this.backendForecast && this.backendForecast.ready);
+      const srv = this._servidorNaMoedaExib();
+      const usarServidor = !!srv;
       const fut = usarServidor ? [] : futLocal, all = hist.concat(fut);
       const target = this.operations.targetPrice();
       const extraPrices = [];
@@ -772,15 +807,15 @@
       if (usarServidor) {
         // a escala inclui o miolo da previsao e o cenario da Mimetagem dentro da janela visivel
         const ini = win ? win.tMin : -Infinity, fim = win ? win.tMax : Infinity;
-        for (const pt of this.backendForecast.pontos) {
+        for (const pt of srv.pontos) {
           if (pt.t < ini || pt.t > fim) continue;
           extraPrices.push(pt.avg, pt.avg_lo, pt.avg_hi);
         }
-        for (const pt of (this.backendForecast.cenario || [])) {
+        for (const pt of srv.cenario) {
           if (pt.t >= ini && pt.t <= fim && pt.t > endT) extraPrices.push(pt.avg);
         }
         // curvas anteriores da Mimetagem (trecho realizado, pontilhado): entram na escala para nao sairem de quadro
-        for (const run of (this.backendForecast.cenarioPassado || [])) {
+        for (const run of srv.cenarioPassado) {
           for (const pt of (run.pontos || [])) {
             if (pt.t >= ini && pt.t <= fim && pt.t <= endT) extraPrices.push(pt.avg);
           }
@@ -813,12 +848,13 @@
         })),
         mouse: this.mouse,
         // linha de referência: previsão estatística real do backend (até 24h)
-        refForecast: (this.backendForecast && this.backendForecast.ready) ? this.backendForecast.pontos : [],
-        refScenario: (this.backendForecast && this.backendForecast.ready) ? this.backendForecast.cenario : [],
-        refFaixaPct: (this.backendForecast && this.backendForecast.ready) ? this.backendForecast.faixaPct : null,
-        refScenarioPast: (this.backendForecast && this.backendForecast.ready) ? this.backendForecast.cenarioPassado : [],
+        refForecast: srv ? srv.pontos : [],
+        refScenario: srv ? srv.cenario : [],
+        refFaixaPct: srv ? srv.faixaPct : null,
+        refScenarioPast: srv ? srv.cenarioPassado : [],
         // rastro: o que a projeção previu para o trecho que já virou passado
-        trail: this.frozen ? this.frozen.pastTrail(endT, this.period().stepMs) : [],
+        // (o rastro vem da projecao local congelada: some junto com ela quando a previsao do servidor esta disponivel)
+        trail: (this.frozen && !usarServidor) ? this.frozen.pastTrail(endT, this.period().stepMs) : [],
         // faixa de spread: min/max entre exchanges no ponto mais recente do histórico
         ...((() => {
           const last = hist && hist.length ? hist[hist.length - 1] : null;
@@ -1050,6 +1086,7 @@
       // Persistência: abre o IndexedDB e recupera projeção/operações salvas.
       try {
         await this.localStore.open(); await this.opsStore.open(); await this._restore();
+        if (this.opsOutbox) this.opsOutbox.kick();
         await this._mergeServerOps();
         if (typeof window !== 'undefined' && typeof window.addEventListener === 'function' && !this._mergeOpsListenerLigado) {
           this._mergeOpsListenerLigado = true;
