@@ -7,7 +7,7 @@
  *                   do histórico real reamostrado.
  *
  * Ambas expõem a MESMA interface:
- *     points(period, endT) -> [{ t, avg, binance, kraken, coinbase }, ...]
+ *     points(period, endT) -> [{ t, avg, binance, kraken, coinbase, morningstar }, ...]
  *
  * Por isso o gráfico pode tratar as duas do mesmo jeito, sem saber
  * qual é real e qual é projeção — só recebe "séries que sabem se
@@ -60,7 +60,7 @@ class ProjectedSeries {
     }
     this._real = deps.real;
     this._forecast = deps.forecast;
-    this._premium = deps.premium || { avg: 0, binance: 0, kraken: 0, coinbase: 0 };
+    this._premium = deps.premium || { avg: 0, binance: 0, kraken: 0, coinbase: 0, morningstar: 0 };
     // Fonte CONGELADA opcional. Quando presente, a projeção não é recriada a
     // cada render: o frozen mantém a linha-mestra (que só cresce pela borda) e
     // aqui apenas recortamos a janela. É o que impede as vendas marcadas sobre
@@ -114,6 +114,7 @@ class ProjectedSeries {
         binance: avg * (1 + spread.binance),
         kraken: avg * (1 + spread.kraken),
         coinbase: avg * (1 + spread.coinbase),
+        morningstar: avg * (1 + (spread.morningstar || 0)),
       });
     }
     return out;
@@ -132,10 +133,10 @@ function validatePeriod(p) {
  * lógica do app original, isolada aqui para a projeção herdar o
  * padrão real de cada corretora. */
 function avgSpread(hist) {
-  const acc = { binance: 0, kraken: 0, coinbase: 0 };
-  const cnt = { binance: 0, kraken: 0, coinbase: 0 };
+  const acc = { binance: 0, kraken: 0, coinbase: 0, morningstar: 0 };
+  const cnt = { binance: 0, kraken: 0, coinbase: 0, morningstar: 0 };
   for (const h of hist) {
-    for (const k of ['binance', 'kraken', 'coinbase']) {
+    for (const k of ['binance', 'kraken', 'coinbase', 'morningstar']) {
       if (h.avg > 0 && h[k] > 0) { acc[k] += (h[k] / h.avg - 1); cnt[k]++; }
     }
   }
@@ -143,6 +144,7 @@ function avgSpread(hist) {
     binance: cnt.binance ? acc.binance / cnt.binance : 0,
     kraken: cnt.kraken ? acc.kraken / cnt.kraken : 0,
     coinbase: cnt.coinbase ? acc.coinbase / cnt.coinbase : 0,
+    morningstar: cnt.morningstar ? acc.morningstar / cnt.morningstar : 0,
   };
 }
 

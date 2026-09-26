@@ -246,6 +246,74 @@ function colunas(string $moeda, string $moedaExibicao, float $fxRate = 1.0): arr
  * ja usa para JPY/CNY/TRY/RUB). Retorna null se a taxa nao puder ser
  * resolvida (nesse caso o chamador deve manter os valores em BRL).
  */
+
+/**
+ * Cotacao BTC/USD exibida pelo Google Finance, cuja fonte informada pelo Google
+ * para criptomoedas e a Morningstar. Nao e fonte critica: se falhar, a API
+ * simplesmente omite o campo morningstar e mantem as exchanges atuais.
+ */
+function morningstarBtcUsd(): ?float {
+  $cache = __DIR__ . '/../private/logs/morningstar_btc_usd_cache.json';
+  $ttl = 180; // Google Finance informa atraso de poucos minutos para cripto; evita bater a cada request.
+  if (is_file($cache)) {
+    $j = json_decode((string)@file_get_contents($cache), true);
+    if (is_array($j) && isset($j['ts'], $j['price']) && time() - (int)$j['ts'] < $ttl && (float)$j['price'] > 0) {
+      return (float)$j['price'];
+    }
+  }
+  $url = 'https://www.google.com/finance/quote/BTC-USD?hl=en';
+  $ctx = stream_context_create([
+    'http' => [
+      'timeout' => 4,
+      'header' => "User-Agent: Mozilla/5.0 (compatible; GambleNumbers/1.0)\r\nAccept-Language: en-US,en;q=0.9\r\n",
+    ],
+  ]);
+  $html = @file_get_contents($url, false, $ctx);
+  if (!is_string($html) || $html === '') return null;
+  if (!preg_match('/Bitcoin \/ United States Dollar.*?<span[^>]*>\s*([0-9][0-9,]*\.[0-9]+)\s*<\/span>/s', $html, $m)) {
+    return null;
+  }
+  $price = (float)str_replace(',', '', $m[1]);
+  if ($price <= 0) return null;
+  @file_put_contents($cache, json_encode(['ts' => time(), 'price' => $price]), LOCK_EX);
+  return $price;
+}
+
+function usdToDisplay(?float $usd, array $row, string $moedaExibicao): ?float {
+  if ($usd === null || $usd <= 0) return null;
+  if ($moedaExibicao === 'USD') return $usd;
+  $col = 'usd_' . strtolower($moedaExibicao);
+  if (!isset($row[$col]) || $row[$col] === null) return null;
+  $rate = (float)$row[$col];
+  return $rate > 0 ? $usd * $rate : null;
+}
+
+function mediaComMorningstar(?float $oldAvg, ?float $binance, ?float $kraken, ?float $coinbase, ?float $morningstar): ?float {
+  $vals = [];
+  foreach ([$binance, $kraken, $coinbase, $morningstar] as $v) {
+    if ($v !== null && $v > 0) $vals[] = $v;
+  }
+  if (!$vals) return $oldAvg;
+  return array_sum($vals) / count($vals);
+}
+
+function aplicarMorningstar(array &$rows, string $moeda, string $moedaExibicao): void {
+  if ($moeda !== 'BTC' || !in_array($moedaExibicao, MOEDAS_EXIBICAO, true) || !$rows) return;
+  $usd = morningstarBtcUsd();
+  if ($usd === null) return;
+  $i = count($rows) - 1;
+  $ms = usdToDisplay($usd, $rows[$i], $moedaExibicao);
+  if ($ms === null) return;
+  $rows[$i]['morningstar'] = $ms;
+  $rows[$i]['avg'] = mediaComMorningstar(
+    isset($rows[$i]['avg']) ? (float)$rows[$i]['avg'] : null,
+    isset($rows[$i]['binance']) ? (float)$rows[$i]['binance'] : null,
+    isset($rows[$i]['kraken']) ? (float)$rows[$i]['kraken'] : null,
+    isset($rows[$i]['coinbase']) ? (float)$rows[$i]['coinbase'] : null,
+    $ms
+  );
+}
+
 function fxRateFromBrl(PDO $pdo, string $moedaExibicao): ?float {
   if ($moedaExibicao === 'BRL') return 1.0;
   $row = $pdo->query(
@@ -276,6 +344,7 @@ function mapRow($r) {
     'binance'  => $fx('price_brl_binance')  ?? $avg,
     'kraken'   => $fx('price_brl_kraken')   ?? $avg,
     'coinbase' => $fx('price_brl_coinbase') ?? $avg,
+    'morningstar' => $fx('price_brl_morningstar'),
     'btc_usd'  => $fx('btc_usd'),
     'usd_brl'  => $fx('usd_brl'),
     'usd_eur'  => $fx('usd_eur'),
@@ -687,7 +756,9 @@ try {
     }
     $row = $pdo->query($sql)->fetch(PDO::FETCH_ASSOC);
     if (!$row) { http_response_code(404); echo json_encode(['ok'=>false,'error'=>'Sem dados.']); exit; }
-    echo json_encode(['ok'=>true,'moeda'=>$moeda,'moeda_exibicao'=>$moedaExibicao,'data'=>mapRow($row)]);
+    $data = [mapRow($row)];
+    aplicarMorningstar($data, $moeda, $moedaExibicao);
+    echo json_encode(['ok'=>true,'moeda'=>$moeda,'moeda_exibicao'=>$moedaExibicao,'data'=>$data[0]]);
     exit;
   }
 
@@ -776,6 +847,7 @@ try {
     $stmt->execute();
     $out = [];
     while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) $out[] = mapRow($row);
+    aplicarMorningstar($out, $moeda, $moedaExibicao);
     echo json_encode(['ok'=>true,'moeda'=>$moeda,'moeda_exibicao'=>$moedaExibicao,'count'=>count($out),'bucketSec'=>$bucketSec,'data'=>$out]);
     exit;
   }
@@ -815,6 +887,7 @@ try {
   $stmt = $pdo->query($sql);
   $out = [];
   while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) $out[] = mapRow($row);
+  aplicarMorningstar($out, $moeda, $moedaExibicao);
 
   echo json_encode(['ok'=>true,'moeda'=>$moeda,'moeda_exibicao'=>$moedaExibicao,'count'=>count($out),'data'=>$out]);
 
