@@ -8,7 +8,7 @@
 :root{
   --bg:#070c18; --panel:#0d1424; --panel2:#111a2e; --border:#1e2a44;
   --txt:#e8edf7; --muted:#7d8aa3;
-  --avg:#22d3ee; --binance:#f7c948; --kraken:#a855f7; --coinbase:#3b82f6; --morningstar:#10b981;
+  --accent:#22d3ee; --avg:#e2e8f0; --binance:#f7c948; --kraken:#a855f7; --coinbase:#3b82f6; --morningstar:#00e5ff;
   --green:#22c55e; --red:#ef4444; --yellow:#f7c948;
 }
 *{box-sizing:border-box;margin:0;padding:0}
@@ -42,7 +42,7 @@ header{display:flex;justify-content:space-between;align-items:flex-start;flex-wr
 .chartwrap{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:10px;display:flex;flex-direction:column;min-height:420px}
 .periods{display:flex;gap:6px;overflow-x:auto;padding-bottom:8px;margin-bottom:6px}
 .periods button{background:var(--panel2);border:1px solid var(--border);color:var(--muted);padding:5px 11px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;white-space:nowrap;flex:none}
-.periods button.active{background:var(--avg);border-color:var(--avg);color:#04212a}
+.periods button.active{background:var(--accent);border-color:var(--accent);color:#04212a}
 .periods button:hover:not(.active){color:var(--txt)}
 #chart{flex:1;width:100%;display:block;cursor:crosshair;border-radius:6px}
 .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:11px;color:var(--muted);margin-top:6px}
@@ -53,9 +53,9 @@ header{display:flex;justify-content:space-between;align-items:flex-start;flex-wr
 .side h3{font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-bottom:4px}
 .field label{display:block;font-size:11px;color:var(--muted);margin-bottom:4px}
 .field input{width:100%;background:var(--panel2);border:1px solid var(--border);color:var(--txt);padding:8px 10px;border-radius:6px;font-size:14px;font-variant-numeric:tabular-nums}
-.field input[readonly]{color:var(--avg);cursor:default}
-.slider-val{font-size:20px;font-weight:700;color:var(--avg)}
-input[type=range]{width:100%;accent-color:var(--avg);margin-top:4px}
+.field input[readonly]{color:var(--accent);cursor:default}
+.slider-val{font-size:20px;font-weight:700;color:var(--accent)}
+input[type=range]{width:100%;accent-color:var(--accent);margin-top:4px}
 .mini{display:flex;justify-content:space-between;font-size:11px;color:var(--muted);padding:3px 0}
 .mini b{color:var(--txt);font-variant-numeric:tabular-nums}
 .btns{display:flex;flex-direction:column;gap:8px}
@@ -82,7 +82,7 @@ tr.row-r td:first-child{border-left:3px solid var(--red)}
 #tooltip b{color:var(--txt)}
 #toasts{position:fixed;bottom:16px;right:16px;display:flex;flex-direction:column;gap:8px;z-index:60}
 .toast{background:var(--panel2);border:1px solid var(--border);border-left-width:4px;border-radius:7px;padding:10px 14px;font-size:12px;min-width:220px;max-width:320px;animation:slidein .3s ease;box-shadow:0 6px 20px rgba(0,0,0,.5)}
-.toast.ok{border-left-color:var(--green)} .toast.warn{border-left-color:var(--yellow)} .toast.err{border-left-color:var(--red)} .toast.info{border-left-color:var(--avg)}
+.toast.ok{border-left-color:var(--green)} .toast.warn{border-left-color:var(--yellow)} .toast.err{border-left-color:var(--red)} .toast.info{border-left-color:var(--accent)}
 @keyframes slidein{from{transform:translateX(120%);opacity:0}to{transform:none;opacity:1}}
 @media(max-width:900px){
   .cards{grid-template-columns:repeat(2,1fr)}
@@ -96,8 +96,8 @@ tr.row-r td:first-child{border-left:3px solid var(--red)}
 .field-inline label{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
 .field-inline select{background:var(--panel2);border:1px solid var(--border);color:var(--txt);
   padding:6px 10px;border-radius:6px;font-size:12px;font-family:inherit;cursor:pointer;min-width:150px}
-.field-inline select:hover{border-color:var(--avg)}
-.field-inline select:focus{outline:none;border-color:var(--avg)}
+.field-inline select:hover{border-color:var(--accent)}
+.field-inline select:focus{outline:none;border-color:var(--accent)}
 
 .backnow{position:absolute;right:12px;top:44px;z-index:5;background:#1b2740;color:#e8edf7;
   border:1px solid #2b3a5c;border-radius:6px;padding:4px 10px;font-size:11px;cursor:pointer;
@@ -170,7 +170,7 @@ tr.row-r td:first-child{border-left:3px solid var(--red)}
       .saldo-modo { font-size: 10px; color: #7d8aa3; margin-top: 4px; }
 .topnav{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .topnav button{background:var(--panel2);border:1px solid var(--border);color:var(--muted);padding:6px 12px;border-radius:7px;cursor:pointer;font-size:12px;font-weight:700}
-.topnav button:hover,.topnav button.active{border-color:var(--avg);color:var(--txt)}
+.topnav button:hover,.topnav button.active{border-color:var(--accent);color:var(--txt)}
 #extratosView{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:14px}
 .statements-layout{display:grid;grid-template-columns:1fr auto 1fr;gap:12px;margin-top:12px;align-items:start}
 .statement-card{background:var(--panel2);border:1px solid var(--border);border-radius:10px;padding:12px;max-height:480px;overflow-y:auto}
@@ -206,7 +206,7 @@ tr.row-r td:first-child{border-left:3px solid var(--red)}
 .robos-status-btn[data-state="ativo"]{color:#22c55e;border-color:#22c55e;animation:robosStatusPulse 1.3s ease-in-out infinite}
 @keyframes robosStatusPulse{0%,100%{box-shadow:0 0 0 0 #22c55e66}50%{box-shadow:0 0 0 6px #22c55e00}}
 
-.robo-card .robo-actions button:hover{color:var(--txt);border-color:var(--avg)}
+.robo-card .robo-actions button:hover{color:var(--txt);border-color:var(--accent)}
 .robo-form{background:var(--panel2);border:1px solid var(--border);border-radius:10px;padding:14px}
 .robo-form h3{font-size:12px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-bottom:10px}
 .robo-form .field{margin-bottom:10px}
@@ -473,21 +473,21 @@ tr.row-r td:first-child{border-left:3px solid var(--red)}
 <script src="identity.js?v=gnbadge-20260923-2"></script>
 <script src="i18n.js?v=1786304232"></script>
 <script src="eventbus.js?v=1786304232"></script>
-<script src="datastore.js?v=gnmorningstar-20260926-1"></script>
+<script src="datastore.js?v=gnmorningstar-20260926-2"></script>
 <script src="forecast.js?v=gnforecast-20260907-1"></script>
 <script src="storage.js?v=1786304232"></script>
 <script src="frozenforecast.js?v=gnforecast-20260907-1"></script>
 <script src="backendforecast.js?v=gnpassado-20260925-1"></script>
 <script src="series.js?v=gnmorningstar-20260926-1"></script>
 <script src="exchangecard.js?v=gnmorningstar-20260926-1"></script>
-<script src="plotarea.js?v=gnmorningstar-20260926-1"></script>
+<script src="plotarea.js?v=gnmorningstar-20260926-3"></script>
 <script src="renderers.js?v=gnmorningstar-20260926-1"></script>
 <script src="controlpanel.js?v=gnsaldo-20260925-1"></script>
 <script src="operations.js?v=gnespelho-20260926-1"></script>
 <script src="operationstable.js?v=1787524348"></script>
 <script src="saldosync.js?v=gnsaldo-20260925-1"></script>
 <script src="opssync.js?v=gnespelho-20260926-1"></script>
-<script src="app.js?v=gnmorningstar-20260926-1"></script>
+<script src="app.js?v=gnmorningstar-20260926-3"></script>
 <script src="extratos.js?v=1789690267"></script>
 <script src="automatos.js?v=gnautomatos-20260924-2"></script>
 <script src="swap.js?v=5"></script>

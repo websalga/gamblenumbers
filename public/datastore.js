@@ -411,13 +411,15 @@ function num(v) {
  * evita "barrigas" e picos falsos que uma spline comum criaria.
  */
 function hermiteMono(r, lo, hi, k, u, h) {
-  const y0 = +r[lo][k], y1 = +r[hi][k];
+  // null NAO e' zero: +null === 0 fazia a serie sem dado (ex.: Morningstar no historico) nascer de 0.
+  const nv = (row) => (row && row[k] != null) ? +row[k] : NaN;
+  const y0 = nv(r[lo]), y1 = nv(r[hi]);
   if (!Number.isFinite(y0) || !Number.isFinite(y1)) return null;
   const d = (y1 - y0) / h;                        // inclinação do trecho
   // inclinações vizinhas (para estimar as tangentes nas pontas)
   const prev = r[lo - 1], next = r[hi + 1];
-  const dPrev = (prev && Number.isFinite(+prev[k])) ? (y0 - +prev[k]) / (r[lo].t - prev.t || 1) : d;
-  const dNext = (next && Number.isFinite(+next[k])) ? (+next[k] - y1) / (next.t - r[hi].t || 1) : d;
+  const dPrev = (prev && Number.isFinite(nv(prev))) ? (y0 - nv(prev)) / (r[lo].t - prev.t || 1) : d;
+  const dNext = (next && Number.isFinite(nv(next))) ? (nv(next) - y1) / (next.t - r[hi].t || 1) : d;
   // tangentes por média, zeradas em extremos locais (garante monotonicidade)
   let m0 = (dPrev * d <= 0) ? 0 : (dPrev + d) / 2;
   let m1 = (d * dNext <= 0) ? 0 : (d + dNext) / 2;

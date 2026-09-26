@@ -222,6 +222,7 @@ function colunas(string $moeda, string $moedaExibicao, float $fxRate = 1.0): arr
       'binance'     => "CASE WHEN price_usd_binance  IS NOT NULL THEN price_usd_binance  * {$fx} ELSE NULL END",
       'kraken'      => "CASE WHEN price_usd_kraken   IS NOT NULL THEN price_usd_kraken   * {$fx} ELSE NULL END",
       'coinbase'    => "CASE WHEN price_usd_coinbase IS NOT NULL THEN price_usd_coinbase * {$fx} ELSE NULL END",
+      'morningstar' => ($moeda === 'BTC') ? "CASE WHEN price_usd_morningstar IS NOT NULL THEN price_usd_morningstar * {$fx} ELSE NULL END" : 'NULL',
       'usd_ref'     => $colUsdRef,
       'fx_col'      => "usd_{$sufixo}",   // nome da coluna em FX_Snapshots
       'fx_literal'  => $fx,
@@ -234,6 +235,10 @@ function colunas(string $moeda, string $moedaExibicao, float $fxRate = 1.0): arr
     'binance'    => "price_{$sufixo}_binance",
     'kraken'     => "price_{$sufixo}_kraken",
     'coinbase'   => "price_{$sufixo}_coinbase",
+    'morningstar' => ($moeda !== 'BTC') ? 'NULL'
+                     : (($sufixo === 'brl') ? 'price_brl_morningstar'
+                     : (($sufixo === 'usd') ? 'price_usd_morningstar'
+                     : "CASE WHEN price_usd_morningstar IS NOT NULL THEN price_usd_morningstar * media_exchanges_{$sufixo} / NULLIF(media_exchanges_usd,0) END")),
     'usd_ref'    => $colUsdRef,
     'fx_col'     => null,
     'fx_literal' => null,
@@ -298,20 +303,16 @@ function mediaComMorningstar(?float $oldAvg, ?float $binance, ?float $kraken, ?f
 }
 
 function aplicarMorningstar(array &$rows, string $moeda, string $moedaExibicao): void {
+  // O historico vem do banco (snapshots.price_*_morningstar, coletado a cada ciclo). Este overlay so
+  // completa o ULTIMO ponto quando o banco ainda nao tem a leitura dele; nunca altera a media.
   if ($moeda !== 'BTC' || !in_array($moedaExibicao, MOEDAS_EXIBICAO, true) || !$rows) return;
+  $i = count($rows) - 1;
+  if (isset($rows[$i]['morningstar']) && $rows[$i]['morningstar'] !== null) return;
   $usd = morningstarBtcUsd();
   if ($usd === null) return;
-  $i = count($rows) - 1;
   $ms = usdToDisplay($usd, $rows[$i], $moedaExibicao);
   if ($ms === null) return;
   $rows[$i]['morningstar'] = $ms;
-  $rows[$i]['avg'] = mediaComMorningstar(
-    isset($rows[$i]['avg']) ? (float)$rows[$i]['avg'] : null,
-    isset($rows[$i]['binance']) ? (float)$rows[$i]['binance'] : null,
-    isset($rows[$i]['kraken']) ? (float)$rows[$i]['kraken'] : null,
-    isset($rows[$i]['coinbase']) ? (float)$rows[$i]['coinbase'] : null,
-    $ms
-  );
 }
 
 function fxRateFromBrl(PDO $pdo, string $moedaExibicao): ?float {
@@ -710,6 +711,7 @@ try {
               {$col['binance']}  AS price_brl_binance,
               {$col['kraken']}   AS price_brl_kraken,
               {$col['coinbase']} AS price_brl_coinbase,
+              {$col['morningstar']} AS price_brl_morningstar,
               {$col['usd_ref']}  AS btc_usd,
               usd_brl,
               (media_exchanges_eur / NULLIF(media_exchanges_usd,0)) AS usd_eur,
@@ -810,7 +812,7 @@ try {
       // Para fiat_fiat/fiat_crypto: inclui usd_brl direto da tabela.
       // Sempre: adiciona usd_jpy/cny/try/rub se estiverem no selectCols.
       $baseCols = "ts_utc, price_brl, price_brl_binance, price_brl_kraken, price_brl_coinbase, btc_usd, usd_brl";
-      if ($tipo === 'crypto_fiat') $baseCols .= ", usd_eur, usd_gbp";
+      if ($tipo === 'crypto_fiat') $baseCols .= ", price_brl_morningstar, usd_eur, usd_gbp";
       elseif ($tipo === 'fiat_fiat') $baseCols .= ", usd_eur, usd_gbp, usd_jpy, usd_cny, usd_try, usd_rub";
       $baseCols .= ', fee_p50';  // taxa de rede (presente em todos os pares)
       // Para crypto_fiat com MOEDAS_FX_COMPUTED: as extras vieram no fxExtras
