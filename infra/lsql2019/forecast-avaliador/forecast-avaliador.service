@@ -1,0 +1,15 @@
+[Unit]
+Description=Avaliador de Previsao (gamblenumbers) - mede o erro do motor contra a cotacao realizada
+After=mssql-server.service forecast-engine.service
+Requires=mssql-server.service
+
+[Service]
+Type=oneshot
+User=claude
+WorkingDirectory=/home/claude/forecast-engine
+ExecStart=/home/claude/forecast-engine/venv/bin/python /home/claude/forecast-engine/avaliar_previsoes.py
+
+# Mesmo isolamento do motor: nunca disputa com o SQL Server (nucleos 2-3, teto de memoria baixo)
+AllowedCPUs=2-3
+MemoryMax=512M
+NoNewPrivileges=true
