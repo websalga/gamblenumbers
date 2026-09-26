@@ -5,7 +5,7 @@
 -- scheduleSell + executeSell) e atualizando o saldo virtual da sessao.
 --
 -- Criada em: 2026-09-25        Banco: bitcoin (SQL Server / lsql2019)
--- Pre-requisitos: GN_Saldo.sql e a coluna dbo.GN_SimVendas.robo_client_id
+-- Pre-requisitos: GN_Saldo.sql, GN_SimOperacoes.sql (excluido/oculto/versao) e a coluna dbo.GN_SimVendas.robo_client_id
 --   (ALTER TABLE dbo.GN_SimVendas ADD robo_client_id VARCHAR(20) NULL;).
 --
 -- Regras (iguais as do front):
@@ -81,11 +81,11 @@ BEGIN
     SELECT id, seq, moeda_exib, preco, restante
     INTO #lotes
     FROM dbo.GN_SimLotes WITH (UPDLOCK, HOLDLOCK)
-    WHERE session_id = @session_id AND moeda = @moeda AND restante > 0;
+    WHERE session_id = @session_id AND moeda = @moeda AND restante > 0 AND excluido = 0;
 
     DECLARE @total_rest DECIMAL(24,10) = ISNULL((SELECT SUM(restante) FROM #lotes), 0);
     DECLARE @reservado  DECIMAL(24,10) = ISNULL((SELECT SUM(reservado) FROM dbo.GN_SimVendas WITH (UPDLOCK, HOLDLOCK)
-                                                 WHERE session_id = @session_id AND moeda = @moeda AND status = 'pending'), 0);
+                                                 WHERE session_id = @session_id AND moeda = @moeda AND status = 'pending' AND excluido = 0), 0);
     DECLARE @livre DECIMAL(24,10) = @total_rest - @reservado;
 
     IF @livre <= 0 THROW 50020, 'nao ha quantidade livre para vender', 1;
@@ -123,6 +123,7 @@ BEGIN
            vendido       = l.vendido + t.tomar,
            realizado     = l.realizado + CAST(t.tomar * (@preco - t.preco_brl) AS DECIMAL(18,2)),
            status        = CASE WHEN l.restante - t.tomar <= 0 THEN 'closed' ELSE l.status END,
+           versao        = l.versao + 1,
            atualizado_em = SYSUTCDATETIME()
       FROM dbo.GN_SimLotes l
       JOIN #tomar t ON t.id = l.id;
