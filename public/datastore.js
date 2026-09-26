@@ -283,16 +283,6 @@ class DataStore {
     const out = { t };
     for (const k of EXCHANGE_KEYS) {
       out[k] = hermiteMono(r, lo, hi, k, u, h);
-      // Lacuna curta de UMA fonte (ex.: uma leitura do Morningstar que o coletor perdeu): so' no desenho, liga o ultimo e o proximo
-      // valor reais, ate 4 linhas para cada lado. Nao grava nada e nao inventa valor fora do intervalo entre duas leituras reais.
-      if (out[k] === null && (r[lo][k] == null || r[hi][k] == null)) {
-        let L = lo, R = hi;
-        while (L >= 0 && r[L][k] == null && lo - L < 4) L--;
-        while (R < r.length && r[R][k] == null && R - hi < 4) R++;
-        if (L >= 0 && R < r.length && r[L][k] != null && r[R][k] != null && r[R].t - r[L].t <= maxGap * 3) {
-          out[k] = +r[L][k] + (+r[R][k] - +r[L][k]) * ((t - r[L].t) / (r[R].t - r[L].t));
-        }
-      }
     }
     return out;
   }
