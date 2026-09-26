@@ -1,0 +1,10 @@
+[Unit]
+Description=Avaliador de Previsao - a cada 5 min, 2 min depois do motor
+
+[Timer]
+OnCalendar=*:2/5
+AccuracySec=10s
+Persistent=false
+
+[Install]
+WantedBy=timers.target

@@ -395,7 +395,7 @@ try {
               mc.modelo, mc.horizonte_min, mc.mape_oos
        FROM forecast.Runs r
        JOIN forecast.Model_Config mc ON mc.id = r.model_config_id
-       WHERE r.ativo = ? AND mc.horizonte_min = 1440
+       WHERE r.ativo = ? AND mc.horizonte_min = 1440 AND mc.ativo_flag = 1   -- so' o modelo PUBLICADO (modelos em sombra nunca sao servidos)
        ORDER BY r.run_id DESC"
     );
     $stmt->execute([$ativoPrev]);
