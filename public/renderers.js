@@ -249,7 +249,8 @@ class ScenarioLineRenderer {
       ctx.stroke();
       const ref = +run.ancora.avg;
       const prev = (yAgora != null ? yAgora : +seg[seg.length - 1].avg) / ref - 1;
-      const real = +last.avg / ref - 1;
+      const refReal = +run.ancoraReal > 0 ? +run.ancoraReal : ref;   // preco real da hora da ancora, na moeda exibida
+      const real = +last.avg / refReal - 1;
       const acertou = Math.abs(prev) < 5e-5 || Math.abs(real) < 5e-5 ? '' : (Math.sign(prev) === Math.sign(real) ? ' \u2713' : ' \u2717');
       linhas.push('\u2212' + this._lb(run.lookback_min) + '  prev ' + this._pct(prev) + '  real ' + this._pct(real) + acertou);
     });

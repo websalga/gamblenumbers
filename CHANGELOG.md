@@ -1,5 +1,42 @@
 # Changelog
 
+## [v1.12.0] — 2026-09-26
+
+### English
+
+**New: reliable operations outbox with SQL Server as the source of truth**
+Buy, sell, visibility and delete actions now go through a persistent browser outbox (`opssync.js`) and are removed from the queue only after `sim_sync.php` confirms the write. If the network or server is unavailable, the action stays in local storage and is retried in order with backoff. `sim_load.php` and `sim_sync.php` now share `sim_common.php`, and rows carry a version number so browser actions, bots and other devices can detect conflicts instead of overwriting newer database state.
+
+**Changed: simulated operation deletes are logical and sequence numbers are never reused**
+Deleted lots and sells are marked as excluded in SQL Server, preserving audit history and keeping the browser from reusing identifiers. The loader returns the maximum sequence already used, including excluded rows, so new local operations continue from the database state.
+
+**Fixed: very small BTC/BCH quantities failing SQL numeric conversion**
+`sim_sync.php` now sends decimal values in fixed notation at the expected column scale. This avoids SQL Server conversion errors caused by PHP formatting small quantities as scientific notation.
+
+**Changed: forecast and chart display in the selected currency**
+The server forecast, Mimetagem scenario and past scenario traces are converted to the display currency before they are drawn and before they affect the chart scale. The local frozen projection stays hidden whenever the server forecast is available, including its historical trail.
+
+**New: additional short chart windows**
+Added 2D, 3D, 4D, 5D, 6D and 15D periods for closer inspection between the existing 1D and 30D windows.
+
+### Português
+
+**Novo: fila confiavel de operacoes com o SQL Server como fonte da verdade**
+Compras, vendas, visibilidade e exclusoes agora passam por uma fila persistente no navegador (`opssync.js`) e so saem da fila depois que o `sim_sync.php` confirma a gravacao. Se a rede ou o servidor falhar, a acao fica no localStorage e e reenviada em ordem, com espera crescente. `sim_load.php` e `sim_sync.php` agora compartilham `sim_common.php`, e as linhas carregam numero de versao para navegador, robos e outros dispositivos detectarem conflito em vez de sobrescrever um estado mais novo do banco.
+
+**Alterado: exclusoes de operacoes simuladas sao logicas e sequenciais nunca sao reaproveitados**
+Lotes e vendas excluidos passam a ser marcados como excluidos no SQL Server, preservando historico de auditoria e impedindo o navegador de reaproveitar identificadores. A leitura devolve o maior sequencial ja usado, inclusive em linhas excluidas, para novas operacoes locais continuarem a partir do estado do banco.
+
+**Corrigido: quantidades muito pequenas de BTC/BCH falhando na conversao numerica do SQL**
+`sim_sync.php` agora envia decimais em notacao fixa, na escala esperada pela coluna. Isso evita erros de conversao no SQL Server causados pelo PHP ao formatar quantidades pequenas em notacao cientifica.
+
+**Alterado: previsao e grafico na moeda selecionada**
+A previsao do servidor, o cenario da Mimetagem e as curvas anteriores sao convertidos para a moeda de exibicao antes de serem desenhados e antes de entrarem na escala do grafico. A projecao local congelada continua escondida sempre que a previsao do servidor esta disponivel, inclusive o rastro historico dela.
+
+**Novo: novas janelas curtas no grafico**
+Adicionados os periodos 2D, 3D, 4D, 5D, 6D e 15D para inspecao mais proxima entre as janelas existentes de 1D e 30D.
+
+---
 ## [v1.11.0] — 2026-09-26
 
 ### English
