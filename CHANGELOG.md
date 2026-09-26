@@ -1,5 +1,25 @@
 # Changelog
 
+## [v1.14.1] — 2026-09-26
+
+### English
+
+**Fixed: the default Night theme lost several colors (v1.14.0 regression)**
+A replace pass also rewrote the variable definitions in `:root`, so variables such as `--green`, `--red`, `--txt` and `--btn` pointed to themselves and became invalid in Night (for example, the buy button lost its background). The `:root` block now holds the literal values and the Night CSS was checked rule by rule against the pre-themes version (only sub-perceptual alpha rounding differs). All 41 variables in use resolve in all five themes. New neutral variables (`--panel3`, `--muted2`, `--dim`, `--edge`, `--line3`, `--txt2`) keep the exact Night shades.
+
+**Fixed: a missed Morningstar reading no longer breaks the chart line**
+When the collector misses one snapshot, the chart connects the previous and next real readings (drawing only; nothing is stored).
+
+### Português
+
+**Corrigido: o tema Noite (padrão) perdeu várias cores (regressão da v1.14.0)**
+Uma troca em massa também reescreveu as definições de variáveis no `:root`, e variáveis como `--green`, `--red`, `--txt` e `--btn` passaram a apontar para si mesmas e ficaram inválidas no Noite (o botão de compra, por exemplo, perdeu o fundo). O `:root` volta a ter os valores literais e o CSS do Noite foi conferido regra por regra contra a versão anterior aos temas (só muda arredondamento imperceptível de transparência). As 41 variáveis em uso resolvem nos cinco temas. Novas variáveis neutras (`--panel3`, `--muted2`, `--dim`, `--edge`, `--line3`, `--txt2`) preservam os tons exatos do Noite.
+
+**Corrigido: uma leitura perdida do Morningstar não quebra mais a linha do gráfico**
+Quando o coletor perde um snapshot, o gráfico liga a leitura real anterior à seguinte (só no desenho; nada é gravado).
+
+---
+
 ## [v1.14.0] — 2026-09-26
 
 ### English

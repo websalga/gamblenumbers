@@ -12,7 +12,7 @@
   var THEMES = [
     { id: 'noite', names: { pt: 'Noite', en: 'Night' }, swatch: ['#070c18', '#22d3ee'], vars: null },
     { id: 'grafite', names: { pt: 'Grafite', en: 'Graphite' }, swatch: ['#0e0e10', '#f5a524'], vars: {
-      '--bg': '#0e0e10', '--panel': '#161619', '--panel2': '#1e1e22', '--border': '#2c2c33', '--txt': '#ececef', '--muted': '#8d8d98',
+      '--panel3': '#121215', '--muted2': '#6b6b76', '--dim': '#3a3a44', '--edge': '#8d8d98', '--line3': '#55555f', '--txt2': '#d4d4da', '--bg': '#0e0e10', '--panel': '#161619', '--panel2': '#1e1e22', '--border': '#2c2c33', '--txt': '#ececef', '--muted': '#8d8d98',
       '--accent': '#f5a524', '--accent-rgb': '245,165,36', '--accent-ink': '#1a1200',
       '--avg': '#e5e5ea', '--binance': '#f7c948', '--kraken': '#b98bff', '--coinbase': '#5aa2ff', '--morningstar': '#00e5ff',
       '--green': '#22c55e', '--red': '#ef4444', '--yellow': '#f7c948', '--green-ink': '#04210f', '--yellow-ink': '#2a2205', '--green-soft': '#86efac',
@@ -23,7 +23,7 @@
       '--grid': 'rgba(60,60,70,0.55)', '--now': 'rgba(236,236,239,0.5)', '--now-text': '#ececef', '--trail': 'rgba(236,236,239,0.40)',
       '--proj-bg': 'rgba(245,165,36,0.04)', '--muted-line': 'rgba(141,141,152,0.4)', 'color-scheme': 'dark' } },
     { id: 'claro', names: { pt: 'Claro', en: 'Light' }, swatch: ['#f4f6fa', '#0e7490'], vars: {
-      '--bg': '#f4f6fa', '--panel': '#ffffff', '--panel2': '#eef1f6', '--border': '#d5dbe6', '--txt': '#111827', '--muted': '#5b6577',
+      '--panel3': '#f8fafc', '--muted2': '#7b8496', '--dim': '#c3cbdb', '--edge': '#94a3b8', '--line3': '#94a3b8', '--txt2': '#1f2937', '--bg': '#f4f6fa', '--panel': '#ffffff', '--panel2': '#eef1f6', '--border': '#d5dbe6', '--txt': '#111827', '--muted': '#5b6577',
       '--accent': '#0e7490', '--accent-rgb': '14,116,144', '--accent-ink': '#ffffff',
       '--avg': '#334155', '--binance': '#b7791f', '--kraken': '#7c3aed', '--coinbase': '#2563eb', '--morningstar': '#0891b2',
       '--green': '#16a34a', '--red': '#dc2626', '--yellow': '#ca8a04', '--green-ink': '#ffffff', '--yellow-ink': '#1c1500', '--green-soft': '#166534',
@@ -34,7 +34,7 @@
       '--grid': 'rgba(15,23,42,0.10)', '--now': 'rgba(17,24,39,0.5)', '--now-text': '#111827', '--trail': 'rgba(17,24,39,0.35)',
       '--proj-bg': 'rgba(14,116,144,0.05)', '--muted-line': 'rgba(91,101,119,0.4)', 'color-scheme': 'light' } },
     { id: 'floresta', names: { pt: 'Floresta', en: 'Forest' }, swatch: ['#06120c', '#a3e635'], vars: {
-      '--bg': '#06120c', '--panel': '#0b1c13', '--panel2': '#10261a', '--border': '#1d4631', '--txt': '#e6f4ec', '--muted': '#7fa893',
+      '--panel3': '#08170f', '--muted2': '#5f8a72', '--dim': '#2a5a3f', '--edge': '#7fa893', '--line3': '#3a7a56', '--txt2': '#cfe8da', '--bg': '#06120c', '--panel': '#0b1c13', '--panel2': '#10261a', '--border': '#1d4631', '--txt': '#e6f4ec', '--muted': '#7fa893',
       '--accent': '#a3e635', '--accent-rgb': '163,230,53', '--accent-ink': '#142000',
       '--avg': '#e2efe8', '--binance': '#f7c948', '--kraken': '#c084fc', '--coinbase': '#60a5fa', '--morningstar': '#22d3ee',
       '--green': '#4ade80', '--red': '#f87171', '--yellow': '#f7c948', '--green-ink': '#062010', '--yellow-ink': '#2a2205', '--green-soft': '#bbf7d0',
@@ -45,7 +45,7 @@
       '--grid': 'rgba(29,70,49,0.6)', '--now': 'rgba(230,244,236,0.5)', '--now-text': '#e6f4ec', '--trail': 'rgba(230,244,236,0.40)',
       '--proj-bg': 'rgba(163,230,53,0.035)', '--muted-line': 'rgba(127,168,147,0.4)', 'color-scheme': 'dark' } },
     { id: 'contraste', names: { pt: 'Alto contraste', en: 'High contrast' }, swatch: ['#000000', '#ffe600'], vars: {
-      '--bg': '#000000', '--panel': '#0a0a0a', '--panel2': '#151515', '--border': '#6b6b6b', '--txt': '#ffffff', '--muted': '#cfcfcf',
+      '--panel3': '#050505', '--muted2': '#b0b0b0', '--dim': '#6b6b6b', '--edge': '#cfcfcf', '--line3': '#9a9a9a', '--txt2': '#ffffff', '--bg': '#000000', '--panel': '#0a0a0a', '--panel2': '#151515', '--border': '#6b6b6b', '--txt': '#ffffff', '--muted': '#cfcfcf',
       '--accent': '#ffe600', '--accent-rgb': '255,230,0', '--accent-ink': '#000000',
       '--avg': '#ffffff', '--binance': '#ffa200', '--kraken': '#e08cff', '--coinbase': '#52a8ff', '--morningstar': '#00fff0',
       '--green': '#00ff85', '--red': '#ff5252', '--yellow': '#ffe600', '--green-ink': '#001a0b', '--yellow-ink': '#1a1600', '--green-soft': '#7dffc0',
