@@ -1,5 +1,43 @@
 # Changelog
 
+## [v1.11.0] — 2026-09-26
+
+### English
+
+**New: the chart draws the server forecast as a narrow central band ("core of the bell") with min/max lines**
+The forecast cone now shows only the central part of the distribution instead of the full 80% band, whose tails opened too wide. The width is calibrated so that half of the real outcomes fall inside (`forecast.Config`: `faixa_central_*`; measured over 21 days, the real distribution is more concentrated at the center than a normal one). The band edges are drawn as explicit maximum and minimum lines with their values and the "50%" width. At the 24 h horizon the BTC band went from ±2.64% to ±0.97%.
+
+**New: Mimetagem scenario line**
+The chart draws the Mimetagem curve (it copies the real future of the past stretch that best matches the latest quotes, scaled to the current price). It is an illustrative, wavy scenario, served from the server and identical for every user; the forecast itself remains the orange line with the band, because in backtests the copied curve errs more than the flat line. It is regenerated every 15 minutes.
+
+**New: past Mimetagem curves continue, dotted, on the real-quote side**
+Curves generated 1 h, 3 h and 6 h ago (configurable in `forecast.Config`: `cenario_passado_min`) are cut at "now" and kept as dotted lines over the real history, with a legend comparing, for each, the predicted move vs the real move since it was generated and whether the direction was right.
+
+**Changed: the browser-local projection is no longer drawn when the server forecast is available**
+The frozen simulation stored in each browser (IndexedDB) diverged between users and could be stale (one was anchored 13 days ago, making the lines dive after "now"). With the server forecast available the chart no longer draws it nor uses it for the price scale; without the server it falls back to the old behavior. Trades, targets and operations do not depend on it.
+
+**Fixed: price axis stretched by lots that are not on screen**
+Every lot price (even old closed lots) entered the chart scale, flattening the chart. Now only lots and pending sells whose marker falls inside the visible time window count.
+
+### Português
+
+**Novo: o gráfico desenha a previsão do servidor como uma faixa central estreita ("miolo do sino") com linhas de mínimo e máximo**
+O cone da previsão agora mostra só a parte central da distribuição, em vez da faixa completa de 80%, cujas pontas abriam demais. A largura é calibrada para que metade dos resultados reais caia dentro (`forecast.Config`: `faixa_central_*`; medido em 21 dias, a distribuição real é mais concentrada no centro que uma normal). As bordas da faixa são desenhadas como linhas explícitas de máximo e mínimo, com os valores e a largura "50%". No horizonte de 24 h, a faixa do BTC passou de ±2,64% para ±0,97%.
+
+**Novo: curva de cenário da Mimetagem**
+O gráfico desenha a curva da Mimetagem (ela copia o futuro real do trecho passado que melhor se encaixa nas últimas cotações, escalado ao preço atual). É um cenário ilustrativo e ondulado, servido pelo servidor e igual para todos os usuários; a previsão em si continua sendo a linha laranja com a faixa, porque nos backtests a curva copiada erra mais que a linha reta. É regenerada a cada 15 minutos.
+
+**Novo: as curvas anteriores da Mimetagem continuam, pontilhadas, do lado da cotação real**
+As curvas geradas 1 h, 3 h e 6 h atrás (configurável em `forecast.Config`: `cenario_passado_min`) são cortadas no "agora" e mantidas como linhas pontilhadas sobre o histórico real, com uma legenda que compara, para cada uma, a variação prevista com a variação real desde que foi gerada e se a direção estava certa.
+
+**Alterado: a projeção local do navegador não é mais desenhada quando a previsão do servidor está disponível**
+A simulação congelada guardada em cada navegador (IndexedDB) divergia entre usuários e podia estar velha (uma estava ancorada há 13 dias, fazendo as linhas mergulharem depois do "agora"). Com a previsão do servidor disponível, o gráfico não a desenha nem a usa na escala de preço; sem o servidor, volta ao comportamento antigo. Vendas, alvo e operações não dependem dela.
+
+**Corrigido: eixo de preço esticado por lotes que não estão em tela**
+Todos os preços de lotes (mesmo lotes antigos já fechados) entravam na escala do gráfico, achatando a visualização. Agora só contam lotes e vendas pendentes cujo marcador cai dentro da janela de tempo visível.
+
+---
+
 ## [v1.10.0] — 2026-09-25
 
 ### English
