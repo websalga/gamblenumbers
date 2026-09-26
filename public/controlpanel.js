@@ -109,7 +109,7 @@ class ControlPanel {
         e.target.value = this._fmt.brl(this._state.saldo);
         sessionStorage.setItem('gn_saldo', this._state.saldo);
         sessionStorage.setItem('gn_saldo_moeda', this._moedaExib);
-        this._bus.emit('control:saldo', { value: this._state.saldo });
+        this._bus.emit('control:saldo', { value: this._state.saldo, origem: 'manual' });
       });
     }
 
@@ -122,16 +122,28 @@ class ControlPanel {
   setRet(v) { this._state.ret = +v; this._bus.emit('control:ret', { value: this._state.ret }); return this; }
   setOpValue(v) { this._state.opValue = +v; sessionStorage.setItem('gn_opvalue', this._state.opValue); sessionStorage.setItem('gn_opvalue_moeda', this._moedaExib); this._renderOpValue(); this._bus.emit('control:opValue', { value: this._state.opValue }); return this; }
   setStop(v) { this._state.stop = +v; this._bus.emit('control:stop', { value: this._state.stop }); return this; }
-  setSaldo(v) {
+  /* opts (todas opcionais) descrevem a CAUSA da mudança para quem espelha o
+   * saldo no SQL Server (saldosync.js):
+   *   origem  'front' | 'identity' | 'manual' | 'servidor'
+   *   delta   movimento (compra<0, venda>0) -> o banco soma em vez de sobrescrever
+   *   ref     id do lote/venda que originou o movimento
+   *   semSync true = mudança que VEIO do banco (robô): não reenviar */
+  setSaldo(v, opts = {}) {
     this._state.saldo = Math.max(0, +v);
     sessionStorage.setItem('gn_saldo', this._state.saldo);
     sessionStorage.setItem('gn_saldo_moeda', this._moedaExib);
-    this._bus.emit('control:saldo', { value: this._state.saldo });
+    this._bus.emit('control:saldo', {
+      value: this._state.saldo,
+      origem: opts.origem || 'front',
+      delta: opts.delta != null ? opts.delta : null,
+      ref: opts.ref || null,
+      semSync: !!opts.semSync,
+    });
     this._renderSaldo();
     return this;
   }
-  debitSaldo(amount) { return this.setSaldo(this._state.saldo - amount); }
-  creditSaldo(amount) { return this.setSaldo(this._state.saldo + amount); }
+  debitSaldo(amount, ref) { return this.setSaldo(this._state.saldo - amount, { origem: 'front', delta: -amount, ref }); }
+  creditSaldo(amount, ref) { return this.setSaldo(this._state.saldo + amount, { origem: 'front', delta: amount, ref }); }
   _renderSaldo() {
     const el = this._doc.getElementById(this._ids.saldo);
     if (el) el.value = this._fmt.brl(this._state.saldo);

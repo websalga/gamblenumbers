@@ -157,6 +157,10 @@
         getPeriod: () => this.period(), fmt: { brl: BRL, btc: BTC, pct: PCT, utc: fmtUTC },
       });
       this.mouse = this.operations.mouse;
+      // Saldo virtual espelhado no SQL Server (por sessao) para os robos.
+      this.saldoSync = (typeof SaldoSync !== 'undefined')
+        ? new SaldoSync({ bus: this.bus, panel: this.panel, operations: this.operations, getMoedaExib: () => this.moedaExibicao })
+        : null;
       this._wire();
     }
 
@@ -628,7 +632,7 @@
       const totalUsd = await this._saldoRealEmUsd(session);
       if (totalUsd != null) {
         const valorExib = this.operations.converterPreco(totalUsd, 'USD');
-        if (valorExib >= 0) this.panel.setSaldo(valorExib);
+        if (valorExib >= 0) this.panel.setSaldo(valorExib, { origem: 'identity' });
       }
 
       if (modo) {
@@ -1036,6 +1040,7 @@
       this._applyChartConfig();
       this.renderCards(); this.renderChart(); this.renderSidePanel(); this.operationsTable.render(); this.updateStatus();
       this._persist();
+      if (this.saldoSync) this.saldoSync.start();
       // Rerender defensivo: em alguns casos (ex: taxas de cambio ainda nao
       // totalmente assentadas no primeiro ciclo) o painel lateral pode
       // calcular lucro/prejuizo com fallback incorreto na primeira pintura.
