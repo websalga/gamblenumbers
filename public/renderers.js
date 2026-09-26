@@ -80,7 +80,7 @@ class TimeAxisRenderer {
  * Recebe hist, fut e a paleta por chave. */
 class SeriesRenderer {
   constructor(opts = {}) {
-    this._keys = opts.keys || ['coinbase', 'kraken', 'binance', 'avg'];
+    this._keys = opts.keys || ['morningstar', 'coinbase', 'kraken', 'binance', 'avg'];
   }
   draw(plot, data) {
     const ctx = plot.ctx; if (!ctx) return;

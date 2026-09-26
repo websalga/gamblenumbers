@@ -34,7 +34,7 @@ class PlotArea {
     this._ctx = deps.canvas.getContext ? deps.canvas.getContext('2d') : null;
     this._pad = Object.assign({ l: 8, r: 64, t: 10, b: 22 }, deps.padding || {});
     this._colors = Object.assign({
-      avg: '#22d3ee', binance: '#f7c948', kraken: '#a855f7', coinbase: '#3b82f6',
+      avg: '#22d3ee', binance: '#f7c948', kraken: '#a855f7', coinbase: '#3b82f6', morningstar: '#10b981',
       grid: 'rgba(30,42,68,0.6)', axisText: '#7d8aa3', target: '#22c55e',
       now: 'rgba(232,237,247,0.55)', nowText: '#e8edf7', projBg: 'rgba(34,211,238,0.03)',
       forecastRef: '#fb923c', scenario: '#f472b6',
@@ -76,7 +76,7 @@ class PlotArea {
    * @param {object} [opts] { extraPrices: number[], keys: string[], padFrac }
    */
   setBoundsFromPoints(points, opts = {}) {
-    const keys = opts.keys || ['avg', 'binance', 'kraken', 'coinbase'];
+    const keys = opts.keys || ['avg', 'binance', 'kraken', 'coinbase', 'morningstar'];
     const extra = opts.extraPrices || [];
     const padFrac = opts.padFrac != null ? opts.padFrac : (this._padFrac ?? 0.08);
     if (!points || !points.length) return this;

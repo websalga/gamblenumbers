@@ -9,7 +9,7 @@
  *
  * MODELO:
  *   - A projeção nasce UMA vez, a partir do "agora" real, e vira uma
- *     linha-mestra de { t, avg, binance, kraken, coinbase } com
+ *     linha-mestra de { t, avg, binance, kraken, coinbase, morningstar } com
  *     timestamps ABSOLUTOS.
  *   - Trocar de escala NÃO regenera: só recorta (slice) a linha-mestra.
  *   - Escala menor -> maior: preserva o que existe e COMPLEMENTA apenas
@@ -26,7 +26,7 @@
         throw new Error('FrozenForecast exige um forecast com .project().');
       }
       this._forecast = deps.forecast;
-      this._premium = deps.premium || { avg: 0, binance: 0, kraken: 0, coinbase: 0 };
+      this._premium = deps.premium || { avg: 0, binance: 0, kraken: 0, coinbase: 0, morningstar: 0 };
       this._history = [];
       this._master = [];
       this._baseT = null;
@@ -80,7 +80,7 @@
         this._baseT = this._history[this._history.length - 1].t;
         this._spread = computeSpread(this._history);
         const last = this._history[this._history.length - 1];
-        for (const k of ['binance', 'kraken', 'coinbase']) {
+        for (const k of ['binance', 'kraken', 'coinbase', 'morningstar']) {
           if (last[k] > 0) this._spread[k] = last[k] / last.avg - 1;
         }
         this._master.push({ ...last, avg: +last.avg });
@@ -119,12 +119,12 @@
       const out = [];
       for (let t = fromT; t <= toT + 1; t += stepMs) {
         if (t > this.edgeT) {
-          out.push({ t: t, avg: null, binance: null, kraken: null, coinbase: null });
+          out.push({ t: t, avg: null, binance: null, kraken: null, coinbase: null, morningstar: null });
           continue;
         }
         const avg = this.priceAt(t);
         if (avg == null || !isFinite(avg) || avg <= 0) {
-          out.push({ t: t, avg: null, binance: null, kraken: null, coinbase: null });
+          out.push({ t: t, avg: null, binance: null, kraken: null, coinbase: null, morningstar: null });
         } else {
           out.push({
             t:        t,
@@ -210,6 +210,7 @@
           binance: avg * (1 + this._spread.binance),
           kraken: avg * (1 + this._spread.kraken),
           coinbase: avg * (1 + this._spread.coinbase),
+          morningstar: avg * (1 + (this._spread.morningstar || 0)),
         });
       }
     }
@@ -265,7 +266,7 @@
     const acc = { binance: 0, kraken: 0, coinbase: 0 };
     const cnt = { binance: 0, kraken: 0, coinbase: 0 };
     for (const h of hist) {
-      for (const k of ['binance', 'kraken', 'coinbase']) {
+      for (const k of ['binance', 'kraken', 'coinbase', 'morningstar']) {
         if (h.avg > 0 && h[k] > 0) { acc[k] += (h[k] / h.avg - 1); cnt[k]++; }
       }
     }
@@ -273,6 +274,7 @@
       binance: cnt.binance ? acc.binance / cnt.binance : 0,
       kraken: cnt.kraken ? acc.kraken / cnt.kraken : 0,
       coinbase: cnt.coinbase ? acc.coinbase / cnt.coinbase : 0,
+    morningstar: cnt.morningstar ? acc.morningstar / cnt.morningstar : 0,
     };
   }
 

@@ -1,5 +1,24 @@
 # Changelog
 
+## [v1.13.0] — 2026-09-26
+
+### English
+
+**New: Morningstar card using the BTC/USD quote displayed by Google Finance**
+The top quote area now includes a fifth card, "Morningstar", for BTC fiat views. The backend fetches the BTC/USD quote from Google Finance, whose crypto pricing source is identified by Google as Morningstar, caches it briefly, converts it to the selected display currency with the existing FX rates, and exposes it as `morningstar` in the API response. If the external page is unavailable or its markup changes, the field is omitted and the site continues to use Binance, Kraken and Coinbase.
+
+**Changed: the average quote includes Morningstar when available**
+For the most recent BTC fiat point, the `Média` card now averages Binance, Kraken, Coinbase and Morningstar when the Morningstar quote is present. Historical points keep the existing exchange-only average because Morningstar is fetched as a current reference quote, not as a stored historical series.
+
+### Português
+
+**Novo: card Morningstar usando a cotação BTC/USD exibida pelo Google Finance**
+A área superior de cotações agora inclui um quinto card, "Morningstar", nas visões BTC contra moeda fiat. O backend busca a cotação BTC/USD no Google Finance, cuja fonte de preço para cripto é identificada pelo Google como Morningstar, guarda em cache por alguns minutos, converte para a moeda de exibição selecionada com as taxas de câmbio já existentes e expõe o valor como `morningstar` na resposta da API. Se a página externa estiver indisponível ou mudar o HTML, o campo é omitido e o site continua usando Binance, Kraken e Coinbase.
+
+**Alterado: a cotação média inclui Morningstar quando disponível**
+No ponto BTC fiat mais recente, o card `Média` agora calcula a média entre Binance, Kraken, Coinbase e Morningstar quando a cotação Morningstar está presente. Os pontos históricos mantêm a média antiga só das exchanges, porque Morningstar entra como cotação atual de referência, não como série histórica gravada.
+
+---
 ## [v1.12.0] — 2026-09-26
 
 ### English

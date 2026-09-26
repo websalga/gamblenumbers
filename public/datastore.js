@@ -18,7 +18,7 @@
  *    de novo (append), não recarrega tudo.
  *
  * Um snapshot tem a forma:
- *   { t, avg, binance, kraken, coinbase, btc_usd, usd_brl }
+ *   { t, avg, binance, kraken, coinbase, morningstar, btc_usd, usd_brl }
  * onde t é epoch em milissegundos (UTC).
  * ============================================================ */
 
@@ -207,7 +207,7 @@ class DataStore {
    *
    * @param {object} p período { points, stepMs }
    * @param {number} [endT] instante final; default = último dado real.
-   * @returns {Array<object>} pontos {t, avg, binance, kraken, coinbase}
+   * @returns {Array<object>} pontos {t, avg, binance, kraken, coinbase, morningstar}
    */
   resample(p, endT) {
     const n = Math.max(2, p.points | 0);
@@ -229,7 +229,7 @@ class DataStore {
     for (let i = 0; i < n; i++) {
       const t = start + i * step;
       const pt = this._interpAt(t, maxGap);
-      out.push(pt || { t, avg: null, binance: null, kraken: null, coinbase: null });
+      out.push(pt || { t, avg: null, binance: null, kraken: null, coinbase: null, morningstar: null });
     }
     return out;
   }
@@ -270,18 +270,18 @@ class DataStore {
     if (t < r[0].t || t > r[r.length - 1].t) {
       const borda = (t < r[0].t) ? r[0] : r[r.length - 1];
       if (Math.abs(borda.t - t) > maxGap) return null;
-      return { t, avg: borda.avg, binance: borda.binance, kraken: borda.kraken, coinbase: borda.coinbase };
+      return rowAt(borda, t);
     }
     // acha o intervalo [i, i+1] que contém t
     let lo = 0, hi = r.length - 1;
     while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (r[mid].t <= t) lo = mid; else hi = mid; }
     const a = r[lo], b = r[hi];
     if (b.t - a.t > maxGap) return null;         // buraco real: quebra a linha
-    if (b.t === a.t) return { t, avg: a.avg, binance: a.binance, kraken: a.kraken, coinbase: a.coinbase };
+    if (b.t === a.t) return rowAt(a, t);
     const h = b.t - a.t;
     const u = (t - a.t) / h;
     const out = { t };
-    for (const k of ['avg', 'binance', 'kraken', 'coinbase']) {
+    for (const k of EXCHANGE_KEYS) {
       out[k] = hermiteMono(r, lo, hi, k, u, h);
     }
     return out;
@@ -452,13 +452,14 @@ function normalizeRow(raw) {
   const t = num(raw.t);
   const avg = num(raw.avg);
   if (t == null || avg == null || avg <= 0) return null;
-  const binance = num(raw.binance); const kraken = num(raw.kraken); const coinbase = num(raw.coinbase);
+  const binance = num(raw.binance); const kraken = num(raw.kraken); const coinbase = num(raw.coinbase); const morningstar = num(raw.morningstar);
   return {
     t,
     avg,
     binance: binance != null ? binance : avg,
     kraken:  kraken  != null ? kraken  : avg,
     coinbase: coinbase != null ? coinbase : avg,
+    morningstar,
     btc_usd: num(raw.btc_usd),
     usd_brl: num(raw.usd_brl),
     usd_eur: num(raw.usd_eur),
@@ -479,3 +480,6 @@ if (typeof module !== 'undefined' && module.exports) {
 if (typeof window !== 'undefined') {
   window.DataStore = DataStore;
 }
+
+const EXCHANGE_KEYS = ['avg', 'binance', 'kraken', 'coinbase', 'morningstar'];
+function rowAt(row, t) { return { t, avg: row.avg, binance: row.binance, kraken: row.kraken, coinbase: row.coinbase, morningstar: row.morningstar }; }
