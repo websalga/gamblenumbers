@@ -138,6 +138,7 @@
         trail: new TrailRenderer(),
         spreadBand: new SpreadBandRenderer(),
         forecastRef: new ForecastRefLineRenderer(),
+        scenario: new ScenarioLineRenderer(),
       };
       this.panel = new ControlPanel({ doc, bus: this.bus, defaults: {}, fmt: { brl: BRL }, moedaExibicao: this.moedaExibicao });
       this.operations = new OperationsController({
@@ -739,11 +740,14 @@
 
     renderChart() {
       const endT = this.store.latestT(); if (endT == null) return;
-      const { hist, fut } = this.seriesData(), all = hist.concat(fut);
+      const { hist, fut: futLocal } = this.seriesData();
+      // Com a previsao do SERVIDOR disponivel, a projecao local (simulacao congelada por navegador: diverge entre
+      // usuarios e pode estar velha) deixa de ser desenhada e de entrar na escala do grafico. Sem servidor, volta ao
+      // comportamento antigo. (So' o desenho muda: vendas, alvo e operacoes nao dependem dela.)
+      const usarServidor = !!(this.backendForecast && this.backendForecast.ready);
+      const fut = usarServidor ? [] : futLocal, all = hist.concat(fut);
       const target = this.operations.targetPrice();
-      const extraPrices = []
-        .concat(this.operations.lots.map(l => this.operations.precoOp(l)))
-        .concat(this.operations.sells.filter(s => s.status === 'pending').map(s => this.operations.precoOp(s)));
+      const extraPrices = [];
       this.plot.resize();
       // Janela visível (com pan). Quando panMs = 0 o comportamento é o de
       // sempre; com pan, o eixo X passa a mostrar o trecho navegado e o
@@ -753,6 +757,35 @@
       // O eixo de preço deve refletir o que está VISÍVEL: ao rolar, a escala
       // vertical acompanha o trecho em tela em vez de ficar presa ao conjunto
       // inteiro (que deixaria a curva achatada num canto).
+      {
+        // Lotes e vendas pendentes so' entram na escala se o marcador aparece NA JANELA visivel (e' a mesma regra dos
+        // renderizadores, que so' desenham marcadores dentro dela). Antes entravam todos: um lote antigo a R$ 334 mil
+        // esticava o eixo e achatava o grafico mesmo sem estar em tela.
+        const _ini = win ? win.tMin : -Infinity, _fim = win ? win.tMax : Infinity;
+        for (const l of this.operations.lots) {
+          if (!l.hidden && l.time >= _ini && l.time <= _fim) extraPrices.push(this.operations.precoOp(l));
+        }
+        for (const sv of this.operations.sells) {
+          if (sv.status === 'pending' && !sv.hidden && sv.markTime >= _ini && sv.markTime <= _fim) extraPrices.push(this.operations.precoOp(sv));
+        }
+      }
+      if (usarServidor) {
+        // a escala inclui o miolo da previsao e o cenario da Mimetagem dentro da janela visivel
+        const ini = win ? win.tMin : -Infinity, fim = win ? win.tMax : Infinity;
+        for (const pt of this.backendForecast.pontos) {
+          if (pt.t < ini || pt.t > fim) continue;
+          extraPrices.push(pt.avg, pt.avg_lo, pt.avg_hi);
+        }
+        for (const pt of (this.backendForecast.cenario || [])) {
+          if (pt.t >= ini && pt.t <= fim && pt.t > endT) extraPrices.push(pt.avg);
+        }
+        // curvas anteriores da Mimetagem (trecho realizado, pontilhado): entram na escala para nao sairem de quadro
+        for (const run of (this.backendForecast.cenarioPassado || [])) {
+          for (const pt of (run.pontos || [])) {
+            if (pt.t >= ini && pt.t <= fim && pt.t <= endT) extraPrices.push(pt.avg);
+          }
+        }
+      }
       const visiveis = win ? all.filter(p => p.t >= win.tMin && p.t <= win.tMax) : all;
       this.plot.setBoundsFromPoints(visiveis.length ? visiveis : all, { extraPrices });
       // Zoom de lupa: sobrescreve os limites com janela reduzida centrada no ponto clicado.
@@ -781,6 +814,9 @@
         mouse: this.mouse,
         // linha de referência: previsão estatística real do backend (até 24h)
         refForecast: (this.backendForecast && this.backendForecast.ready) ? this.backendForecast.pontos : [],
+        refScenario: (this.backendForecast && this.backendForecast.ready) ? this.backendForecast.cenario : [],
+        refFaixaPct: (this.backendForecast && this.backendForecast.ready) ? this.backendForecast.faixaPct : null,
+        refScenarioPast: (this.backendForecast && this.backendForecast.ready) ? this.backendForecast.cenarioPassado : [],
         // rastro: o que a projeção previu para o trecho que já virou passado
         trail: this.frozen ? this.frozen.pastTrail(endT, this.period().stepMs) : [],
         // faixa de spread: min/max entre exchanges no ponto mais recente do histórico
@@ -799,6 +835,7 @@
       this.renderers.trail.draw(this.plot, data);   // por baixo das séries
       this.renderers.series.draw(this.plot, data);
       this.renderers.forecastRef.draw(this.plot, data);
+      this.renderers.scenario.draw(this.plot, data);
       this.renderers.target.draw(this.plot, data);
       this.renderers.now.draw(this.plot, data);
       this.renderers.lots.draw(this.plot, data);

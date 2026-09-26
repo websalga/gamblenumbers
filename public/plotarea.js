@@ -37,7 +37,7 @@ class PlotArea {
       avg: '#22d3ee', binance: '#f7c948', kraken: '#a855f7', coinbase: '#3b82f6',
       grid: 'rgba(30,42,68,0.6)', axisText: '#7d8aa3', target: '#22c55e',
       now: 'rgba(232,237,247,0.55)', nowText: '#e8edf7', projBg: 'rgba(34,211,238,0.03)',
-      forecastRef: '#fb923c',
+      forecastRef: '#fb923c', scenario: '#f472b6',
     }, deps.colors || {});
     this._dpr = deps.dpr || (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
     this._padFrac     = deps.padFrac      != null ? deps.padFrac      : 0.08;

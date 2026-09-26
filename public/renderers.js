@@ -115,10 +115,68 @@ class SeriesRenderer {
  * pontilhada numa cor distinta da simulação. Puramente informativa -
  * não ancora vendas nem participa de nenhum cálculo do simulador. */
 class ForecastRefLineRenderer {
+  _pts(ref) {
+    return ref.filter(pt => pt.avg_lo != null && pt.avg_hi != null && Number.isFinite(+pt.avg_lo) && Number.isFinite(+pt.avg_hi));
+  }
+
+  /* Valor de um campo da curva no instante t (interpolacao linear), ou null se t esta fora da curva. */
+  _at(pts, campo, t) {
+    if (t < pts[0].t || t > pts[pts.length - 1].t) return null;
+    for (let i = 1; i < pts.length; i++) {
+      if (t <= pts[i].t) {
+        const a = pts[i - 1], b = pts[i], span = b.t - a.t || 1, w = (t - a.t) / span;
+        return +a[campo] + (+b[campo] - +a[campo]) * w;
+      }
+    }
+    return +pts[pts.length - 1][campo];
+  }
+
+  /* Miolo do "sino": a faixa central (avg_lo..avg_hi) que o servidor calibra para conter ~metade dos casos reais.
+   * As pontas (caudas) da distribuicao ficam de fora, por isso o cone e' estreito. As linhas de MINIMO e MAXIMO
+   * sao as bordas dele, rotuladas com o valor no limite direito visivel. Recortado a area do grafico. */
+  _cone(plot, ctx, ref, data) {
+    const pts = this._pts(ref);
+    if (pts.length < 2) return;
+    const pad = plot.pad;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(pad.l, pad.t, plot.w - pad.l - pad.r, plot.h - pad.t - pad.b);
+    ctx.clip();
+    ctx.beginPath();
+    pts.forEach((pt, i) => { const x = plot.X(pt.t), y = plot.Y(+pt.avg_hi); if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y); });
+    for (let i = pts.length - 1; i >= 0; i--) ctx.lineTo(plot.X(pts[i].t), plot.Y(+pts[i].avg_lo));
+    ctx.closePath();
+    ctx.fillStyle = plot.color('forecastRef');
+    ctx.globalAlpha = 0.13;
+    ctx.fill();
+    ctx.globalAlpha = 0.85; ctx.lineWidth = 1.2; ctx.strokeStyle = plot.color('forecastRef'); ctx.setLineDash([4, 3]);
+    for (const campo of ['avg_hi', 'avg_lo']) {
+      ctx.beginPath();
+      pts.forEach((pt, i) => { const x = plot.X(pt.t), y = plot.Y(+pt[campo]); if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y); });
+      ctx.stroke();
+    }
+    ctx.setLineDash([]);
+    /* rotulos com o valor dos limites no fim da parte visivel (neutros quanto a idioma) */
+    const tFim = Math.min(plot.tMax, pts[pts.length - 1].t);
+    const hi = this._at(pts, 'avg_hi', tFim), lo = this._at(pts, 'avg_lo', tFim);
+    if (hi != null && lo != null) {
+      const fmt = v => (data.fmtBRL ? data.fmtBRL(v) : Math.round(v).toLocaleString());
+      const x = Math.min(plot.X(tFim), plot.w - pad.r) - 4;
+      const yTop = Math.max(pad.t + 10, plot.Y(hi) - 4);
+      const yBot = Math.min(plot.h - pad.b - 3, plot.Y(lo) + 11);
+      ctx.font = '9px monospace'; ctx.textAlign = 'right'; ctx.globalAlpha = 0.95; ctx.fillStyle = plot.color('forecastRef');
+      const pct = data.refFaixaPct ? ' \u00b7 ' + data.refFaixaPct + '%' : '';
+      ctx.fillText('\u25b2 ' + fmt(hi) + pct, x, yTop);
+      ctx.fillText('\u25bc ' + fmt(lo), x, yBot);
+    }
+    ctx.restore();
+  }
+
   draw(plot, data) {
     const ctx = plot.ctx; if (!ctx) return;
     const ref = data.refForecast;
     if (!ref || ref.length < 2) return;
+    this._cone(plot, ctx, ref, data);
     ctx.beginPath();
     ctx.strokeStyle = plot.color('forecastRef');
     ctx.lineWidth = 1.4;
@@ -133,6 +191,104 @@ class ForecastRefLineRenderer {
     }
     if (started) ctx.stroke();
     ctx.globalAlpha = 1; ctx.setLineDash([]);
+  }
+}
+
+/* Cenario da MIMETAGEM: a curva REAL de um trecho do passado que melhor se encaixou nas ultimas cotacoes, copiada
+ * e escalada ao preco atual. E' um desenho plausivel do movimento (ondulado como o mercado), NAO a previsao: a
+ * previsao e' a linha laranja com o cone. Igual para todos os usuarios (vem do servidor). A curva e' gerada a cada
+ * 15 min, entao e' reancorada aqui para comecar exatamente no ultimo preco real, no AGORA. */
+class ScenarioLineRenderer {
+  /* valor (interpolado) da curva `pts` no instante t; null se t esta fora dela */
+  _at(pts, t) {
+    if (!pts.length || t < pts[0].t || t > pts[pts.length - 1].t) return null;
+    for (let i = 1; i < pts.length; i++) {
+      if (t <= pts[i].t) { const a = pts[i - 1], b = pts[i], w = (t - a.t) / ((b.t - a.t) || 1); return +a.avg + (+b.avg - +a.avg) * w; }
+    }
+    return +pts[pts.length - 1].avg;
+  }
+
+  _pct(v) { return (v >= 0 ? '+' : '') + (v * 100).toFixed(2).replace('.', ',') + '%'; }
+
+  _lb(min) { return min >= 60 && min % 60 === 0 ? (min / 60) + 'h' : min + 'min'; }
+
+  draw(plot, data) {
+    const ctx = plot.ctx; if (!ctx) return;
+    const hist = data.hist || [];
+    let last = null;
+    for (let i = hist.length - 1; i >= 0; i--) { const v = hist[i].avg; if (v != null && Number.isFinite(+v)) { last = hist[i]; break; } }
+    if (!last) return;
+    const nowT = data.nowT != null ? data.nowT : last.t;
+    this._passado(plot, ctx, data, last, nowT);
+    this._atual(plot, ctx, data, last, nowT);
+  }
+
+  /* PASSADO: as curvas geradas 1h, 3h, 6h atras continuam, PONTILHADAS, do lado da cotacao real, para ver se
+   * previram certo. Cada uma nasce no preco real da sua hora (a ancora) e vai ate o AGORA. A legenda mostra, por
+   * curva, quanto ela previu de variacao desde a ancora x quanto o preco realmente variou, e se acertou a direcao. */
+  _passado(plot, ctx, data, last, nowT) {
+    const runs = data.refScenarioPast || [];
+    if (!runs.length) return;
+    const pad = plot.pad;
+    const linhas = [];
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(pad.l, pad.t, plot.w - pad.l - pad.r, plot.h - pad.t - pad.b);
+    ctx.clip();
+    runs.forEach((run, idx) => {
+      const pts = (run.pontos || []).filter(p => p && Number.isFinite(+p.avg));
+      if (pts.length < 2 || !run.ancora || !(+run.ancora.avg > 0)) return;
+      const seg = pts.filter(p => p.t <= nowT);
+      if (!seg.length) return;
+      const yAgora = this._at(pts, nowT);
+      ctx.beginPath();
+      seg.forEach((p, i) => { const x = plot.X(p.t), y = plot.Y(+p.avg); if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y); });
+      if (yAgora != null && seg[seg.length - 1].t < nowT) ctx.lineTo(plot.X(nowT), plot.Y(yAgora));
+      ctx.setLineDash([2, 3]); ctx.lineWidth = 1.3; ctx.strokeStyle = plot.color('scenario');
+      ctx.globalAlpha = Math.max(0.35, 0.9 - idx * 0.2);
+      ctx.stroke();
+      const ref = +run.ancora.avg;
+      const prev = (yAgora != null ? yAgora : +seg[seg.length - 1].avg) / ref - 1;
+      const real = +last.avg / ref - 1;
+      const acertou = Math.abs(prev) < 5e-5 || Math.abs(real) < 5e-5 ? '' : (Math.sign(prev) === Math.sign(real) ? ' \u2713' : ' \u2717');
+      linhas.push('\u2212' + this._lb(run.lookback_min) + '  prev ' + this._pct(prev) + '  real ' + this._pct(real) + acertou);
+    });
+    ctx.restore();
+    if (!linhas.length) return;
+    ctx.save();
+    ctx.font = '9px monospace'; ctx.textAlign = 'left'; ctx.fillStyle = plot.color('scenario'); ctx.globalAlpha = 0.95;
+    ctx.fillText('Mimetagem', pad.l + 6, pad.t + 32);
+    linhas.forEach((t, i) => ctx.fillText(t, pad.l + 6, pad.t + 43 + i * 11));
+    ctx.restore();
+  }
+
+  /* FUTURO: a curva atual (a mais recente), reancorada para nascer exatamente no ultimo preco real, no AGORA. */
+  _atual(plot, ctx, data, last, nowT) {
+    const cen = data.refScenario;
+    if (!cen || cen.length < 2) return;
+    if (nowT > cen[cen.length - 1].t) return;
+    const yNow = nowT <= cen[0].t ? +cen[0].avg : this._at(cen, nowT);
+    if (!(yNow > 0)) return;
+    const k = +last.avg / yNow;
+    const pad = plot.pad;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(pad.l, pad.t, plot.w - pad.l - pad.r, plot.h - pad.t - pad.b);
+    ctx.clip();
+    ctx.beginPath();
+    ctx.moveTo(plot.X(nowT), plot.Y(+last.avg));
+    let xf = plot.X(nowT), yf = plot.Y(+last.avg);
+    for (const pt of cen) {
+      if (pt.t <= nowT) continue;
+      const x = plot.X(pt.t), y = plot.Y(+pt.avg * k);
+      ctx.lineTo(x, y);
+      if (pt.t <= plot.tMax) { xf = x; yf = y; }
+    }
+    ctx.setLineDash([]); ctx.lineWidth = 1.4; ctx.strokeStyle = plot.color('scenario'); ctx.globalAlpha = 0.95;
+    ctx.stroke();
+    ctx.font = '9px monospace'; ctx.textAlign = 'right'; ctx.fillStyle = plot.color('scenario');
+    ctx.fillText('Mimetagem', Math.min(xf, plot.w - pad.r) - 4, Math.max(pad.t + 10, yf - 5));
+    ctx.restore();
   }
 }
 
@@ -328,7 +484,7 @@ class SpreadBandRenderer {
 const Renderers = {
   ProjectionBgRenderer, PriceAxisRenderer, TimeAxisRenderer, SeriesRenderer,
   TargetLineRenderer, NowDividerRenderer, CursorRenderer, LotMarkerRenderer, SellMarkerRenderer,
-  TrailRenderer, SpreadBandRenderer, ForecastRefLineRenderer,
+  TrailRenderer, SpreadBandRenderer, ForecastRefLineRenderer, ScenarioLineRenderer,
 };
 
 if (typeof module !== 'undefined' && module.exports) module.exports = Renderers;
