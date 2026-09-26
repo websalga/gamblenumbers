@@ -6,17 +6,18 @@
 <title>BTC Simulador</title>
 <style>
 :root{
-  --bg:var(--bg); --panel:#0d1424; --panel2:var(--panel2); --border:#1e2a44;
-  --txt:var(--txt); --muted:var(--muted);
-  --accent:#22d3ee; --accent-rgb:34,211,238; --accent-ink:var(--accent-ink);
+  --bg:#070c18; --panel:#0d1424; --panel2:#111a2e; --border:#1e2a44;
+  --txt:#e8edf7; --muted:#7d8aa3;
+  --accent:#22d3ee; --accent-rgb:34,211,238; --accent-ink:#04212a;
   --avg:#e2e8f0; --binance:#f7c948; --kraken:#a855f7; --coinbase:#3b82f6; --morningstar:#00e5ff;
-  --green:var(--green); --red:var(--red); --yellow:#f7c948;
-  --green-ink:var(--green-ink); --yellow-ink:var(--yellow-ink); --green-soft:var(--green-soft); --badge-ink:var(--green-ink);
+  --green:#22c55e; --red:#ef4444; --yellow:#f7c948;
+  --green-ink:#04210f; --yellow-ink:#2a2205; --green-soft:#86efac; --badge-ink:#04210f;
   --forecast:#fb923c; --scenario:#f472b6;
-  --btn:var(--btn); --btn-hover:var(--btn-hover); --line2:var(--line2); --deep:var(--deep);
-  --pos-bg1:var(--pos-bg1); --pos-bg2:var(--pos-bg2); --neg-bg:var(--neg-bg); --neg-bd:var(--neg-bd); --neg-bg2:var(--neg-bg2);
-  --tag-buy-fg:var(--tag-buy-fg); --tag-sell-fg:var(--tag-sell-fg); --shadow:rgba(0,0,0,.6);
-  --grid:rgba(30,42,68,0.6); --now:rgba(232,237,247,0.55); --now-text:var(--txt); --trail:rgba(232,237,247,0.40);
+  --btn:#1b2740; --btn-hover:#243252; --line2:#2b3a5c; --deep:#050912;
+  --panel3:#0f172a; --muted2:#5b6b85; --dim:#3a4257; --edge:#8792a8; --line3:#4a6090; --txt2:#c8d4f0;
+  --pos-bg1:#0f2a1a; --pos-bg2:#0a1f2e; --neg-bg:#5b1f1f; --neg-bd:#8b2f2f; --neg-bg2:#241014;
+  --tag-buy-fg:#7fb4ff; --tag-sell-fg:#c99bff; --shadow:rgba(0,0,0,.6);
+  --grid:rgba(30,42,68,0.6); --now:rgba(232,237,247,0.55); --now-text:#e8edf7; --trail:rgba(232,237,247,0.40);
   --proj-bg:rgba(0,229,255,0.035); --muted-line:rgba(125,138,163,0.4);
   color-scheme:dark;
 }
@@ -130,7 +131,7 @@ tr.row-r td:first-child{border-left:3px solid var(--red)}
 .reset-forecast-btn{background:var(--panel2);color:var(--muted);border:1px dashed var(--line2);border-radius:6px;
   padding:5px 10px;font-size:11px;cursor:pointer;width:100%;margin-top:6px;text-align:center;
   transition:background .2s,color .2s,border-color .2s}
-.reset-forecast-btn:hover{background:var(--btn);color:var(--txt);border-color:var(--line2)}
+.reset-forecast-btn:hover{background:var(--btn);color:var(--txt2);border-color:var(--line3)}
 .opshint{color:var(--muted);font-size:10px}
 
       .saldo-box {
@@ -206,12 +207,12 @@ tr.row-r td:first-child{border-left:3px solid var(--red)}
 .robo-card dl{display:grid;grid-template-columns:auto 1fr;gap:3px 8px;font-size:11px;color:var(--muted);margin-bottom:10px}
 .robo-card dl b{color:var(--txt);font-weight:600}
 .robo-card .robo-actions{display:flex;gap:6px}
-.robo-card .robo-actions button{flex:1;font-size:10px;padding:5px 6px;border-radius:6px;border:1px solid var(--border);background:var(--panel);color:var(--muted);cursor:pointer}
+.robo-card .robo-actions button{flex:1;font-size:10px;padding:5px 6px;border-radius:6px;border:1px solid var(--border);background:var(--panel3);color:var(--muted);cursor:pointer}
 .automatos-nav-group{display:flex;flex-direction:column;align-items:center;gap:4px}
-.robos-status-btn{width:26px;height:26px;border-radius:50%;border:1px solid var(--border);background:var(--panel2);color:var(--muted);cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;line-height:1;transition:color .15s,border-color .15s}
+.robos-status-btn{width:26px;height:26px;border-radius:50%;border:1px solid var(--border);background:var(--panel2);color:var(--muted2);cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;line-height:1;transition:color .15s,border-color .15s}
 .robos-status-btn svg{width:14px;height:14px;flex-shrink:0;display:block}
-.robos-status-btn[data-state="none"]{opacity:.55;cursor:not-allowed;color:var(--line2);border-color:var(--border)}
-.robos-status-btn[data-state="idle"]{color:var(--txt);border-color:var(--muted)}
+.robos-status-btn[data-state="none"]{opacity:.55;cursor:not-allowed;color:var(--dim);border-color:var(--border)}
+.robos-status-btn[data-state="idle"]{color:var(--txt);border-color:var(--edge)}
 .robos-status-btn[data-state="ativo"]{color:var(--green);border-color:var(--green);animation:robosStatusPulse 1.3s ease-in-out infinite}
 @keyframes robosStatusPulse{0%,100%{box-shadow:0 0 0 0 color-mix(in srgb, var(--green) 40%, transparent)}50%{box-shadow:0 0 0 6px transparent}}
 
@@ -251,7 +252,7 @@ tr.row-r td:first-child{border-left:3px solid var(--red)}
 
 
     </style>
-<script src="theme.js?v=gntemas-20260926-1"></script>
+<script src="theme.js?v=gntemas-20260926-2"></script>
 </head>
 <body>
 <div class="app">
@@ -483,7 +484,7 @@ tr.row-r td:first-child{border-left:3px solid var(--red)}
 <script src="identity.js?v=gntemas-20260926-1"></script>
 <script src="i18n.js?v=1786304232"></script>
 <script src="eventbus.js?v=1786304232"></script>
-<script src="datastore.js?v=gnmorningstar-20260926-2"></script>
+<script src="datastore.js?v=gnlacuna-20260926-1"></script>
 <script src="forecast.js?v=gnforecast-20260907-1"></script>
 <script src="storage.js?v=1786304232"></script>
 <script src="frozenforecast.js?v=gnforecast-20260907-1"></script>
