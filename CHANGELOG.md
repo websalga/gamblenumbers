@@ -1,5 +1,43 @@
 # Changelog
 
+## [v1.10.0] — 2026-09-25
+
+### English
+
+**New: virtual balance stored per session in SQL Server (`GN_SimSaldo`)**
+The "Virtual balance available" shown on screen now also exists in the database, per session, so the buy and sell bots can see and move it at all times. Every change on screen (buy, sell, real-balance refresh, manual edit, currency change) is saved via `sim_saldo.php`; buys/sells are sent as deltas so a bot's movement is never overwritten. The page polls the database every few seconds and reflects what the bots did. Every movement is audited in `GN_SimSaldoLog`.
+
+**New: `GN_RoboVender` stored procedure; `GN_RoboComprar` now checks and debits the balance**
+The sell procedure handles lots exactly like the front end (FIFO, partial fills, network fee, net PnL) and credits the net value to the balance in a single transaction. `GN_RoboComprar` now debits the balance in the same transaction as the lot and refuses the purchase if the balance is insufficient.
+
+**New: continuous accuracy measurement of the forecast engine**
+Every forecast stored by the engine is now scored against the realized quote (`forecast.Coverage`, filled every 5 minutes), with model rankings (`vw_Precisao_Modelos`, `vw_Precisao_Diaria`): error, gain over the "price stays the same" baseline, bias, band coverage and direction.
+
+**New: competing models in shadow mode and automatic promotion**
+Six candidate models (SES, damped trend, Theta, AR on returns, empirical-band naive, and a fixed-seed server-side port of the browser simulation) run alongside the published model, are stored and measured, and are never served to the site. A promotion procedure swaps the published model only with statistical evidence (paired comparison, minimum days/runs, margin, daily win rate, t-statistic, band coverage), with a full audit trail. A rolling-origin backtest is stored in `forecast.Backtest_Resumo`.
+
+**Changed: `api.php` serves only the published forecast model**
+Shadow models can never reach the chart.
+
+### Português
+
+**Novo: saldo virtual gravado por sessão no SQL Server (`GN_SimSaldo`)**
+O "Saldo virtual disponível" da tela agora também existe no banco, por sessão, para os robôs de compra e venda enxergarem e movimentarem o tempo todo. Toda mudança na tela (compra, venda, refresh do saldo real, edição manual, troca de moeda) é gravada via `sim_saldo.php`; compras e vendas vão como delta, então o movimento de um robô nunca é sobrescrito. A página consulta o banco a cada poucos segundos e reflete o que os robôs fizeram. Todo movimento fica auditado em `GN_SimSaldoLog`.
+
+**Novo: procedure `GN_RoboVender`; `GN_RoboComprar` agora valida e debita o saldo**
+A procedure de venda cuida dos lotes exatamente como o front (FIFO, execução parcial, taxa de rede, PnL líquido) e credita o valor líquido no saldo numa única transação. A `GN_RoboComprar` agora debita o saldo na mesma transação do lote e recusa a compra se o saldo for insuficiente.
+
+**Novo: medição contínua da precisão do motor de previsão**
+Toda previsão gravada pelo motor agora é avaliada contra a cotação realizada (`forecast.Coverage`, preenchida a cada 5 minutos), com ranking de modelos (`vw_Precisao_Modelos`, `vw_Precisao_Diaria`): erro, ganho sobre a linha de base "o preço fica igual", viés, cobertura da faixa e direção.
+
+**Novo: modelos concorrentes em sombra e promoção automática**
+Seis modelos candidatos (SES, tendência amortecida, Theta, AR sobre retornos, naive com banda empírica e um porte no servidor, com semente fixa, da simulação do navegador) rodam ao lado do modelo publicado, são gravados e medidos, e nunca são servidos ao site. Uma procedure de promoção só troca o modelo publicado com evidência estatística (comparação pareada, mínimo de dias/execuções, margem, vitória diária, estatística t, cobertura da faixa), com trilha de auditoria completa. Um backtest rolling-origin fica gravado em `forecast.Backtest_Resumo`.
+
+**Alterado: `api.php` serve apenas o modelo de previsão publicado**
+Modelos em sombra nunca chegam ao gráfico.
+
+---
+
 ## [v1.9.0] — 2026-09-24
 
 ### English
