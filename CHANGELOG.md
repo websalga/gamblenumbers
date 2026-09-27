@@ -1,5 +1,19 @@
 # Changelog
 
+## [v1.14.3] — 2026-09-27
+
+### English
+
+**Highlighted: color themes and trading bots, with screenshots**
+Published a GitHub Release showcasing two features already shipped (color themes since v1.14.0, trading bots since earlier releases): the five color themes (Night, Graphite, Light, Forest, High contrast) picked from the round button in the top bar, and the "Autômatos" bot configuration screen (nickname, currency, per-trade amount, desired return %, fixed 10% daily loss limit, up to 5 bots per account) with its status/kill-switch icon. No code changed; this is a documentation/visibility update. See the GitHub Releases page for the screenshots.
+
+### Português
+
+**Destacado: temas de cores e robôs automatizados, com capturas de tela**
+Publicado um Release no GitHub destacando duas funcionalidades já em produção (temas de cores desde a v1.14.0, robôs automatizados desde versões anteriores): os cinco temas de cores (Noite, Grafite, Claro, Floresta, Alto contraste) escolhidos pela bolinha na barra do topo, e a tela de configuração dos robôs ("Autômatos": apelido, moeda, valor por operação, retorno desejado, limite fixo de 10% de perda diária, até 5 robôs por conta) com seu ícone de status/botão de emergência. Nenhum código foi alterado; é uma atualização de documentação/visibilidade. Veja a página de Releases no GitHub para as capturas de tela.
+
+---
+
 ## [v1.14.2] — 2026-09-26
 
 ### English
