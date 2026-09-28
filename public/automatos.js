@@ -65,7 +65,7 @@
   function renderForm(robo) {
     const editando = !!robo;
     _editandoId = editando ? robo.id : null;
-    const d = editando ? robo : Object.assign({ apelido: '', moeda: moedaAtual(), ativo: false }, defaultsDaTelaPrincipal());
+    const d = editando ? robo : Object.assign({ apelido: '', moeda: moedaAtual(), ativo: false, taxasReais: true }, defaultsDaTelaPrincipal());
 
     const form = document.getElementById('automatosForm');
     if (!form) return;
@@ -101,6 +101,11 @@
         <input type="checkbox" id="roboAtivo" ${d.ativo ? 'checked' : ''}>
         <label for="roboAtivo" style="margin:0">${t('automatos_ativo')}</label>
       </div>
+      <div class="field field-checkbox">
+        <input type="checkbox" id="roboTaxasReais" ${(d.taxasReais ?? true) ? 'checked' : ''}>
+        <label for="roboTaxasReais" style="margin:0">${t('automatos_taxas_reais')}</label>
+        <div class="field-hint">${t('automatos_taxas_reais_hint')}</div>
+      </div>
       <div class="form-actions">
         <button id="roboSalvar" type="button">${editando ? t('automatos_salvar_alteracoes') : t('automatos_criar_robo')}</button>
         ${editando ? `<button id="roboCancelar" type="button">${t('automatos_cancelar')}</button>` : ''}
@@ -123,6 +128,7 @@
     const valorOperacao = parseBRL ? parseBRL(valorTxto) : parseFloat(String(valorTxto).replace(/[^\d,.-]/g, '').replace(',', '.'));
     const retornoPct = parseFloat(document.getElementById('roboRetorno').value);
     const ativo = document.getElementById('roboAtivo').checked;
+    const taxasReais = document.getElementById('roboTaxasReais').checked;
 
     if (!apelido) { if (status) status.textContent = t('automatos_erro_apelido'); return; }
     if (!(valorOperacao > 0)) { if (status) status.textContent = t('automatos_erro_valor'); return; }
@@ -136,6 +142,7 @@
       valor_operacao: valorOperacao,
       retorno_desejado_pct: retornoPct,
       ativo,
+      taxas_reais: taxasReais,
     });
 
     if (!resp.ok) {
@@ -158,6 +165,7 @@
           <span>${t('automatos_valor_operacao')}</span><b>${brl(r.valorOperacao)}</b>
           <span>${t('automatos_retorno_desejado')}</span><b>${pct(r.retornoDesejadoPct)}</b>
           <span>${t('automatos_limite_perda')}</span><b>${pct(r.limitePerdaDiariaPct)}</b>
+          <span>${t('automatos_taxas_reais')}</span><b>${(r.taxasReais ?? true) ? t('automatos_status_ativo') : t('automatos_status_inativo')}</b>
         </dl>
         <div class="robo-actions">
           <button type="button" class="robo-btn-toggle">${r.ativo ? t('automatos_desativar') : t('automatos_ativar')}</button>

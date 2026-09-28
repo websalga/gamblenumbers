@@ -2,7 +2,7 @@
 /* ============================================================
  * robos_load.php — lista os robôs (Autômatos) configurados pela
  * sessão. Só leitura; nenhuma lógica de decisão de compra/venda
- * mora aqui — isso é o motor do robô em si, ainda não implementado.
+ * mora aqui — isso é o motor do robô em si (fila + GN_RoboOrquestrador).
  *
  * GET params:
  *   session_id (obrigatório, 64 hex)
@@ -10,7 +10,7 @@
  * Resposta:
  *   { ok: true, robos: [ { id, apelido, moeda, valor_operacao,
  *       retorno_desejado_pct, limite_perda_diaria_pct, ativo,
- *       criado_em } ] }
+ *       taxasReais, criado_em } ] }
  * ============================================================ */
 declare(strict_types=1);
 header('Content-Type: application/json; charset=utf-8');
@@ -32,6 +32,13 @@ function db(): PDO {
 
 function num($v) { return $v === null ? null : (float)$v; }
 
+function taxasReaisDeConfig(?string $configJson): bool {
+    if ($configJson === null) return true;
+    $j = json_decode($configJson, true);
+    if (!is_array($j) || !array_key_exists('taxas_reais', $j)) return true;
+    return (bool)$j['taxas_reais'];
+}
+
 $sid = trim((string)($_GET['session_id'] ?? ''));
 
 if (strlen($sid) !== 64 || !ctype_xdigit($sid)) {
@@ -44,7 +51,7 @@ try {
     $pdo = db();
 
     $st = $pdo->prepare('SELECT robo_client_id, seq, apelido, moeda, valor_operacao,
-            retorno_desejado_pct, limite_perda_diaria_pct, ativo, criado_em, atualizado_em
+            retorno_desejado_pct, limite_perda_diaria_pct, ativo, config_json, criado_em, atualizado_em
         FROM dbo.GN_Robos
         WHERE session_id = ?
         ORDER BY seq ASC');
@@ -61,6 +68,7 @@ try {
             'retornoDesejadoPct'     => num($r['retorno_desejado_pct']),
             'limitePerdaDiariaPct'   => num($r['limite_perda_diaria_pct']),
             'ativo'                  => (bool)$r['ativo'],
+            'taxasReais'             => taxasReaisDeConfig($r['config_json']),
             'criadoEm'               => $r['criado_em'],
             'atualizadoEm'           => $r['atualizado_em'],
         ];
