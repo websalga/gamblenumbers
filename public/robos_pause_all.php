@@ -8,6 +8,9 @@
  *
  * Não apaga nada, apenas zera o campo "ativo" — as configurações
  * dos robôs continuam intactas e podem ser reativadas depois.
+ * Também cancela qualquer execução já enfileirada (GN_RoboFila,
+ * status 'AG') desses robôs, pra não disparar uma operação logo
+ * depois do usuário ter apertado o botão de emergência.
  * ============================================================ */
 declare(strict_types=1);
 header('Content-Type: application/json; charset=utf-8');
@@ -41,11 +44,22 @@ if (strlen($sid) !== 64 || !ctype_xdigit($sid)) {
 try {
     $pdo = db();
     $st = $pdo->prepare(
-        'UPDATE dbo.GN_Robos SET ativo = 0, atualizado_em = SYSUTCDATETIME() ' .
+        'UPDATE dbo.GN_Robos SET ativo = 0, proxima_execucao = NULL, atualizado_em = SYSUTCDATETIME() ' .
         'WHERE session_id = ? AND ativo = 1'
     );
     $st->execute([$sid]);
-    echo json_encode(['ok' => true, 'pausados' => $st->rowCount()]);
+    $pausados = $st->rowCount();
+
+    $stCancel = $pdo->prepare(
+        "UPDATE f SET f.status = 'ER', f.data_execucao = SYSUTCDATETIME(),
+                f.erro_msg = 'cancelado: robo pausado pelo usuario (pausar todos)'
+         FROM dbo.GN_RoboFila f
+         JOIN dbo.GN_Robos r ON r.id = f.robo_id
+         WHERE r.session_id = ? AND f.status = 'AG'"
+    );
+    $stCancel->execute([$sid]);
+
+    echo json_encode(['ok' => true, 'pausados' => $pausados]);
 } catch (Throwable $e) {
     http_response_code(500);
     echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
