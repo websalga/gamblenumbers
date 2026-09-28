@@ -3,8 +3,15 @@
  * robos_save.php — cria ou atualiza um robô (Autômato) configurado
  * pela sessão. Só grava a CONFIGURAÇÃO do robô (apelido, moeda,
  * valor por operação, retorno desejado, ativo/inativo) — a
- * inteligência de decisão de compra/venda do robô é um motor à
- * parte, ainda não implementado; este endpoint não decide nada.
+ * inteligência de decisão de compra/venda roda à parte, no motor
+ * orquestrador (fila + GN_RoboOrquestrador) no SQL Server; este
+ * endpoint não decide nada, só liga/desliga e agenda o robô.
+ *
+ * Ativar o robô (ativo=true) agenda a primeira execução dele pra
+ * "agora" (proxima_execucao), pra não esperar o ciclo cheio na
+ * primeira vez. Desativar cancela qualquer execução ainda
+ * pendente na fila (GN_RoboFila) pra não disparar uma operação
+ * logo depois do usuário ter pausado o robô.
  *
  * O limite de perda diária (10%) é fixo por decisão de produto e
  * nunca é aceito do cliente — sempre gravado como 10.
@@ -83,22 +90,42 @@ try {
         $seq = (int)$row['max_seq'] + 1;
         $roboId = 'RB' . $seq;
 
+        // proxima_execucao so' entra ja' marcada se o robo ja' nasce ativo
         $stIns = $pdo->prepare('INSERT INTO dbo.GN_Robos
                 (session_id, seq, robo_client_id, apelido, moeda, valor_operacao,
-                 retorno_desejado_pct, limite_perda_diaria_pct, ativo)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
+                 retorno_desejado_pct, limite_perda_diaria_pct, ativo, proxima_execucao)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CASE WHEN ? = 1 THEN SYSUTCDATETIME() ELSE NULL END)');
         $stIns->execute([
             $sid, $seq, $roboId, $apelido, $moeda, (float)$valorOp,
-            (float)$retornoPct, LIMITE_PERDA_DIARIA_PCT_FIXO, $ativo,
+            (float)$retornoPct, LIMITE_PERDA_DIARIA_PCT_FIXO, $ativo, $ativo,
         ]);
     } else {
         // atualização: precisa pertencer à mesma sessão
+        // proxima_execucao: desativou -> NULL; ativou e nao tinha agenda -> agora;
+        // ja' estava ativo com agenda em andamento -> mantem (nao reinicia o ciclo a
+        // cada save).
         $stUpd = $pdo->prepare('UPDATE dbo.GN_Robos SET
                 apelido = ?, moeda = ?, valor_operacao = ?, retorno_desejado_pct = ?,
-                ativo = ?, atualizado_em = SYSUTCDATETIME()
+                ativo = ?,
+                proxima_execucao = CASE WHEN ? = 0 THEN NULL
+                                        WHEN proxima_execucao IS NULL THEN SYSUTCDATETIME()
+                                        ELSE proxima_execucao END,
+                atualizado_em = SYSUTCDATETIME()
             WHERE session_id = ? AND robo_client_id = ?');
-        $stUpd->execute([$apelido, $moeda, (float)$valorOp, (float)$retornoPct, $ativo, $sid, $roboId]);
+        $stUpd->execute([$apelido, $moeda, (float)$valorOp, (float)$retornoPct, $ativo, $ativo, $sid, $roboId]);
         if ($stUpd->rowCount() === 0) erro(404, 'robo nao encontrado');
+
+        if ($ativo === 0) {
+            // cancela qualquer execucao ainda pendente na fila pra esse robo
+            $stCancel = $pdo->prepare(
+                "UPDATE f SET f.status = 'ER', f.data_execucao = SYSUTCDATETIME(),
+                        f.erro_msg = 'cancelado: robo pausado pelo usuario'
+                 FROM dbo.GN_RoboFila f
+                 JOIN dbo.GN_Robos r ON r.id = f.robo_id
+                 WHERE r.session_id = ? AND r.robo_client_id = ? AND f.status = 'AG'"
+            );
+            $stCancel->execute([$sid, $roboId]);
+        }
     }
 
     $stGet = $pdo->prepare('SELECT robo_client_id, seq, apelido, moeda, valor_operacao,

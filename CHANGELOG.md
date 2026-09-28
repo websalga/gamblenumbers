@@ -1,5 +1,29 @@
 # Changelog
 
+## [v1.15.0] — 2026-09-27
+
+### English
+
+**Added: a real decision engine for the trading bots ("Autômatos")**
+Until now `GN_RoboComprar`/`GN_RoboVender` could execute a trade but nothing decided *when* to call them. This release adds that missing engine, entirely inside SQL Server:
+
+- `GN_RoboOrquestrador` — the shared decision logic for every bot. Reads live parameters straight from `GN_Robos` (currency, amount per trade, desired return, daily loss limit), buys when the price has dropped enough below its recent high to cover the estimated network fee plus the desired margin, and sells each open lot once its projected net return (after the network fee) reaches that margin. Enforces the daily loss limit by deactivating the bot. Every run is recorded in the new `GN_RoboExecucaoLog` table — including cycles where it decided to do nothing — with the price evaluated and the reasoning behind the decision.
+- A queue (`GN_RoboFila`, states `AG`/`PR`/`GR`/`ER`) replaces one-job-per-bot: a single enqueuer marks due bots (`ciclo_segundos`/`proxima_execucao`, both new on `GN_Robos`) and 10 partitioned SQL Agent jobs (split by `robo_id % 10`, lock-free `NOLOCK` reads) drain it every minute, each bot always processed by the same partition so its own operations stay strictly ordered even while different bots run fully in parallel.
+- The bot screen keeps working exactly as before — activating, pausing and configuring a bot only ever touch `GN_Robos`; the queue and the scheduled jobs are invisible plumbing behind it. Activating now schedules the first run immediately instead of waiting for a full cycle, and pausing (individually or via the "pause all" panic button) also cancels any run of that bot still waiting in the queue.
+- `GN_Robos` also gained `publico` and `clonado_de_id`, laying the groundwork for sharing a bot's configuration as a template other users can copy — execution stays fully independent per clone.
+
+### Português
+
+**Adicionado: um motor de decisão de verdade para os robôs ("Autômatos")**
+Até agora `GN_RoboComprar`/`GN_RoboVender` sabiam executar uma operação, mas nada decidia *quando* chamá-las. Esta versão adiciona esse motor que faltava, inteiro dentro do SQL Server:
+
+- `GN_RoboOrquestrador` — a lógica de decisão compartilhada por todos os robôs. Lê os parâmetros ao vivo direto de `GN_Robos` (moeda, valor por operação, retorno desejado, limite de perda diária), compra quando o preço caiu o suficiente abaixo da máxima recente pra cobrir a taxa de rede estimada mais a margem desejada, e vende cada lote aberto assim que o retorno líquido projetado (já descontando a taxa de rede) atinge essa margem. Aplica o limite de perda diária desativando o robô. Toda execução fica registrada na nova tabela `GN_RoboExecucaoLog` — inclusive os ciclos em que decidiu não fazer nada — com o preço avaliado e o raciocínio por trás da decisão.
+- Uma fila (`GN_RoboFila`, estados `AG`/`PR`/`GR`/`ER`) substitui um job por robô: um enfileirador único marca os robôs vencidos (`ciclo_segundos`/`proxima_execucao`, novos em `GN_Robos`) e 10 jobs do SQL Agent particionados (divididos por `robo_id % 10`, leitura `NOLOCK` sem lock) drenam a fila a cada minuto, cada robô sempre processado pela mesma partição pra suas próprias operações nunca saírem de ordem, mesmo com robôs diferentes rodando em paralelo de verdade.
+- A tela de robôs continua funcionando exatamente como antes — ativar, pausar e configurar um robô só mexem em `GN_Robos`; a fila e os jobs agendados são encanamento invisível por trás. Ativar agora agenda a primeira execução pra já, em vez de esperar um ciclo inteiro, e pausar (individualmente ou pelo botão de emergência "pausar todos") também cancela qualquer execução daquele robô que ainda estivesse esperando na fila.
+- `GN_Robos` também ganhou `publico` e `clonado_de_id`, preparando o terreno pra compartilhar a configuração de um robô como molde que outros usuários podem copiar — a execução continua totalmente independente por clone.
+
+---
+
 ## [v1.14.3] — 2026-09-27
 
 ### English

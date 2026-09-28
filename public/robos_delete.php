@@ -4,6 +4,11 @@
  * sessão. Não mexe em nenhuma operação (GN_SimLotes/GN_SimVendas)
  * que o robô já tenha gerado no passado — isso fica preservado.
  *
+ * Antes de apagar a linha do robô, limpa o histórico do motor
+ * orquestrador ligado a ele (GN_RoboExecucaoLog e GN_RoboFila) —
+ * essas duas tabelas referenciam o robô e bloqueariam o DELETE
+ * se não fossem limpas primeiro. Tudo numa única transação.
+ *
  * Body esperado (POST JSON):
  *   { session_id: string (64 hex), robo_id: string }
  * ============================================================ */
@@ -39,13 +44,29 @@ if (strlen($sid) !== 64 || !ctype_xdigit($sid) || $roboId === '') {
 
 try {
     $pdo = db();
-    $st = $pdo->prepare('DELETE FROM dbo.GN_Robos WHERE session_id = ? AND robo_client_id = ?');
-    $st->execute([$sid, $roboId]);
-    if ($st->rowCount() === 0) {
+
+    $stFind = $pdo->prepare('SELECT id FROM dbo.GN_Robos WHERE session_id = ? AND robo_client_id = ?');
+    $stFind->execute([$sid, $roboId]);
+    $row = $stFind->fetch();
+    if (!$row) {
         http_response_code(404);
         echo json_encode(['ok' => false, 'error' => 'robo nao encontrado']);
         exit;
     }
+    $idInterno = (int)$row['id'];
+
+    $pdo->beginTransaction();
+    try {
+        $pdo->prepare('DELETE FROM dbo.GN_RoboExecucaoLog WHERE robo_id = ?')->execute([$idInterno]);
+        $pdo->prepare('DELETE FROM dbo.GN_RoboFila WHERE robo_id = ?')->execute([$idInterno]);
+        $st = $pdo->prepare('DELETE FROM dbo.GN_Robos WHERE id = ?');
+        $st->execute([$idInterno]);
+        $pdo->commit();
+    } catch (Throwable $e) {
+        $pdo->rollBack();
+        throw $e;
+    }
+
     echo json_encode(['ok' => true]);
 } catch (Throwable $e) {
     http_response_code(500);
