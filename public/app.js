@@ -11,6 +11,10 @@
     { id: '20M', label: '20M', points: 60, stepMs: 20 * 60 * 1000 / 60 },
     { id: '30M', label: '30M', points: 60, stepMs: 30 * 60 * 1000 / 60 },
     { id: '1H', label: '1H', points: 60, stepMs: 60 * 60 * 1000 / 60 },
+    { id: '2H', label: '2H', points: 60, stepMs: 2 * 3600 * 1000 / 60 },
+    { id: '3H', label: '3H', points: 60, stepMs: 3 * 3600 * 1000 / 60 },
+    { id: '4H', label: '4H', points: 60, stepMs: 4 * 3600 * 1000 / 60 },
+    { id: '5H', label: '5H', points: 60, stepMs: 5 * 3600 * 1000 / 60 },
     { id: '6H', label: '6H', points: 72, stepMs: 6 * 3600 * 1000 / 72 },
     { id: '1D', label: '1D', points: 96, stepMs: 24 * 3600 * 1000 / 96 },
     { id: '2D', label: '2D', points: 96, stepMs: 2 * 86400 * 1000 / 96 },
@@ -42,7 +46,7 @@
 
   function timeLabel(t, periodId) {
     const d = new Date(t);
-    if (['5M', '10M', '20M', '30M', '1H'].includes(periodId)) return pad(d.getUTCHours()) + ':' + pad(d.getUTCMinutes());
+    if (['5M', '10M', '20M', '30M', '1H', '2H', '3H', '4H', '5H'].includes(periodId)) return pad(d.getUTCHours()) + ':' + pad(d.getUTCMinutes());
     if (['6H', '1D'].includes(periodId)) return pad(d.getUTCHours()) + 'h';
     // 2D e 3D: dia/mes + hora (eixo curto demais para so' o dia sem confundir)
     if (['2D', '3D'].includes(periodId)) return pad(d.getUTCDate()) + '/' + pad(d.getUTCMonth() + 1) + ' ' + pad(d.getUTCHours()) + 'h';
