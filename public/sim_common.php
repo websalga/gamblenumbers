@@ -14,9 +14,9 @@ declare(strict_types=1);
 require_once __DIR__ . '/../private/config.php';
 
 const SIM_LOTE_COLS  = 'lote_client_id, seq, moeda_exib, preco, valor, qtd, restante, vendido, realizado, status,
-                        fee_valor, feerate, time_cliente_ms, oculto, excluido, versao';
+                        fee_valor, feerate, time_cliente_ms, robo_client_id, oculto, excluido, versao';
 const SIM_VENDA_COLS = 'venda_client_id, seq, moeda_exib, mark_time_ms, mark_price, qtd, reservado, status, exec_price,
-                        exec_time_ms, fee_valor, feerate, pnl, valor_liquido, retorno_pct, oculto, excluido, versao';
+                        exec_time_ms, fee_valor, feerate, pnl, valor_liquido, retorno_pct, robo_client_id, oculto, excluido, versao';
 
 function db(): PDO {
     global $DB_SERVER, $DB_DATABASE, $DB_USER, $DB_PASSWORD, $DB_PORT;
@@ -48,6 +48,7 @@ function sim_fmt_lote(array $r): array {
         'status'    => $r['status'],
         'fee_brl'   => num($r['fee_valor']),
         'feerate'   => num($r['feerate']),
+        'roboClientId' => $r['robo_client_id'],
         'hidden'    => (bool)$r['oculto'],
         '_v'        => (int)$r['versao'],
     ];
@@ -71,6 +72,7 @@ function sim_fmt_venda(array $r): array {
         '_profit'   => num($r['pnl']),
         '_value'    => num($r['valor_liquido']),
         '_ret'      => num($r['retorno_pct']),
+        'roboClientId' => $r['robo_client_id'],
         'hidden'    => (bool)$r['oculto'],
         '_v'        => (int)$r['versao'],
     ];

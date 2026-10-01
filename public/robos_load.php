@@ -2,7 +2,7 @@
 /* ============================================================
  * robos_load.php — lista os robôs (Autômatos) configurados pela
  * sessão. Só leitura; nenhuma lógica de decisão de compra/venda
- * mora aqui — isso é o motor do robô em si (fila + GN_RoboOrquestrador).
+ * mora aqui -- isso é o motor do robô em si (fila + GN_RoboOrquestrador).
  *
  * GET params:
  *   session_id (obrigatório, 64 hex)
@@ -10,13 +10,15 @@
  * Resposta:
  *   { ok: true, robos: [ { id, apelido, moeda, valor_operacao,
  *       retorno_desejado_pct, limite_perda_diaria_pct, ativo,
- *       taxasReais, criado_em } ] }
+ *       taxasReais, quedaCrashPct, criado_em } ] }
  * ============================================================ */
 declare(strict_types=1);
 header('Content-Type: application/json; charset=utf-8');
 header('X-Content-Type-Options: nosniff');
 
 require_once __DIR__ . '/../private/config.php';
+
+const QUEDA_CRASH_PCT_PADRAO = 23.0;
 
 function db(): PDO {
     global $DB_SERVER, $DB_DATABASE, $DB_USER, $DB_PASSWORD, $DB_PORT;
@@ -32,11 +34,20 @@ function db(): PDO {
 
 function num($v) { return $v === null ? null : (float)$v; }
 
-function taxasReaisDeConfig(?string $configJson): bool {
-    if ($configJson === null) return true;
+function configDecode(?string $configJson): array {
+    if ($configJson === null) return [];
     $j = json_decode($configJson, true);
-    if (!is_array($j) || !array_key_exists('taxas_reais', $j)) return true;
-    return (bool)$j['taxas_reais'];
+    return is_array($j) ? $j : [];
+}
+
+function taxasReaisDeConfig(?string $configJson): bool {
+    $j = configDecode($configJson);
+    return array_key_exists('taxas_reais', $j) ? (bool)$j['taxas_reais'] : true;
+}
+
+function quedaCrashPctDeConfig(?string $configJson): float {
+    $j = configDecode($configJson);
+    return array_key_exists('queda_crash_pct', $j) ? (float)$j['queda_crash_pct'] : QUEDA_CRASH_PCT_PADRAO;
 }
 
 $sid = trim((string)($_GET['session_id'] ?? ''));
@@ -69,6 +80,7 @@ try {
             'limitePerdaDiariaPct'   => num($r['limite_perda_diaria_pct']),
             'ativo'                  => (bool)$r['ativo'],
             'taxasReais'             => taxasReaisDeConfig($r['config_json']),
+            'quedaCrashPct'          => quedaCrashPctDeConfig($r['config_json']),
             'criadoEm'               => $r['criado_em'],
             'atualizadoEm'           => $r['atualizado_em'],
         ];

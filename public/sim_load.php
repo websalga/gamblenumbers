@@ -46,6 +46,22 @@ try {
         else $sells[] = sim_fmt_venda($r);
     }
 
+    // Nomes dos robos da sessao, pra resolver quem fez cada operacao (robo_client_id -> apelido).
+    // null em roboClientId = operacao manual do usuario; nessse caso roboApelido fica null tambem
+    // e a tela mostra "(manual)".
+    $apelidos = [];
+    $stR = $pdo->prepare('SELECT robo_client_id, apelido FROM dbo.GN_Robos WHERE session_id = ?');
+    $stR->execute([$sid]);
+    foreach ($stR->fetchAll() as $rr) $apelidos[$rr['robo_client_id']] = $rr['apelido'];
+    foreach ($lots as &$l) {
+        $l['roboApelido'] = ($l['roboClientId'] !== null && isset($apelidos[$l['roboClientId']])) ? $apelidos[$l['roboClientId']] : null;
+    }
+    unset($l);
+    foreach ($sells as &$s) {
+        $s['roboApelido'] = ($s['roboClientId'] !== null && isset($apelidos[$s['roboClientId']])) ? $apelidos[$s['roboClientId']] : null;
+    }
+    unset($s);
+
     echo json_encode([
         'ok' => true, 'lots' => $lots, 'sells' => $sells,
         'excluidos' => ['lots' => $exL, 'sells' => $exV],

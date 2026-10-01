@@ -211,7 +211,7 @@ tr.row-r td:first-child{border-left:3px solid var(--red)}
 .automatos-nav-group{display:flex;flex-direction:column;align-items:center;gap:4px}
 .robos-status-btn{width:26px;height:26px;border-radius:50%;border:1px solid var(--border);background:var(--panel2);color:var(--muted2);cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;line-height:1;transition:color .15s,border-color .15s}
 .robos-status-btn svg{width:14px;height:14px;flex-shrink:0;display:block}
-.robos-status-btn[data-state="none"]{opacity:.55;cursor:not-allowed;color:var(--dim);border-color:var(--border)}
+.robos-status-btn[data-state="none"]{opacity:.55;cursor:pointer;color:var(--dim);border-color:var(--border)}
 .robos-status-btn[data-state="idle"]{color:var(--txt);border-color:var(--edge)}
 .robos-status-btn[data-state="ativo"]{color:var(--green);border-color:var(--green);animation:robosStatusPulse 1.3s ease-in-out infinite}
 @keyframes robosStatusPulse{0%,100%{box-shadow:0 0 0 0 color-mix(in srgb, var(--green) 40%, transparent)}50%{box-shadow:0 0 0 6px transparent}}
@@ -315,8 +315,7 @@ tr.row-r td:first-child{border-left:3px solid var(--red)}
     <nav class="topnav">
       <button id="navExtratos" type="button" data-i18n="nav_extratos">Extratos</button>
       <div class="automatos-nav-group">
-        <button id="navAutomatos" type="button" data-i18n="nav_automatos">Autômatos</button>
-        <button id="robosStatusBtn" type="button" class="robos-status-btn" data-state="none" disabled title="Nenhum robô configurado">
+        <button id="robosStatusBtn" type="button" class="robos-status-btn" data-state="none" title="Nenhum robô configurado">
           <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true" style="flex-shrink:0">
             <rect x="6" y="9" width="12" height="10" rx="2"></rect>
             <rect x="9.5" y="3" width="5" height="4" rx="1"></rect>
@@ -393,7 +392,7 @@ tr.row-r td:first-child{border-left:3px solid var(--red)}
     </div>
     <table>
       <thead><tr>
-        <th data-i18n="th_lote_ordem">Lote/Ordem</th><th data-i18n="th_tipo">Tipo</th><th data-i18n="th_data_hora">Data/Hora UTC</th><th id="thPreco">Preço (R$)</th>
+        <th data-i18n="th_lote_ordem">Lote/Ordem</th><th data-i18n="th_tipo">Tipo</th><th data-i18n="th_origem">Origem</th><th data-i18n="th_data_hora">Data/Hora UTC</th><th id="thPreco">Preço (R$)</th>
         <th id="thBtc">BTC</th><th id="thValor">Valor (R$)</th><th data-i18n="th_taxa_rede">Taxa Rede</th><th data-i18n="th_resultado">Resultado</th><th data-i18n="th_retorno">Retorno</th><th data-i18n="th_acoes">Ações</th>
       </tr></thead>
       <tbody id="opsBody"></tbody>
@@ -494,13 +493,13 @@ tr.row-r td:first-child{border-left:3px solid var(--red)}
 <script src="plotarea.js?v=gntemas-20260926-1"></script>
 <script src="renderers.js?v=gntemas-20260926-1"></script>
 <script src="controlpanel.js?v=gnsaldo-20260925-1"></script>
-<script src="operations.js?v=gntemas-20260926-1"></script>
-<script src="operationstable.js?v=gntemas-20260926-1"></script>
+<script src="operations.js?v=gnorigem-20261001-2"></script>
+<script src="operationstable.js?v=gnorigem-20261001-1"></script>
 <script src="saldosync.js?v=gnsaldo-20260925-1"></script>
 <script src="opssync.js?v=gnespelho-20260926-1"></script>
 <script src="app.js?v=gnhoras-20260926-1"></script>
 <script src="extratos.js?v=1789690267"></script>
-<script src="automatos.js?v=gnautomatos-20260928-1"></script>
+<script src="automatos.js?v=gnautomatos-20260928-3"></script>
 <script src="swap.js?v=5"></script>
 </body>
 </html>

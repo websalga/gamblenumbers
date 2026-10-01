@@ -3,10 +3,10 @@
  * robos_save.php — cria ou atualiza um robô (Autômato) configurado
  * pela sessão. Só grava a CONFIGURAÇÃO do robô (apelido, moeda,
  * valor por operação, retorno desejado, ativo/inativo, "Taxas
- * Reais") — a inteligência de decisão de compra/venda roda à
- * parte, no motor orquestrador (fila + GN_RoboOrquestrador) no SQL
- * Server; este endpoint não decide nada, só liga/desliga e agenda
- * o robô.
+ * Reais", "modo crash") — a inteligência de decisão de compra/venda
+ * roda à parte, no motor orquestrador (fila + GN_RoboOrquestrador)
+ * no SQL Server; este endpoint não decide nada, só liga/desliga e
+ * agenda o robô.
  *
  * Ativar o robô (ativo=true) agenda a primeira execução dele pra
  * "agora" (proxima_execucao), pra não esperar o ciclo cheio na
@@ -17,11 +17,22 @@
  * "Taxas Reais" (taxas_reais): quando ligado (padrão), o motor
  * soma o custo estimado de conversão via SideShift à taxa de rede
  * na hora de decidir compra/venda, pra simular o custo real de
- * operar com dinheiro de verdade. Fica salvo em GN_Robos.config_json
- * como {"taxas_reais": false} só quando o usuário desliga -- ligado
- * é o padrão (config_json NULL ou sem essa chave = ligado). Um save
- * que não manda esse campo (ex: o botão rápido de ativar/pausar)
- * NÃO mexe nesse valor -- preserva o que já estava salvo.
+ * operar com dinheiro de verdade.
+ *
+ * "Compra em queda forte / modo crash" (queda_crash_pct): gatilho
+ * ADICIONAL de compra (padrão 23%), que compara o preço com a
+ * máxima dos últimos 7 dias -- quando a queda acumulada passa
+ * desse valor, o robô entra em modo crash e compra a cada rodada
+ * enquanto o preço continuar fazendo mínima nova (o motor mesmo
+ * freia quando a queda perde força). 0 desativa o mecanismo.
+ *
+ * As duas chaves (taxas_reais, queda_crash_pct) moram juntas em
+ * GN_Robos.config_json e são mescladas aqui -- salvar uma não
+ * apaga a outra. Um save que não manda nenhum dos dois campos
+ * (ex: o botão rápido de ativar/pausar) preserva tudo que já
+ * estava salvo. Só ficam gravadas as chaves que diferem do padrão
+ * (taxas_reais=true e queda_crash_pct=23 não geram entrada no
+ * json -- fica NULL quando tudo está no padrão).
  *
  * O limite de perda diária (10%) é fixo por decisão de produto e
  * nunca é aceito do cliente — sempre gravado como 10.
@@ -35,7 +46,8 @@
  *     valor_operacao: number,
  *     retorno_desejado_pct: number,
  *     ativo: boolean,
- *     taxas_reais: boolean,     // opcional; omitido = não mexe (update) / true (criação)
+ *     taxas_reais: boolean,        // opcional; omitido = não mexe (update) / true (criação)
+ *     queda_crash_pct: number,     // opcional; omitido = não mexe (update) / 23 (criação); 0 desativa
  *   }
  *
  * Resposta:
@@ -49,6 +61,8 @@ require_once __DIR__ . '/../private/config.php';
 
 const ROBOS_MAX_POR_SESSAO = 5;
 const LIMITE_PERDA_DIARIA_PCT_FIXO = 10;
+const QUEDA_CRASH_PCT_PADRAO = 23.0;
+const QUEDA_CRASH_PCT_MAX = 90.0;
 
 function db(): PDO {
     global $DB_SERVER, $DB_DATABASE, $DB_USER, $DB_PASSWORD, $DB_PORT;
@@ -64,11 +78,39 @@ function db(): PDO {
 
 function num($v) { return $v === null ? null : (float)$v; }
 
-function taxasReaisDeConfig(?string $configJson): bool {
-    if ($configJson === null) return true;
+function configDecode(?string $configJson): array {
+    if ($configJson === null) return [];
     $j = json_decode($configJson, true);
-    if (!is_array($j) || !array_key_exists('taxas_reais', $j)) return true;
-    return (bool)$j['taxas_reais'];
+    return is_array($j) ? $j : [];
+}
+
+function taxasReaisDeConfig(?string $configJson): bool {
+    $j = configDecode($configJson);
+    return array_key_exists('taxas_reais', $j) ? (bool)$j['taxas_reais'] : true;
+}
+
+function quedaCrashPctDeConfig(?string $configJson): float {
+    $j = configDecode($configJson);
+    return array_key_exists('queda_crash_pct', $j) ? (float)$j['queda_crash_pct'] : QUEDA_CRASH_PCT_PADRAO;
+}
+
+/* Mescla os campos informados nesta requisição (quando presentes) com o
+ * config_json já existente, preservando o que não foi mandado. Só grava no
+ * json as chaves que diferem do padrão -- mantém o registro limpo. */
+function mesclarConfig(?string $configJsonAtual, ?bool $taxasReais, ?float $quedaCrashPct): ?string {
+    $j = configDecode($configJsonAtual);
+
+    if ($taxasReais !== null) {
+        if ($taxasReais === true) unset($j['taxas_reais']);
+        else $j['taxas_reais'] = false;
+    }
+
+    if ($quedaCrashPct !== null) {
+        if (abs($quedaCrashPct - QUEDA_CRASH_PCT_PADRAO) < 0.0001) unset($j['queda_crash_pct']);
+        else $j['queda_crash_pct'] = $quedaCrashPct;
+    }
+
+    return empty($j) ? null : json_encode($j);
 }
 
 function erro(int $status, string $msg): void {
@@ -87,14 +129,22 @@ $moeda        = strtoupper(trim((string)($body['moeda'] ?? '')));
 $valorOp      = $body['valor_operacao'] ?? null;
 $retornoPct   = $body['retorno_desejado_pct'] ?? null;
 $ativo        = !empty($body['ativo']) ? 1 : 0;
+
 $temTaxasReais = array_key_exists('taxas_reais', $body);
-$taxasReais    = $temTaxasReais ? (!empty($body['taxas_reais']) ? 1 : 0) : null;
+$taxasReais    = $temTaxasReais ? (bool)$body['taxas_reais'] : null;
+
+$temQuedaCrash   = array_key_exists('queda_crash_pct', $body);
+$quedaCrashInput = $temQuedaCrash ? $body['queda_crash_pct'] : null;
 
 if (strlen($sid) !== 64 || !ctype_xdigit($sid)) erro(400, 'sessao invalida');
 if ($apelido === '' || mb_strlen($apelido) > 60) erro(400, 'apelido invalido');
 if (!in_array($moeda, ['BTC', 'BCH'], true)) erro(400, 'moeda invalida');
 if (!is_numeric($valorOp) || (float)$valorOp <= 0) erro(400, 'valor por operacao invalido');
 if (!is_numeric($retornoPct) || (float)$retornoPct <= 0) erro(400, 'retorno desejado invalido');
+if ($temQuedaCrash && (!is_numeric($quedaCrashInput) || (float)$quedaCrashInput < 0 || (float)$quedaCrashInput > QUEDA_CRASH_PCT_MAX)) {
+    erro(400, 'queda de crash invalida');
+}
+$quedaCrashPct = $temQuedaCrash ? (float)$quedaCrashInput : null;
 
 try {
     $pdo = db();
@@ -110,9 +160,8 @@ try {
         $seq = (int)$row['max_seq'] + 1;
         $roboId = 'RB' . $seq;
 
-        // taxas_reais nasce ligado por padrao (config_json NULL), so' grava
-        // o json quando o usuario ja manda explicitamente desligado
-        $configJsonNovo = ($temTaxasReais && $taxasReais === 0) ? json_encode(['taxas_reais' => false]) : null;
+        // config_json nasce so' com o que o cliente mandou diferente do padrao
+        $configJsonNovo = mesclarConfig(null, $taxasReais, $quedaCrashPct);
 
         // proxima_execucao so' entra ja' marcada se o robo ja' nasce ativo
         $stIns = $pdo->prepare('INSERT INTO dbo.GN_Robos
@@ -128,8 +177,13 @@ try {
         // proxima_execucao: desativou -> NULL; ativou e nao tinha agenda -> agora;
         // ja' estava ativo com agenda em andamento -> mantem (nao reinicia o ciclo a
         // cada save).
-        if ($temTaxasReais) {
-            $configJsonNovo = ($taxasReais === 0) ? json_encode(['taxas_reais' => false]) : null;
+        if ($temTaxasReais || $temQuedaCrash) {
+            // le o config_json atual pra mesclar sem perder o que nao foi mandado agora
+            $stCfg = $pdo->prepare('SELECT config_json FROM dbo.GN_Robos WHERE session_id = ? AND robo_client_id = ?');
+            $stCfg->execute([$sid, $roboId]);
+            $configAtual = $stCfg->fetchColumn();
+            $configJsonNovo = mesclarConfig($configAtual === false ? null : $configAtual, $taxasReais, $quedaCrashPct);
+
             $stUpd = $pdo->prepare('UPDATE dbo.GN_Robos SET
                     apelido = ?, moeda = ?, valor_operacao = ?, retorno_desejado_pct = ?,
                     ativo = ?, config_json = ?,
@@ -140,7 +194,7 @@ try {
                 WHERE session_id = ? AND robo_client_id = ?');
             $stUpd->execute([$apelido, $moeda, (float)$valorOp, (float)$retornoPct, $ativo, $configJsonNovo, $ativo, $sid, $roboId]);
         } else {
-            // save sem o campo (ex: botao rapido de ativar/pausar) -- preserva config_json
+            // save sem nenhum dos dois campos (ex: botao rapido de ativar/pausar) -- preserva config_json
             $stUpd = $pdo->prepare('UPDATE dbo.GN_Robos SET
                     apelido = ?, moeda = ?, valor_operacao = ?, retorno_desejado_pct = ?,
                     ativo = ?,
@@ -182,6 +236,7 @@ try {
         'limitePerdaDiariaPct' => num($r['limite_perda_diaria_pct']),
         'ativo'                => (bool)$r['ativo'],
         'taxasReais'           => taxasReaisDeConfig($r['config_json']),
+        'quedaCrashPct'        => quedaCrashPctDeConfig($r['config_json']),
         'criadoEm'             => $r['criado_em'],
         'atualizadoEm'         => $r['atualizado_em'],
     ]]);

@@ -65,7 +65,7 @@
   function renderForm(robo) {
     const editando = !!robo;
     _editandoId = editando ? robo.id : null;
-    const d = editando ? robo : Object.assign({ apelido: '', moeda: moedaAtual(), ativo: false, taxasReais: true }, defaultsDaTelaPrincipal());
+    const d = editando ? robo : Object.assign({ apelido: '', moeda: moedaAtual(), ativo: false, taxasReais: true, quedaCrashPct: 23 }, defaultsDaTelaPrincipal());
 
     const form = document.getElementById('automatosForm');
     if (!form) return;
@@ -106,6 +106,11 @@
         <label for="roboTaxasReais" style="margin:0">${t('automatos_taxas_reais')}</label>
         <div class="field-hint">${t('automatos_taxas_reais_hint')}</div>
       </div>
+      <div class="field" title="${t('automatos_queda_crash_pct_hint')}">
+        <label for="roboQuedaCrash">${t('automatos_queda_crash_pct')}</label>
+        <input id="roboQuedaCrash" type="number" step="0.1" min="0" max="90" value="${Number(d.quedaCrashPct ?? 23).toFixed(1)}">
+        <div class="field-hint">${t('automatos_queda_crash_pct_hint')}</div>
+      </div>
       <div class="form-actions">
         <button id="roboSalvar" type="button">${editando ? t('automatos_salvar_alteracoes') : t('automatos_criar_robo')}</button>
         ${editando ? `<button id="roboCancelar" type="button">${t('automatos_cancelar')}</button>` : ''}
@@ -129,10 +134,13 @@
     const retornoPct = parseFloat(document.getElementById('roboRetorno').value);
     const ativo = document.getElementById('roboAtivo').checked;
     const taxasReais = document.getElementById('roboTaxasReais').checked;
+    const quedaCrashPctTxt = document.getElementById('roboQuedaCrash').value;
+    const quedaCrashPct = parseFloat(quedaCrashPctTxt);
 
     if (!apelido) { if (status) status.textContent = t('automatos_erro_apelido'); return; }
     if (!(valorOperacao > 0)) { if (status) status.textContent = t('automatos_erro_valor'); return; }
     if (!(retornoPct > 0)) { if (status) status.textContent = t('automatos_erro_retorno'); return; }
+    if (!(quedaCrashPct >= 0) || quedaCrashPct > 90) { if (status) status.textContent = t('automatos_erro_queda_crash'); return; }
 
     if (status) status.textContent = '...';
     const resp = await salvarRobo({
@@ -143,6 +151,7 @@
       retorno_desejado_pct: retornoPct,
       ativo,
       taxas_reais: taxasReais,
+      queda_crash_pct: quedaCrashPct,
     });
 
     if (!resp.ok) {
@@ -166,6 +175,7 @@
           <span>${t('automatos_retorno_desejado')}</span><b>${pct(r.retornoDesejadoPct)}</b>
           <span>${t('automatos_limite_perda')}</span><b>${pct(r.limitePerdaDiariaPct)}</b>
           <span>${t('automatos_taxas_reais')}</span><b>${(r.taxasReais ?? true) ? t('automatos_status_ativo') : t('automatos_status_inativo')}</b>
+          <span>${t('automatos_queda_crash_pct')}</span><b>${(r.quedaCrashPct ?? 23) > 0 ? pct(r.quedaCrashPct ?? 23) : t('automatos_status_inativo')}</b>
         </dl>
         <div class="robo-actions">
           <button type="button" class="robo-btn-toggle">${r.ativo ? t('automatos_desativar') : t('automatos_ativar')}</button>
@@ -225,7 +235,7 @@
    *   - "none"  : sem robôs configurados -> cinza, desabilitado
    *   - "idle"  : tem robô(s), nenhum ativo -> branco, sem piscar
    *   - "ativo" : pelo menos um robô ativo -> verde, piscando
-   * Clicar (quando não "none") pausa TODOS os robôs de uma vez.
+   * Clicar (quando não "none") pausa TODO os robôs de uma vez.
    * ------------------------------------------------------------ */
   const STATUS_POLL_MS = 15000;
   let _statusTimer = null;
@@ -245,7 +255,6 @@
     const btn = document.getElementById('robosStatusBtn');
     if (!btn) return;
     btn.dataset.state = state;
-    btn.disabled = (state === 'none');
     btn.title = t(statusLabelKey(state));
     btn.setAttribute('aria-label', t(statusLabelKey(state)));
   }
@@ -260,32 +269,11 @@
     } catch (_) { /* silencioso: não deve incomodar a tela principal */ }
   }
 
-  async function pausarTodosOsRobos() {
-    const sid = sessionId();
-    if (!sid) return;
-    const btn = document.getElementById('robosStatusBtn');
-    if (btn) btn.disabled = true;
-    try {
-      const r = await fetch('robos_pause_all.php', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ session_id: sid }),
-      });
-      await r.json().catch(() => ({}));
-    } catch (_) { /* ignore falha de rede aqui, o polling corrige o estado */ }
-    await atualizarStatusBtn();
-    const view = document.getElementById('automatosView');
-    if (view && !view.hidden) refresh();
-  }
 
   function initStatusBtn() {
     const btn = document.getElementById('robosStatusBtn');
     if (!btn) return;
-    btn.addEventListener('click', () => {
-      if (btn.dataset.state === 'none' || btn.disabled) return;
-      if (!window.confirm(t('automatos_confirmar_pausar_todos'))) return;
-      pausarTodosOsRobos();
-    });
+    btn.addEventListener('click', () => showAutomatos(true));
     atualizarStatusBtn();
     setTimeout(atualizarStatusBtn, 2000); // reforco: cobre o caso do I18N ainda carregando no primeiro tick
     if (_statusTimer) clearInterval(_statusTimer);
@@ -295,7 +283,7 @@
   function showAutomatos(show) {
     const appMain = document.getElementById('simulatorView');
     const view = document.getElementById('automatosView');
-    const btn = document.getElementById('navAutomatos');
+    const btn = document.getElementById('robosStatusBtn');
     if (appMain) appMain.hidden = !!show;
     if (view) view.hidden = !show;
     if (btn) btn.classList.toggle('active', !!show);
@@ -303,7 +291,6 @@
   }
 
   function init() {
-    document.getElementById('navAutomatos')?.addEventListener('click', () => showAutomatos(true));
     document.getElementById('automatosBack')?.addEventListener('click', () => showAutomatos(false));
     document.getElementById('automatosRefresh')?.addEventListener('click', refresh);
     initStatusBtn();

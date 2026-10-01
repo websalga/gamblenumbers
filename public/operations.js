@@ -603,6 +603,11 @@ class OperationsController {
             if (op._remote) { this._adotar(op, s); mudou = true; }
             else this._empurrar(g.tipo, op);
           } else if (s._v > op._v) { this._adotar(op, s); mudou = true; }
+          else if (op.roboClientId === undefined && s.roboClientId !== undefined) {
+            op.roboClientId = s.roboClientId;
+            op.roboApelido = s.roboApelido;
+            mudou = true;
+          }
           manter.push(op);
           continue;
         }
