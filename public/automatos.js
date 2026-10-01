@@ -14,6 +14,8 @@
 (function () {
   function t(k) { return window.I18N ? I18N.t(k) : k; }
   function esc(s) { return String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+  /* Iconezinho de ajuda (ⓘ) com tooltip nativo (title) explicando o parametro. So' decorativo: nao ha' nenhum campo, valor ou logica aqui. */
+  function tip(key) { const txt = t(key); return ` <span class="info-tip" tabindex="0" title="${esc(txt)}" aria-label="${esc(txt)}">\u24D8</span>`; }
   function sessionId() { try { return JSON.parse(localStorage.getItem('gn_session') || '{}').session_id || ''; } catch (_) { return ''; } }
   function brl(v) { return 'R$ ' + Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
   function pct(v) { return Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 4 }) + '%'; }
@@ -83,17 +85,17 @@
         </select>
       </div>
       <div class="field">
-        <label for="roboValor">${t('automatos_valor_operacao')}</label>
+        <label for="roboValor">${t('automatos_valor_operacao')}${tip('automatos_valor_operacao_tip')}</label>
         <input id="roboValor" value="${brl(d.valorOperacao ?? d.valor_operacao)}">
         <div class="field-hint">${t('automatos_valor_operacao_hint')}</div>
       </div>
       <div class="field">
-        <label for="roboRetorno">${t('automatos_retorno_desejado')}</label>
+        <label for="roboRetorno">${t('automatos_retorno_desejado')}${tip('automatos_retorno_desejado_tip')}</label>
         <input id="roboRetorno" type="number" step="0.1" min="0.1" value="${Number(d.retornoDesejadoPct ?? d.retorno_desejado_pct).toFixed(1)}">
         <div class="field-hint">${t('automatos_retorno_desejado_hint')}</div>
       </div>
       <div class="field">
-        <label>${t('automatos_limite_perda')}</label>
+        <label>${t('automatos_limite_perda')}${tip('automatos_limite_perda_tip')}</label>
         <input value="10% ${t('automatos_limite_perda_fixo')}" disabled>
         <div class="field-hint">${t('automatos_limite_perda_hint')}</div>
       </div>
@@ -103,11 +105,11 @@
       </div>
       <div class="field field-checkbox">
         <input type="checkbox" id="roboTaxasReais" ${(d.taxasReais ?? true) ? 'checked' : ''}>
-        <label for="roboTaxasReais" style="margin:0">${t('automatos_taxas_reais')}</label>
+        <label for="roboTaxasReais" style="margin:0">${t('automatos_taxas_reais')}${tip('automatos_taxas_reais_tip')}</label>
         <div class="field-hint">${t('automatos_taxas_reais_hint')}</div>
       </div>
       <div class="field" title="${t('automatos_queda_crash_pct_hint')}">
-        <label for="roboQuedaCrash">${t('automatos_queda_crash_pct')}</label>
+        <label for="roboQuedaCrash">${t('automatos_queda_crash_pct')}${tip('automatos_queda_crash_pct_tip')}</label>
         <input id="roboQuedaCrash" type="number" step="0.1" min="0" max="90" value="${Number(d.quedaCrashPct ?? 23).toFixed(1)}">
         <div class="field-hint">${t('automatos_queda_crash_pct_hint')}</div>
       </div>
