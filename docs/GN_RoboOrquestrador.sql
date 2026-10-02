@@ -324,6 +324,7 @@ BEGIN
                         @robo_client_id = @robo_client_id,
                         @retorno_desejado_pct = @retorno_desejado_pct,
                         @sideshift_pct = @sideshift_pct_robo,
+                        @lote_client_id_alvo = @lote_client,
                         @venda_client_id = @v_venda OUTPUT, @preco = @v_preco OUTPUT, @qtd = @v_qtd OUTPUT,
                         @valor_liquido = @v_liq OUTPUT, @pnl = @v_pnl OUTPUT,
                         @vendeu = @v_vendeu OUTPUT, @log_detalhe = @v_log OUTPUT;
