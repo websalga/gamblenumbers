@@ -72,7 +72,8 @@ CREATE OR ALTER PROCEDURE dbo.GN_RoboVender
     @valor_liquido        DECIMAL(18,2)  OUTPUT,
     @pnl                  DECIMAL(18,2)  OUTPUT,
     @vendeu               BIT            = 1 OUTPUT,   -- 0 = meta nao confirmada na execucao; nada foi gravado
-    @log_detalhe          NVARCHAR(1000) = NULL OUTPUT
+    @log_detalhe          NVARCHAR(1000) = NULL OUTPUT,
+    @lote_client_id_alvo  VARCHAR(20)    = NULL        -- lote especifico (uso automatico pelo orquestrador)
 AS
 BEGIN
     SET NOCOUNT ON;
@@ -112,21 +113,30 @@ BEGIN
 
     BEGIN TRAN;
 
-    /* 2) lotes com saldo (travados), SO' do robo informado, e quantidade livre */
-    SELECT id, seq, moeda_exib, preco, restante, qtd, fee_valor
+    /* 2) lotes com saldo (travados), do robo informado; se houver lote alvo,
+     *    restringe a venda a esse lote. */
+    SELECT id, seq, lote_client_id, moeda_exib, preco, restante, qtd, fee_valor
     INTO #lotes
     FROM dbo.GN_SimLotes WITH (UPDLOCK, HOLDLOCK)
     WHERE session_id = @session_id AND moeda = @moeda AND restante > 0 AND excluido = 0
-      AND (@robo_client_id IS NULL OR robo_client_id = @robo_client_id);
+      AND (@robo_client_id IS NULL OR robo_client_id = @robo_client_id)
+      AND (@lote_client_id_alvo IS NULL OR lote_client_id = @lote_client_id_alvo);
 
     DECLARE @total_rest DECIMAL(24,10) = ISNULL((SELECT SUM(restante) FROM #lotes), 0);
+    /* GN_SimVendas nao possui lote_client_id; reservas permanecem agregadas
+     * por sessao/moeda. Com lote alvo, isso pode reduzir conservadoramente
+     * a quantidade livre, mas nunca permite consumir quantidade reservada. */
     DECLARE @reservado  DECIMAL(24,10) = ISNULL((SELECT SUM(reservado) FROM dbo.GN_SimVendas WITH (UPDLOCK, HOLDLOCK)
                                                  WHERE session_id = @session_id AND moeda = @moeda AND status = 'pending' AND excluido = 0), 0);
     DECLARE @livre DECIMAL(24,10) = @total_rest - @reservado;
 
     IF @livre <= 0 THROW 50020, 'nao ha quantidade livre para vender', 1;
 
-    SET @qtd = CASE WHEN ISNULL(@vender_tudo,0) = 1 THEN @livre ELSE @valor / @preco END;
+    SET @qtd = CASE
+                 WHEN @lote_client_id_alvo IS NOT NULL THEN @livre
+                 WHEN ISNULL(@vender_tudo,0) = 1 THEN @livre
+                 ELSE @valor / @preco
+               END;
     IF @qtd > @livre SET @qtd = @livre;        -- ordem ajustada ao livre, como o front
     IF @qtd <= 0 THROW 50003, 'valor de operacao invalido', 1;
 
@@ -177,7 +187,7 @@ BEGIN
              ELSE 0 END;
 
     SET @pnl           = CAST(@pnl_bruto - @fee_brl - @taxa_compra_prop - @custo_sideshift AS DECIMAL(18,2));
-    SET @valor_liquido = CAST(@qtd_vendida * @preco - @fee_brl AS DECIMAL(18,2));
+    SET @valor_liquido = CAST(@qtd_vendida * @preco - @fee_brl - @custo_sideshift AS DECIMAL(18,2));
     DECLARE @retorno DECIMAL(9,4) = CASE WHEN @custo > 0 THEN CAST(@pnl / @custo * 100 AS DECIMAL(9,4)) ELSE 0 END;
     SET @qtd = @qtd_vendida;
 
@@ -186,7 +196,8 @@ BEGIN
         ' fee_venda=', @fee_brl, ' taxa_compra_alocada=', @taxa_compra_prop,
         ' custo_sideshift=', @custo_sideshift, ' sideshift_pct=', ISNULL(CAST(@sideshift_pct AS VARCHAR(20)), 'null'),
         ' pnl_liquido=', @pnl, ' retorno_liquido_pct=', @retorno,
-        ' meta_pct=', ISNULL(CAST(@retorno_desejado_pct AS VARCHAR(20)), 'null'));
+        ' meta_pct=', ISNULL(CAST(@retorno_desejado_pct AS VARCHAR(20)), 'null'),
+        ' lote_alvo=', ISNULL(@lote_client_id_alvo, 'null'));
 
     /* 4b) validacao final: so' para vendas de robo (@robo_client_id informado)
      *     com meta definida. Se o retorno liquido REAL (ja com todas as taxas)
@@ -238,6 +249,7 @@ BEGIN
             ',"taxa":', CAST(@fee_brl AS VARCHAR(40)),
             ',"taxa_compra_alocada":', CAST(@taxa_compra_prop AS VARCHAR(40)),
             ',"custo_sideshift":', CAST(@custo_sideshift AS VARCHAR(40)),
+            ',"lote_alvo":', ISNULL('"' + @lote_client_id_alvo + '"', 'null'),
             ',"valor_liquido":', CAST(@valor_liquido AS VARCHAR(40)),
             ',"pnl":', CAST(@pnl AS VARCHAR(40)),
             ',"retorno_pct":', CAST(@retorno AS VARCHAR(40)),
@@ -260,4 +272,5 @@ GO
 --      @retorno_desejado_pct = 1.00, @sideshift_pct = 3.5,
 --      @venda_client_id = @venda OUTPUT, @preco = @preco OUTPUT, @qtd = @qtd OUTPUT,
 --      @valor_liquido = @liq OUTPUT, @pnl = @pnl OUTPUT, @vendeu = @vendeu OUTPUT, @log_detalhe = @log OUTPUT;
+-- Para restringir a venda automatica a um lote, passe tambem @lote_client_id_alvo = '<lote>';
 -- SELECT @venda, @preco, @qtd, @liq, @pnl, @vendeu, @log;
