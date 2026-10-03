@@ -353,6 +353,19 @@ function make_session_id(string $fp, string $btc, string $bch, string $ip): stri
     return hash('sha256', $fp . '|' . $btc . '|' . $bch . '|' . $ip);
 }
 
+/* --- Codigo publico da sessao (GN-XXXXXX): HMAC-SHA256 do session_id com segredo fora do docroot.
+ *     Mesmo calculo do wallboard (wb_code). Sem segredo configurado devolve '' (selo some). --- */
+function gn_codigo_sessao(string $sid): string {
+    static $salt = null;
+    if ($salt === null) {
+        $salt = '';
+        $f = __DIR__ . '/../private/anon_config.php';
+        if (is_file($f)) { $c = include $f; if (is_array($c)) $salt = (string)($c['anon_salt'] ?? ''); }
+    }
+    if ($salt === '') return '';
+    return 'GN-' . strtoupper(substr(hash_hmac('sha256', $sid, $salt), 0, 6));
+}
+
 /* --- IP real do cliente --- */
 function client_ip(): string {
     foreach (['HTTP_CF_CONNECTING_IP','HTTP_X_REAL_IP','HTTP_X_FORWARDED_FOR','REMOTE_ADDR'] as $k) {
@@ -375,7 +388,8 @@ try {
             $sid = $body['session_id'] ?? '';
             if (strlen($sid) !== 64) { echo json_encode(['valid'=>false]); return; }
             $st = db()->prepare('SELECT session_id, btc_address, bch_address,
-                btc_saldo_visto, bch_saldo_visto, modo_real, moeda_saida, endereco_saida, senha_hash
+                btc_saldo_visto, bch_saldo_visto, modo_real, moeda_saida, endereco_saida, senha_hash,
+                CASE WHEN criado_em > DATEADD(HOUR,-24,GETUTCDATE()) THEN 1 ELSE 0 END AS nova
                 FROM dbo.GN_Usuarios WHERE session_id=?');
             $st->execute([$sid]);
             $row = $st->fetch();
@@ -397,6 +411,8 @@ try {
                 'moeda_saida'    => $row['moeda_saida'],
                 'endereco_saida' => $row['endereco_saida'],
                 'tem_senha'      => !empty($row['senha_hash']),
+                'codigo'         => gn_codigo_sessao($sid),
+                'nova'           => (bool)$row['nova'],
             ]);
         })(),
 
@@ -427,7 +443,8 @@ try {
 
             // Já existe?
             $st = db()->prepare('SELECT session_id, btc_address, bch_address,
-                btc_saldo_visto, bch_saldo_visto, modo_real, senha_hash FROM dbo.GN_Usuarios WHERE session_id=?');
+                btc_saldo_visto, bch_saldo_visto, modo_real, senha_hash,
+                CASE WHEN criado_em > DATEADD(HOUR,-24,GETUTCDATE()) THEN 1 ELSE 0 END AS nova FROM dbo.GN_Usuarios WHERE session_id=?');
             $st->execute([$sid]);
             $existing = $st->fetch();
             if ($existing) {
@@ -440,6 +457,8 @@ try {
                     'bch_saldo'=>$existing['bch_saldo_visto'],
                     'modo_real'=>(bool)$existing['modo_real'],
                     'tem_senha'=>!empty($existing['senha_hash']),
+                    'codigo'=>gn_codigo_sessao($sid),
+                    'nova'=>(bool)$existing['nova'],
                 ]);
                 return;
             }
@@ -464,6 +483,8 @@ try {
                 'bch_saldo'   => '0',
                 'modo_real'   => false,
                 'tem_senha'   => false,
+                'codigo'      => gn_codigo_sessao($sid),
+                'nova'        => true,
             ]);
         })(),
 
@@ -733,7 +754,8 @@ try {
             if ($senha === '') { echo json_encode(['matched'=>false]); return; }
 
             $st = db()->query("SELECT session_id, btc_address, bch_address, btc_saldo_visto, bch_saldo_visto,
-                modo_real, moeda_saida, endereco_saida, senha_hash, idioma_preferido
+                modo_real, moeda_saida, endereco_saida, senha_hash, idioma_preferido,
+                CASE WHEN criado_em > DATEADD(HOUR,-24,GETUTCDATE()) THEN 1 ELSE 0 END AS nova
                 FROM dbo.GN_Usuarios WHERE senha_hash IS NOT NULL");
             $candidatos = $st->fetchAll();
 
@@ -759,6 +781,8 @@ try {
                         'moeda_saida'      => $row['moeda_saida'],
                         'endereco_saida'   => $row['endereco_saida'],
                         'idioma_preferido' => $row['idioma_preferido'],
+                        'codigo'           => gn_codigo_sessao($row['session_id']),
+                        'nova'             => (bool)$row['nova'],
                     ]);
                     return;
                 }
