@@ -19,3 +19,6 @@ private/forecast_config.php
 private/backups/
 __pycache__/
 *.pyc
+
+# segredo do codigo publico de sessao GN-XXXXXX
+private/anon_config.php
