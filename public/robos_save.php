@@ -148,6 +148,8 @@ $quedaCrashPct = $temQuedaCrash ? (float)$quedaCrashInput : null;
 
 try {
     $pdo = db();
+    // historico de parametros (GN_RoboParametrosLog): informa ao trigger que a alteracao veio do usuario
+    $pdo->exec("EXEC sys.sp_set_session_context N'origem', N'usuario'");
 
     if ($roboId === '') {
         // criação: aplica o limite de robôs por sessão

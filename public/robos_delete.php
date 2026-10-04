@@ -44,6 +44,8 @@ if (strlen($sid) !== 64 || !ctype_xdigit($sid) || $roboId === '') {
 
 try {
     $pdo = db();
+    // historico de parametros (GN_RoboParametrosLog): informa ao trigger que a alteracao veio do usuario
+    $pdo->exec("EXEC sys.sp_set_session_context N'origem', N'usuario'");
 
     $stFind = $pdo->prepare('SELECT id FROM dbo.GN_Robos WHERE session_id = ? AND robo_client_id = ?');
     $stFind->execute([$sid, $roboId]);

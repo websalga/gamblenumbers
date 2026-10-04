@@ -1,5 +1,27 @@
 # Changelog
 
+## [v1.17.0] — 2026-10-04
+
+### English
+
+**Added: robot parameter history (who changed a robot's settings, when, and why)**
+Every INSERT, DELETE or real configuration UPDATE on `GN_Robos` now stores a full copy of the robot in the new table `GN_RoboParametrosLog` (via trigger `TR_GN_Robos_ParametrosLog`), with session, robot, timestamp, application, origin (`usuario`, `ia`, `auto`, `motor`) and reason. Engine noise (`proxima_execucao`, `atualizado_em`) is ignored; the trigger never blocks a robot write.
+
+- User changes (`robos_save.php`, `robos_pause_all.php`, `robos_delete.php`) record `origem = usuario` with an empty reason (one line each, via `SESSION_CONTEXT`).
+- `GN_RoboAjustarParametros`: the single entry point for AI/automatic tuning — requires a reason, validates ranges, never toggles `ativo`.
+- `GN_RoboOrquestrador`: when it deactivates a robot on the daily loss limit it records `origem = motor` plus the reason. Nothing else changed in the engine.
+- The history can feed simulations of how settings behave under each market change. SQL scripts in `docs/`.
+
+### Português
+
+**Adicionado: histórico de parâmetros dos robôs (quem alterou a configuração de um robô, quando e por quê)**
+Todo INSERT, DELETE ou UPDATE real de configuração em `GN_Robos` agora grava uma cópia completa do robô na nova tabela `GN_RoboParametrosLog` (via trigger `TR_GN_Robos_ParametrosLog`), com sessão, robô, data/hora, aplicação, origem (`usuario`, `ia`, `auto`, `motor`) e motivo. O ruído do motor (`proxima_execucao`, `atualizado_em`) é ignorado; o trigger nunca bloqueia a gravação do robô.
+
+- Alterações do usuário (`robos_save.php`, `robos_pause_all.php`, `robos_delete.php`) gravam `origem = usuario` com motivo vazio (uma linha em cada, via `SESSION_CONTEXT`).
+- `GN_RoboAjustarParametros`: porta única para ajuste por IA/automático — exige motivo, valida faixas, nunca liga/desliga `ativo`.
+- `GN_RoboOrquestrador`: ao desativar o robô pelo limite de perda diária, grava `origem = motor` e o motivo. Nada mais mudou no motor.
+- O histórico poderá alimentar simulações de como as configurações se comportam a cada mudança de mercado. Scripts SQL em `docs/`.
+
 ## [v1.16.0] — 2026-10-03
 
 ### English

@@ -43,6 +43,8 @@ if (strlen($sid) !== 64 || !ctype_xdigit($sid)) {
 
 try {
     $pdo = db();
+    // historico de parametros (GN_RoboParametrosLog): informa ao trigger que a alteracao veio do usuario
+    $pdo->exec("EXEC sys.sp_set_session_context N'origem', N'usuario'");
     $st = $pdo->prepare(
         'UPDATE dbo.GN_Robos SET ativo = 0, proxima_execucao = NULL, atualizado_em = SYSUTCDATETIME() ' .
         'WHERE session_id = ? AND ativo = 1'

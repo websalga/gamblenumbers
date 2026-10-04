@@ -31,6 +31,9 @@
 -- limite_perda_diaria_pct, queda_crash_pct, taxas_reais) vem de GN_Robos e
 -- NAO sao alterados por esta procedure.
 --
+-- ATUALIZADA em 2026-10-04: ao desativar por limite de perda diaria informa origem='motor' + motivo ao historico
+-- de parametros (TR_GN_Robos_ParametrosLog / GN_RoboParametrosLog). Nada mais mudou.
+--
 -- ATUALIZADA em 2026-10-01 (correcao do calculo de lucro liquido dos robos):
 -- a secao 5 (decisao de VENDA) deixou de ser a autorizacao final da venda e
 -- passou a ser so' um PRE-FILTRO local (estimativa rapida, sem todas as
@@ -121,7 +124,13 @@ BEGIN
 
         IF @saldo > 0 AND @pnl_dia < 0 AND ABS(@pnl_dia) >= (@limite_perda_diaria_pct / 100.0) * @saldo
         BEGIN
+            -- historico de parametros: informa ao trigger que foi o motor (origem/motivo) e limpa o contexto em seguida
+            DECLARE @motivo_hist NVARCHAR(1000) = CONCAT('limite de perda diaria atingido: pnl_dia=', @pnl_dia, ' limite_pct=', @limite_perda_diaria_pct, ' saldo=', @saldo, ' -- robo desativado pelo motor');
+            EXEC sys.sp_set_session_context N'origem', N'motor';
+            EXEC sys.sp_set_session_context N'motivo', @motivo_hist;
             UPDATE dbo.GN_Robos SET ativo = 0, atualizado_em = SYSUTCDATETIME() WHERE id = @robo_id;
+            EXEC sys.sp_set_session_context N'origem', NULL;
+            EXEC sys.sp_set_session_context N'motivo', NULL;
             UPDATE dbo.GN_RoboExecucaoLog
                SET concluido_em = SYSUTCDATETIME(), acao = 'nenhuma', status = 'ok',
                    detalhe = CONCAT('limite de perda diaria atingido: pnl_dia=', @pnl_dia, ' limite_pct=', @limite_perda_diaria_pct, ' saldo=', @saldo, ' -- robo desativado')
