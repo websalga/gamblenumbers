@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex,nofollow">
+<title>Meu painel · BTC Simulador</title>
+<link rel="stylesheet" href="/painel/painel.css?v=gnpainel-20261003-1">
+<script src="/theme.js?v=gntemas-20260926-2"></script>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="brand">
+      <h1><span>BTC Simulador</span><span id="sessCode" class="sess-badge" hidden></span></h1>
+      <p id="subtitle"></p>
+    </div>
+    <nav class="topnav" id="topnav">
+      <a id="navBack" class="navbtn" href="/"></a>
+      <button id="btnRefresh" type="button"></button>
+      <button id="btnPause" type="button"></button>
+    </nav>
+    <div class="status"><span class="dot" id="dot"></span><span id="statusTxt"></span></div>
+  </header>
+
+  <div class="bar" id="bar" hidden>
+    <div class="chips" id="coinChips" role="group"></div>
+  </div>
+
+  <main id="view"><p class="msg" id="loading"></p></main>
+  <footer id="foot"></footer>
+</div>
+<script src="/painel/painel_i18n.js?v=gnpainel-20261003-1"></script>
+<script src="/painel/painel.js?v=gnpainel-20261003-1"></script>
+</body>
+</html>

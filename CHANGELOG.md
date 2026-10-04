@@ -1,5 +1,35 @@
 # Changelog
 
+## [v1.16.0] — 2026-10-03
+
+### English
+
+**Added: "My dashboard" (`/painel/`) — a read-only page where each user follows their own session**
+A round button next to the robots button in the top bar opens `/painel/` in a new tab (handy for a second monitor). It shows only the logged-in user's own session — it reuses the session the site already keeps in the browser, so there is no extra login.
+
+- KPIs (virtual balance, result today / 7 days / total, executed sales and hit rate, open purchases, active robots), robot cards with every parameter and the last decision, recent trades (manual and robot), robot activity, withdrawals, and balances (real balances only for real-mode sessions). Deposit addresses, password hashes, fingerprints and IPs are never returned.
+- Sign rule: positive result green, negative red, zero neutral — also applied to the word "Sell".
+- Same colour themes as the site (`theme.js`); the session badge (GN-XXXXXX) is shown and copies on click; auto-refresh every 30 s with pause/refresh.
+- Backend: `public/painel_api.php` + `private/painel_lib.php`, POST-only (the session id never goes in the URL/logs), same-origin check, its own PHP rate limit and strictly read-only SQL queries.
+- The page does **not** edit robots — creating, editing and pausing stay in the existing Autômatos screen.
+- i18n is built for all 11 languages; pt-BR and en-US are filled in now, the other nine fall back to en-US until their blocks are added to `painel_i18n.js`.
+- The only change to existing code is two lines in `index.html` (the button and its script `painelbtn.js`).
+
+### Português
+
+**Adicionado: "Meu painel" (`/painel/`) — página somente leitura para cada usuário acompanhar a própria sessão**
+Um botão redondo ao lado do botão dos robôs, na barra do topo, abre `/painel/` em nova aba (bom para um segundo monitor). Mostra apenas a sessão do próprio usuário logado — reaproveita a sessão que o site já guarda no navegador, então não há login extra.
+
+- KPIs (saldo virtual, resultado hoje / 7 dias / total, vendas executadas e taxa de acerto, compras em carteira, robôs ativos), cartões dos robôs com todos os parâmetros e a última decisão, operações recentes (manuais e de robô), atividade dos robôs, saques e saldos (saldos reais só em sessões de modo real). Endereços de depósito, hashes de senha, fingerprint e IP nunca são devolvidos.
+- Regra de sinal: resultado positivo verde, negativo vermelho, zero neutro — vale também para a palavra "Venda".
+- Mesmos temas de cores do site (`theme.js`); o selo da sessão (GN-XXXXXX) aparece e copia ao clicar; atualização automática a cada 30 s com pausar/atualizar.
+- Backend: `public/painel_api.php` + `private/painel_lib.php`, só POST (o id da sessão nunca vai na URL/logs), checagem de mesma origem, limite de requisições próprio em PHP e consultas SQL estritamente de leitura.
+- A página **não** edita robôs — criar, editar e pausar continuam na tela de Autômatos já existente.
+- O i18n foi construído para os 11 idiomas; pt-BR e en-US estão preenchidos agora, os outros nove usam en-US até seus blocos serem acrescentados em `painel_i18n.js`.
+- A única mudança em código existente são duas linhas no `index.html` (o botão e o script `painelbtn.js`).
+
+---
+
 ## [v1.15.0] — 2026-09-27
 
 ### English

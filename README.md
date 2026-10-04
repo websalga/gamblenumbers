@@ -67,6 +67,10 @@ The platform is designed for:
 - Columns: Lot, Type, Date/Time UTC, Price (BRL), BTC, Value, Result, Return %
 - Conditional sell countdown • Bulk clear options
 
+### 🧭 My Dashboard (`/painel/`)
+- Read-only page for each user's own session: KPIs, robots with all parameters and last decision, recent trades, withdrawals
+- Opens in a new tab from the top bar • Same themes • Auto-refresh
+
 ### 💱 Multi-Asset & Multi-Currency
 - **Bitcoin (BTC)** and **Bitcoin Cash (BCH)**
 - Quote in **BRL** or **USD**
@@ -141,6 +145,7 @@ Simulador de trading de **BTC e BCH** com cotações reais de Binance, Kraken e 
 - Tabela de operações com resultado em tempo real
 - Previsão estatística de preço com alvo calculado
 - 10 idiomas | BTC e BCH | BRL e USD
+- **Meu painel** (`/painel/`): página somente leitura com KPIs, robôs, operações e saques da própria sessão
 
 ## 🎓 Objetivos Educacionais
 
