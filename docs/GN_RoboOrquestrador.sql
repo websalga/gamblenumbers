@@ -18,18 +18,19 @@
 -- operar so' contra a taxa de rede.
 --
 -- "Modo crash" (config_json.queda_crash_pct, default = 23): gatilho de
--- compra ADICIONAL ao gatilho normal (que so' olha 30 min). Se o preco cair
--- >= queda_crash_pct em relacao a' maxima dos ULTIMOS 7 DIAS, o robo entra em
--- modo crash e passa a comprar a cada ciclo enquanto o preco continuar
--- fazendo minima nova (freio: compara com as ultimas 3 leituras -- se o
--- preco parar de cair, a compra pausa ate' voltar a cair). queda_crash_pct
--- = 0 desativa esse mecanismo (fica so' o gatilho normal de 30 min).
+-- compra em PARALELO ao gatilho normal (max. 1 lote por ciclo). Compara a
+-- cotacao atual com a leitura anterior (rodada de coleta >= 120 s antes): se
+-- caiu >= queda_crash_pct, compra 1 lote por ciclo de 20 s enquanto essa queda
+-- existir; quando a rodada nova nao cair >= pct, para; se voltar a cair,
+-- retoma. queda_crash_pct = 0 desativa.
 --
 -- Escopo desta procedure: SO a mecanica de decisao (quando comprar/vender e
 -- com quais parametros chamar GN_RoboComprar/GN_RoboVender). Os parametros
 -- estrategicos do robo (valor_operacao, retorno_desejado_pct,
 -- limite_perda_diaria_pct, queda_crash_pct, taxas_reais) vem de GN_Robos e
 -- NAO sao alterados por esta procedure.
+--
+-- ATUALIZADA em 2026-10-05: modo crash reescrito (queda vs leitura anterior, compra por ciclo enquanto cair; freio de 3 leituras e maxima de 7 dias removidos). Venda inalterada: SideShift ja' fica fora quando taxas_reais = false.
 --
 -- ATUALIZADA em 2026-10-04: ao desativar por limite de perda diaria informa origem='motor' + motivo ao historico
 -- de parametros (TR_GN_Robos_ParametrosLog / GN_RoboParametrosLog). Nada mais mudou.
@@ -237,63 +238,64 @@ BEGIN
         ELSE
             SET @detalhe = CONCAT(@detalhe, 'sem compra: queda ', @queda_pct, '% < limiar ', @limiar_pct, '%. ');
 
-        /* 4b) MODO CRASH: gatilho adicional, so' entra se o normal nao comprou.
-         *     Queda medida contra a maxima de 7 DIAS (pega crash de varios dias,
-         *     nao so' 30 min). Freio: so' compra se o preco ainda estiver fazendo
-         *     minima nova nas ultimas 3 leituras -- quando a queda estabiliza,
-         *     pausa ate' voltar a cair. */
+        /* 4b) MODO CRASH (regra 2026-10-05): gatilho de compra em paralelo ao normal
+         *     (no maximo 1 lote por ciclo: so' roda se o normal nao comprou).
+         *     Cada leitura = uma rodada de coleta (as linhas de BTC vem em pares a
+         *     ~7 s; por isso a leitura anterior e' a mais recente com >= 120 s de
+         *     diferenca da atual, ate' 30 min). Se a cotacao atual caiu >=
+         *     queda_crash_pct (padrao 23) em relacao a' leitura anterior, o robo
+         *     compra 1 lote por ciclo de 20 s enquanto essa queda existir (a
+         *     leitura atual so' muda quando chega rodada nova). Quando a rodada
+         *     nova nao cair >= pct (queda zero ou alta) ele para; se voltar a
+         *     cair >= pct, retoma. Sem estado gravado: tudo derivado das leituras. */
         DECLARE @queda_crash_pct DECIMAL(9,4) = 23;
         IF @config_json IS NOT NULL AND ISNUMERIC(JSON_VALUE(@config_json, '$.queda_crash_pct')) = 1
             SET @queda_crash_pct = CAST(JSON_VALUE(@config_json, '$.queda_crash_pct') AS DECIMAL(9,4));
 
         IF @acao = 'nenhuma' AND @queda_crash_pct > 0
         BEGIN
-            DECLARE @max_7d DECIMAL(24,8);
+            DECLARE @ts_atual DATETIME2, @preco_ant DECIMAL(24,8);
             IF @moeda = 'BTC'
-                SELECT @max_7d = MAX(media_exchanges_brl) FROM dbo.snapshots WITH (NOLOCK)
-                WHERE ok = 1 AND media_exchanges_brl > 0 AND ts_utc >= DATEADD(DAY, -7, @agora);
-            ELSE
-                SELECT @max_7d = MAX(media_exchanges_brl) FROM dbo.BCH_Snapshots WITH (NOLOCK)
-                WHERE ok = 1 AND media_exchanges_brl > 0 AND ts_utc >= DATEADD(DAY, -7, @agora);
-
-            IF @max_7d IS NULL SET @max_7d = @preco;
-            DECLARE @queda_7d_pct DECIMAL(9,4) = CASE WHEN @max_7d > 0 THEN (@max_7d - @preco) / @max_7d * 100.0 ELSE 0 END;
-
-            IF @queda_7d_pct >= @queda_crash_pct
             BEGIN
-                DECLARE @min_ultimas3 DECIMAL(24,8);
-                IF @moeda = 'BTC'
-                    SELECT @min_ultimas3 = MIN(media_exchanges_brl) FROM (
-                        SELECT TOP 3 media_exchanges_brl FROM dbo.snapshots WITH (NOLOCK)
-                        WHERE ok = 1 AND media_exchanges_brl > 0 AND ts_utc < @agora
-                        ORDER BY ts_utc DESC) x;
-                ELSE
-                    SELECT @min_ultimas3 = MIN(media_exchanges_brl) FROM (
-                        SELECT TOP 3 media_exchanges_brl FROM dbo.BCH_Snapshots WITH (NOLOCK)
-                        WHERE ok = 1 AND media_exchanges_brl > 0 AND ts_utc < @agora
-                        ORDER BY ts_utc DESC) x;
-
-                IF @min_ultimas3 IS NULL OR @preco < @min_ultimas3
-                BEGIN
-                    DECLARE @cc_lote VARCHAR(20), @cc_preco DECIMAL(24,8), @cc_qtd DECIMAL(24,10);
-                    BEGIN TRY
-                        EXEC dbo.GN_RoboComprar
-                            @session_id = @session_id, @moeda = @moeda, @valor = @valor_operacao,
-                            @robo_client_id = @robo_client_id,
-                            @lote_client_id = @cc_lote OUTPUT, @preco = @cc_preco OUTPUT, @qtd = @cc_qtd OUTPUT;
-                        SET @acao = 'compra'; SET @referencia = @cc_lote; SET @preco_avaliado = @cc_preco;
-                        SET @detalhe = CONCAT(@detalhe, 'compra (modo crash): queda_7d ', @queda_7d_pct, '% >= gatilho ',
-                                               @queda_crash_pct, '%; nova minima confirmada; lote ', @cc_lote, '. ');
-                    END TRY
-                    BEGIN CATCH
-                        SET @detalhe = CONCAT(@detalhe, 'modo crash tentou comprar (queda_7d ', @queda_7d_pct, '% >= ',
-                                               @queda_crash_pct, '%) mas falhou: ', ERROR_MESSAGE(), '. ');
-                    END CATCH
-                END
-                ELSE
-                    SET @detalhe = CONCAT(@detalhe, 'modo crash ativo (queda_7d ', @queda_7d_pct, '% >= ', @queda_crash_pct,
-                                           '%) mas freio: preco nao fez nova minima nas ultimas 3 leituras. ');
+                SELECT TOP 1 @ts_atual = ts_utc FROM dbo.snapshots WITH (NOLOCK)
+                WHERE ok = 1 AND media_exchanges_brl > 0 ORDER BY ts_utc DESC;
+                SELECT TOP 1 @preco_ant = media_exchanges_brl FROM dbo.snapshots WITH (NOLOCK)
+                WHERE ok = 1 AND media_exchanges_brl > 0
+                  AND ts_utc <= DATEADD(SECOND, -120, @ts_atual) AND ts_utc >= DATEADD(MINUTE, -30, @ts_atual)
+                ORDER BY ts_utc DESC;
             END
+            ELSE
+            BEGIN
+                SELECT TOP 1 @ts_atual = ts_utc FROM dbo.BCH_Snapshots WITH (NOLOCK)
+                WHERE ok = 1 AND media_exchanges_brl > 0 ORDER BY ts_utc DESC;
+                SELECT TOP 1 @preco_ant = media_exchanges_brl FROM dbo.BCH_Snapshots WITH (NOLOCK)
+                WHERE ok = 1 AND media_exchanges_brl > 0
+                  AND ts_utc <= DATEADD(SECOND, -120, @ts_atual) AND ts_utc >= DATEADD(MINUTE, -30, @ts_atual)
+                ORDER BY ts_utc DESC;
+            END
+
+            DECLARE @queda_leitura_pct DECIMAL(9,4) =
+                CASE WHEN @preco_ant > 0 THEN (@preco_ant - @preco) / @preco_ant * 100.0 ELSE 0 END;
+
+            IF @preco_ant IS NOT NULL AND @queda_leitura_pct >= @queda_crash_pct
+            BEGIN
+                DECLARE @cc_lote VARCHAR(20), @cc_preco DECIMAL(24,8), @cc_qtd DECIMAL(24,10);
+                BEGIN TRY
+                    EXEC dbo.GN_RoboComprar
+                        @session_id = @session_id, @moeda = @moeda, @valor = @valor_operacao,
+                        @robo_client_id = @robo_client_id,
+                        @lote_client_id = @cc_lote OUTPUT, @preco = @cc_preco OUTPUT, @qtd = @cc_qtd OUTPUT;
+                    SET @acao = 'compra'; SET @referencia = @cc_lote; SET @preco_avaliado = @cc_preco;
+                    SET @detalhe = CONCAT(@detalhe, 'compra (modo crash): queda ', @queda_leitura_pct, '% vs leitura anterior >= gatilho ',
+                                           @queda_crash_pct, '%; lote ', @cc_lote, '. ');
+                END TRY
+                BEGIN CATCH
+                    SET @detalhe = CONCAT(@detalhe, 'modo crash tentou comprar (queda ', @queda_leitura_pct, '% >= ',
+                                           @queda_crash_pct, '%) mas falhou: ', ERROR_MESSAGE(), '. ');
+                END CATCH
+            END
+            ELSE
+                SET @detalhe = CONCAT(@detalhe, 'sem crash: queda ', @queda_leitura_pct, '% vs leitura anterior < ', @queda_crash_pct, '%. ');
         END
 
         /* 5) decisao de VENDA: por lote aberto, PRE-FILTRO local (nao e' mais

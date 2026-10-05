@@ -1,5 +1,23 @@
 # Changelog
 
+## [v1.17.1] — 2026-10-05
+
+### English
+
+**Changed: robot "crash mode" rewritten (`GN_RoboOrquestrador`, section 4b)**
+- The trigger now compares the current quote with the previous reading (the latest collection round at least 120 s older, up to 30 min). If it fell by at least the robot's `queda_crash_pct` (default 23 when empty), the robot buys one lot per 20 s cycle while that drop exists.
+- When a new reading does not fall by at least that percentage (flat or up), it stops; if it falls again, it resumes. No stored state: everything is derived from the readings.
+- Removed the 7-day-maximum comparison and the 3-reading brake (the brake included the current reading, so crash mode never bought).
+- Runs in parallel with the normal trigger (at most one lot per cycle). Selling is unchanged: SideShift is already left out when "Taxas Reais" is off; each robot only sells its own lots that reach the desired net return.
+
+### Português
+
+**Alterado: "modo crash" dos robôs reescrito (`GN_RoboOrquestrador`, seção 4b)**
+- O gatilho agora compara a cotação atual com a leitura anterior (a rodada de coleta mais recente com pelo menos 120 s de diferença, até 30 min). Se caiu pelo menos o `queda_crash_pct` do robô (padrão 23 quando vazio), o robô compra um lote por ciclo de 20 s enquanto essa queda existir.
+- Quando uma leitura nova não cai pelo menos esse percentual (estável ou subindo), ele para; se voltar a cair, retoma. Sem estado gravado: tudo é derivado das leituras.
+- Removidos o comparativo com a máxima de 7 dias e o freio de 3 leituras (o freio incluía a leitura atual, então o modo crash nunca comprava).
+- Roda em paralelo ao gatilho normal (no máximo um lote por ciclo). A venda não mudou: o SideShift já fica fora com "Taxas Reais" desligado; cada robô vende só os próprios lotes que atingem o retorno líquido desejado.
+
 ## [v1.17.0] — 2026-10-04
 
 ### English
