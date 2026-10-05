@@ -30,6 +30,12 @@
 -- limite_perda_diaria_pct, queda_crash_pct, taxas_reais) vem de GN_Robos e
 -- NAO sao alterados por esta procedure.
 --
+-- ATUALIZADA em 2026-10-05 (2): (a) compra normal e crash so' chamam GN_RoboComprar se houver saldo
+-- (valor + taxa); sem saldo registra 'saldo insuficiente' e SEGUE para a venda -- antes o erro 50012
+-- deixava a transacao inutilizavel (XACT_ABORT) e o job inteiro falhava, deixando robos presos em PR.
+-- (b) ROLLBACK nos CATCH das compras quando houver transacao aberta. (c) @retorno_pct DECIMAL(18,4)
+-- (lote com resto minusculo estourava DECIMAL(9,4) quando a taxa de rede subia). Regras de compra/venda inalteradas.
+--
 -- ATUALIZADA em 2026-10-05: modo crash reescrito (queda vs leitura anterior, compra por ciclo enquanto cair; freio de 3 leituras e maxima de 7 dias removidos). Venda inalterada: SideShift ja' fica fora quando taxas_reais = false.
 --
 -- ATUALIZADA em 2026-10-04: ao desativar por limite de perda diaria informa origem='motor' + motivo ao historico
@@ -219,7 +225,9 @@ BEGIN
 
         DECLARE @queda_pct DECIMAL(9,4) = CASE WHEN @maxima > 0 THEN (@maxima - @preco) / @maxima * 100.0 ELSE 0 END;
 
-        IF @queda_pct >= @limiar_pct
+        IF @queda_pct >= @limiar_pct AND ISNULL(@saldo, 0) < @valor_operacao + @fee_rede
+            SET @detalhe = CONCAT(@detalhe, 'sem compra: saldo insuficiente (', ISNULL(@saldo, 0), ' < ', @valor_operacao + @fee_rede, '); queda ', @queda_pct, '% >= limiar ', @limiar_pct, '%. ');
+        ELSE IF @queda_pct >= @limiar_pct
         BEGIN
             DECLARE @c_lote VARCHAR(20), @c_preco DECIMAL(24,8), @c_qtd DECIMAL(24,10);
             BEGIN TRY
@@ -231,6 +239,7 @@ BEGIN
                 SET @detalhe = CONCAT(@detalhe, 'comprou: queda ', @queda_pct, '% >= limiar ', @limiar_pct, '%; lote ', @c_lote, '. ');
             END TRY
             BEGIN CATCH
+                IF XACT_STATE() <> 0 ROLLBACK TRAN;
                 SET @detalhe = CONCAT(@detalhe, 'tentou comprar (queda ', @queda_pct, '% >= limiar ', @limiar_pct,
                                        '%) mas falhou: ', ERROR_MESSAGE(), '. ');
             END CATCH
@@ -277,7 +286,9 @@ BEGIN
             DECLARE @queda_leitura_pct DECIMAL(9,4) =
                 CASE WHEN @preco_ant > 0 THEN (@preco_ant - @preco) / @preco_ant * 100.0 ELSE 0 END;
 
-            IF @preco_ant IS NOT NULL AND @queda_leitura_pct >= @queda_crash_pct
+            IF @preco_ant IS NOT NULL AND @queda_leitura_pct >= @queda_crash_pct AND ISNULL(@saldo, 0) < @valor_operacao + @fee_rede
+                SET @detalhe = CONCAT(@detalhe, 'crash sem compra: saldo insuficiente (', ISNULL(@saldo, 0), ' < ', @valor_operacao + @fee_rede, '); queda ', @queda_leitura_pct, '% >= ', @queda_crash_pct, '%. ');
+            ELSE IF @preco_ant IS NOT NULL AND @queda_leitura_pct >= @queda_crash_pct
             BEGIN
                 DECLARE @cc_lote VARCHAR(20), @cc_preco DECIMAL(24,8), @cc_qtd DECIMAL(24,10);
                 BEGIN TRY
@@ -290,6 +301,7 @@ BEGIN
                                            @queda_crash_pct, '%; lote ', @cc_lote, '. ');
                 END TRY
                 BEGIN CATCH
+                    IF XACT_STATE() <> 0 ROLLBACK TRAN;
                     SET @detalhe = CONCAT(@detalhe, 'modo crash tentou comprar (queda ', @queda_leitura_pct, '% >= ',
                                            @queda_crash_pct, '%) mas falhou: ', ERROR_MESSAGE(), '. ');
                 END CATCH
@@ -318,7 +330,7 @@ BEGIN
         BEGIN
             DECLARE @custo_lote DECIMAL(24,8) = @restante * @preco_lote;
             DECLARE @pnl_liquido_estimado DECIMAL(24,8) = @restante * (@preco - @preco_lote) - @fee_rede;
-            DECLARE @retorno_pct DECIMAL(9,4) = CASE WHEN @custo_lote > 0 THEN @pnl_liquido_estimado / @custo_lote * 100.0 ELSE 0 END;
+            DECLARE @retorno_pct DECIMAL(18,4) = CASE WHEN @custo_lote > 0 THEN @pnl_liquido_estimado / @custo_lote * 100.0 ELSE 0 END;
 
             IF @retorno_pct >= @retorno_desejado_pct
             BEGIN

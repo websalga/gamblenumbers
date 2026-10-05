@@ -1,5 +1,23 @@
 # Changelog
 
+## [v1.17.2] — 2026-10-05
+
+### English
+
+**Fixed: robots getting stuck when the virtual balance runs out (`GN_RoboOrquestrador`)**
+- Buying with no balance made `GN_RoboComprar` raise error 50012 inside a transaction with `XACT_ABORT`; the orchestrator did not roll back, so the following writes failed, the SQL Agent job failed and the robot stayed stuck in `PR` (processing) in the queue — and its sell step never ran.
+- Now both buy triggers (normal and crash) check `balance >= amount + network fee` first. Without balance the cycle logs "saldo insuficiente" and **continues to the sell step**. The buy `CATCH` blocks also roll back any open transaction.
+- Fixed an arithmetic overflow in the sell pre-filter (`@retorno_pct` is now `DECIMAL(18,4)`) that hit lots with a tiny remainder when the network fee rose.
+- Buy and sell rules are unchanged.
+
+### Português
+
+**Corrigido: robôs travando quando o saldo virtual acaba (`GN_RoboOrquestrador`)**
+- Comprar sem saldo fazia o `GN_RoboComprar` dar o erro 50012 dentro de uma transação com `XACT_ABORT`; o orquestrador não fazia rollback, então as gravações seguintes falhavam, o job do SQL Agent falhava e o robô ficava preso em `PR` (processando) na fila — e a etapa de venda dele nunca rodava.
+- Agora os dois gatilhos de compra (normal e crash) verificam antes `saldo >= valor + taxa de rede`. Sem saldo, o ciclo registra "saldo insuficiente" e **segue para a venda**. Os `CATCH` das compras também fazem rollback de qualquer transação aberta.
+- Corrigido o estouro aritmético no pré-filtro de venda (`@retorno_pct` agora é `DECIMAL(18,4)`), que atingia lotes com resto minúsculo quando a taxa de rede subia.
+- As regras de compra e venda não mudaram.
+
 ## [v1.17.1] — 2026-10-05
 
 ### English
