@@ -1,5 +1,23 @@
 # Changelog
 
+## [v1.18.0] — 2026-10-12
+
+### English
+
+**Added: separate buy percentage for robots (`queda_compra_pct`)**
+- New `GN_Robos.queda_compra_pct` column (default 1.5) and a new field on the robot form: "Buy percentage (minimum drop %)".
+- The buy threshold is now `network fee + SideShift (if Real fees) + queda_compra_pct`. Before, it used `retorno_desejado_pct`, so lowering the sell target to unload lots also made the robot buy on tiny drops.
+- "Desired return" now only controls selling. Existing robots were set to 1.5, so their buying is unchanged.
+- The "Desired return" input accepts 0.01 (it used to force a minimum of 0.1 with one decimal). `GN_RoboAjustarParametros` accepts `@queda_compra_pct`; the parameter history and the dashboard ("Meu painel") show the new field. Migration: `docs/migracao_queda_compra_pct.sql`.
+
+### Português
+
+**Adicionado: percentual de compra separado nos robôs (`queda_compra_pct`)**
+- Nova coluna `GN_Robos.queda_compra_pct` (padrão 1,5) e novo campo no formulário do robô: "Percentual de compra (queda mínima %)".
+- O limiar de compra agora é `taxa de rede + SideShift (se Taxas Reais) + queda_compra_pct`. Antes usava `retorno_desejado_pct`, então baixar a meta de venda para escoar lotes também fazia o robô comprar em quedas minúsculas.
+- O "Retorno desejado" agora controla só a venda. Os robôs existentes ficaram com 1,5, então a compra deles não mudou.
+- O campo "Retorno desejado" aceita 0,01 (antes forçava mínimo de 0,1 com uma casa). `GN_RoboAjustarParametros` aceita `@queda_compra_pct`; o histórico de parâmetros e o "Meu painel" mostram o novo campo. Migração: `docs/migracao_queda_compra_pct.sql`.
+
 ## [v1.17.2] — 2026-10-05
 
 ### English

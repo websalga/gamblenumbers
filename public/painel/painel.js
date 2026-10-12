@@ -137,6 +137,7 @@
     var yn = r.taxas_reais ? T('painel_p_taxas_sim') : T('painel_p_taxas_nao');
     var dl = el('dl', { class: 'params' },
       el('dt', { text: T('automatos_valor_operacao') }), el('dd', { text: money(r.valor_operacao) }),
+      el('dt', { text: lbl('automatos_queda_compra_pct') }), el('dd', { text: pct(r.queda_compra_pct, 2) }),
       el('dt', { text: lbl('automatos_retorno_desejado') }), el('dd', { text: pct(r.retorno_pct, 2) }),
       el('dt', { text: lbl('automatos_queda_crash_pct') }), el('dd', { text: pct(r.queda_crash_pct, 1) }),
       el('dt', { text: T('automatos_taxas_reais') }), el('dd', { text: yn }),

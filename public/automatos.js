@@ -91,8 +91,13 @@
       </div>
       <div class="field">
         <label for="roboRetorno">${t('automatos_retorno_desejado')}${tip('automatos_retorno_desejado_tip')}</label>
-        <input id="roboRetorno" type="number" step="0.1" min="0.1" value="${Number(d.retornoDesejadoPct ?? d.retorno_desejado_pct).toFixed(1)}">
+        <input id="roboRetorno" type="number" step="0.01" min="0.01" max="100" value="${Number(d.retornoDesejadoPct ?? d.retorno_desejado_pct)}">
         <div class="field-hint">${t('automatos_retorno_desejado_hint')}</div>
+      </div>
+      <div class="field">
+        <label for="roboQuedaCompra">${t('automatos_queda_compra_pct')}${tip('automatos_queda_compra_pct_tip')}</label>
+        <input id="roboQuedaCompra" type="number" step="0.01" min="0" max="100" value="${Number(d.quedaCompraPct ?? 1.5)}">
+        <div class="field-hint">${t('automatos_queda_compra_pct_hint')}</div>
       </div>
       <div class="field">
         <label>${t('automatos_limite_perda')}${tip('automatos_limite_perda_tip')}</label>
@@ -136,11 +141,13 @@
     const retornoPct = parseFloat(document.getElementById('roboRetorno').value);
     const ativo = document.getElementById('roboAtivo').checked;
     const taxasReais = document.getElementById('roboTaxasReais').checked;
+    const quedaCompraPct = parseFloat(document.getElementById('roboQuedaCompra').value);
     const quedaCrashPctTxt = document.getElementById('roboQuedaCrash').value;
     const quedaCrashPct = parseFloat(quedaCrashPctTxt);
 
     if (!apelido) { if (status) status.textContent = t('automatos_erro_apelido'); return; }
     if (!(valorOperacao > 0)) { if (status) status.textContent = t('automatos_erro_valor'); return; }
+    if (!(quedaCompraPct >= 0) || quedaCompraPct > 100) { if (status) status.textContent = t('automatos_erro_queda_compra'); return; }
     if (!(retornoPct > 0)) { if (status) status.textContent = t('automatos_erro_retorno'); return; }
     if (!(quedaCrashPct >= 0) || quedaCrashPct > 90) { if (status) status.textContent = t('automatos_erro_queda_crash'); return; }
 
@@ -151,6 +158,7 @@
       apelido, moeda,
       valor_operacao: valorOperacao,
       retorno_desejado_pct: retornoPct,
+      queda_compra_pct: quedaCompraPct,
       ativo,
       taxas_reais: taxasReais,
       queda_crash_pct: quedaCrashPct,
@@ -174,6 +182,7 @@
         <dl>
           <span>${t('automatos_moeda')}</span><b>${esc(r.moeda)}</b>
           <span>${t('automatos_valor_operacao')}</span><b>${brl(r.valorOperacao)}</b>
+          <span>${t('automatos_queda_compra_pct')}</span><b>${pct(r.quedaCompraPct ?? r.retornoDesejadoPct)}</b>
           <span>${t('automatos_retorno_desejado')}</span><b>${pct(r.retornoDesejadoPct)}</b>
           <span>${t('automatos_limite_perda')}</span><b>${pct(r.limitePerdaDiariaPct)}</b>
           <span>${t('automatos_taxas_reais')}</span><b>${(r.taxasReais ?? true) ? t('automatos_status_ativo') : t('automatos_status_inativo')}</b>

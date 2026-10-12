@@ -44,7 +44,8 @@
  *     apelido: string,
  *     moeda: 'BTC'|'BCH',
  *     valor_operacao: number,
- *     retorno_desejado_pct: number,
+ *     retorno_desejado_pct: number,   // meta de lucro da VENDA (nao afeta compras)
+ *     queda_compra_pct: number,       // opcional; queda minima p/ COMPRAR; omitido = nao mexe (update) / 1.5 (criacao)
  *     ativo: boolean,
  *     taxas_reais: boolean,        // opcional; omitido = não mexe (update) / true (criação)
  *     queda_crash_pct: number,     // opcional; omitido = não mexe (update) / 23 (criação); 0 desativa
@@ -133,6 +134,10 @@ $ativo        = !empty($body['ativo']) ? 1 : 0;
 $temTaxasReais = array_key_exists('taxas_reais', $body);
 $taxasReais    = $temTaxasReais ? (bool)$body['taxas_reais'] : null;
 
+// percentual de COMPRA (queda minima), separado da meta de lucro de venda; omitido = nao mexe (update) / 1.5 (criacao)
+$temQuedaCompra   = array_key_exists('queda_compra_pct', $body);
+$quedaCompraInput = $temQuedaCompra ? $body['queda_compra_pct'] : null;
+
 $temQuedaCrash   = array_key_exists('queda_crash_pct', $body);
 $quedaCrashInput = $temQuedaCrash ? $body['queda_crash_pct'] : null;
 
@@ -140,7 +145,11 @@ if (strlen($sid) !== 64 || !ctype_xdigit($sid)) erro(400, 'sessao invalida');
 if ($apelido === '' || mb_strlen($apelido) > 60) erro(400, 'apelido invalido');
 if (!in_array($moeda, ['BTC', 'BCH'], true)) erro(400, 'moeda invalida');
 if (!is_numeric($valorOp) || (float)$valorOp <= 0) erro(400, 'valor por operacao invalido');
-if (!is_numeric($retornoPct) || (float)$retornoPct <= 0) erro(400, 'retorno desejado invalido');
+if (!is_numeric($retornoPct) || (float)$retornoPct <= 0 || (float)$retornoPct > 100) erro(400, 'retorno desejado invalido');
+if ($temQuedaCompra && (!is_numeric($quedaCompraInput) || (float)$quedaCompraInput < 0 || (float)$quedaCompraInput > 100)) {
+    erro(400, 'percentual de compra invalido');
+}
+$quedaCompraPct = $temQuedaCompra ? round((float)$quedaCompraInput, 4) : null;
 if ($temQuedaCrash && (!is_numeric($quedaCrashInput) || (float)$quedaCrashInput < 0 || (float)$quedaCrashInput > QUEDA_CRASH_PCT_MAX)) {
     erro(400, 'queda de crash invalida');
 }
@@ -168,17 +177,19 @@ try {
         // proxima_execucao so' entra ja' marcada se o robo ja' nasce ativo
         $stIns = $pdo->prepare('INSERT INTO dbo.GN_Robos
                 (session_id, seq, robo_client_id, apelido, moeda, valor_operacao,
-                 retorno_desejado_pct, limite_perda_diaria_pct, ativo, proxima_execucao, config_json)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CASE WHEN ? = 1 THEN SYSUTCDATETIME() ELSE NULL END, ?)');
+                 retorno_desejado_pct, limite_perda_diaria_pct, ativo, proxima_execucao, config_json, queda_compra_pct)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CASE WHEN ? = 1 THEN SYSUTCDATETIME() ELSE NULL END, ?, ?)');
         $stIns->execute([
             $sid, $seq, $roboId, $apelido, $moeda, (float)$valorOp,
             (float)$retornoPct, LIMITE_PERDA_DIARIA_PCT_FIXO, $ativo, $ativo, $configJsonNovo,
+            $quedaCompraPct ?? 1.5,
         ]);
     } else {
         // atualização: precisa pertencer à mesma sessão
         // proxima_execucao: desativou -> NULL; ativou e nao tinha agenda -> agora;
         // ja' estava ativo com agenda em andamento -> mantem (nao reinicia o ciclo a
         // cada save).
+        // COALESCE(?, queda_compra_pct): campo omitido (NULL) preserva o valor atual
         if ($temTaxasReais || $temQuedaCrash) {
             // le o config_json atual pra mesclar sem perder o que nao foi mandado agora
             $stCfg = $pdo->prepare('SELECT config_json FROM dbo.GN_Robos WHERE session_id = ? AND robo_client_id = ?');
@@ -188,24 +199,26 @@ try {
 
             $stUpd = $pdo->prepare('UPDATE dbo.GN_Robos SET
                     apelido = ?, moeda = ?, valor_operacao = ?, retorno_desejado_pct = ?,
+                    queda_compra_pct = COALESCE(?, queda_compra_pct),
                     ativo = ?, config_json = ?,
                     proxima_execucao = CASE WHEN ? = 0 THEN NULL
                                             WHEN proxima_execucao IS NULL THEN SYSUTCDATETIME()
                                             ELSE proxima_execucao END,
                     atualizado_em = SYSUTCDATETIME()
                 WHERE session_id = ? AND robo_client_id = ?');
-            $stUpd->execute([$apelido, $moeda, (float)$valorOp, (float)$retornoPct, $ativo, $configJsonNovo, $ativo, $sid, $roboId]);
+            $stUpd->execute([$apelido, $moeda, (float)$valorOp, (float)$retornoPct, $quedaCompraPct, $ativo, $configJsonNovo, $ativo, $sid, $roboId]);
         } else {
             // save sem nenhum dos dois campos (ex: botao rapido de ativar/pausar) -- preserva config_json
             $stUpd = $pdo->prepare('UPDATE dbo.GN_Robos SET
                     apelido = ?, moeda = ?, valor_operacao = ?, retorno_desejado_pct = ?,
+                    queda_compra_pct = COALESCE(?, queda_compra_pct),
                     ativo = ?,
                     proxima_execucao = CASE WHEN ? = 0 THEN NULL
                                             WHEN proxima_execucao IS NULL THEN SYSUTCDATETIME()
                                             ELSE proxima_execucao END,
                     atualizado_em = SYSUTCDATETIME()
                 WHERE session_id = ? AND robo_client_id = ?');
-            $stUpd->execute([$apelido, $moeda, (float)$valorOp, (float)$retornoPct, $ativo, $ativo, $sid, $roboId]);
+            $stUpd->execute([$apelido, $moeda, (float)$valorOp, (float)$retornoPct, $quedaCompraPct, $ativo, $ativo, $sid, $roboId]);
         }
         if ($stUpd->rowCount() === 0) erro(404, 'robo nao encontrado');
 
@@ -223,7 +236,7 @@ try {
     }
 
     $stGet = $pdo->prepare('SELECT robo_client_id, seq, apelido, moeda, valor_operacao,
-            retorno_desejado_pct, limite_perda_diaria_pct, ativo, config_json, criado_em, atualizado_em
+            retorno_desejado_pct, queda_compra_pct, limite_perda_diaria_pct, ativo, config_json, criado_em, atualizado_em
         FROM dbo.GN_Robos WHERE session_id = ? AND robo_client_id = ?');
     $stGet->execute([$sid, $roboId]);
     $r = $stGet->fetch();
@@ -235,6 +248,7 @@ try {
         'moeda'                => $r['moeda'],
         'valorOperacao'        => num($r['valor_operacao']),
         'retornoDesejadoPct'   => num($r['retorno_desejado_pct']),
+        'quedaCompraPct'       => num($r['queda_compra_pct'] ?? $r['retorno_desejado_pct']),
         'limitePerdaDiariaPct' => num($r['limite_perda_diaria_pct']),
         'ativo'                => (bool)$r['ativo'],
         'taxasReais'           => taxasReaisDeConfig($r['config_json']),

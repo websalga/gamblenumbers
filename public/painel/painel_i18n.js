@@ -83,7 +83,7 @@ window.GNPainelI18n = {
     op_compra: 'Compra', op_venda: 'Venda',
     automatos_status_ativo: 'Ativo', automatos_status_inativo: 'Inativo',
     automatos_valor_operacao: 'Valor por operação', automatos_retorno_desejado: 'Retorno desejado (%)',
-    automatos_queda_crash_pct: 'Compra em queda forte (%)', automatos_taxas_reais: 'Taxas Reais',
+    automatos_queda_crash_pct: 'Compra em queda forte (%)', automatos_queda_compra_pct: 'Percentual de compra (queda mínima %)', automatos_taxas_reais: 'Taxas Reais',
     automatos_limite_perda: 'Limite de perda diária', automatos_voltar: 'Voltar ao simulador'
   },
   'en-US': {
@@ -163,7 +163,7 @@ window.GNPainelI18n = {
     op_compra: 'Buy', op_venda: 'Sell',
     automatos_status_ativo: 'Active', automatos_status_inativo: 'Inactive',
     automatos_valor_operacao: 'Amount per trade', automatos_retorno_desejado: 'Target return (%)',
-    automatos_queda_crash_pct: 'Buy on sharp drop (%)', automatos_taxas_reais: 'Real fees',
+    automatos_queda_crash_pct: 'Buy on sharp drop (%)', automatos_queda_compra_pct: 'Buy percentage (minimum drop %)', automatos_taxas_reais: 'Real fees',
     automatos_limite_perda: 'Daily loss limit', automatos_voltar: 'Back to the simulator'
   }
 };

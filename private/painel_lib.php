@@ -123,7 +123,7 @@ function painel_dados(PDO $pdo, string $sid, string $sel, string $roboSel, strin
         array_merge([$sid], $pm))[0];
 
     /* robos + estatisticas por robo + ultima decisao de cada um */
-    $rows = painel_q($pdo, 'SELECT id, robo_client_id, seq, apelido, moeda, valor_operacao, retorno_desejado_pct,
+    $rows = painel_q($pdo, 'SELECT id, robo_client_id, seq, apelido, moeda, valor_operacao, retorno_desejado_pct, queda_compra_pct,
             limite_perda_diaria_pct, ativo, config_json, ciclo_segundos,
             DATEDIFF_BIG(SECOND,\'19700101\',proxima_execucao) AS prox
         FROM dbo.GN_Robos WHERE session_id = ? ORDER BY seq ASC', [$sid]);
@@ -162,6 +162,7 @@ function painel_dados(PDO $pdo, string $sid, string $sel, string $roboSel, strin
             'moeda'          => trim((string)$r['moeda']),
             'valor_operacao' => painel_f($r['valor_operacao']),
             'retorno_pct'    => painel_f($r['retorno_desejado_pct']),
+            'queda_compra_pct' => painel_f($r['queda_compra_pct'] ?? $r['retorno_desejado_pct']),
             'limite_perda_pct' => painel_f($r['limite_perda_diaria_pct']),
             'ativo'          => (bool)$r['ativo'],
             'taxas_reais'    => array_key_exists('taxas_reais', $cfg) ? (bool)$cfg['taxas_reais'] : true,

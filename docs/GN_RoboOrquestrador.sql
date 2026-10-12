@@ -30,6 +30,10 @@
 -- limite_perda_diaria_pct, queda_crash_pct, taxas_reais) vem de GN_Robos e
 -- NAO sao alterados por esta procedure.
 --
+-- ATUALIZADA em 2026-10-12: o limiar de COMPRA passou a usar GN_Robos.queda_compra_pct (percentual de compra proprio, padrao 1.5)
+-- em vez de retorno_desejado_pct, que agora controla SO' a venda. limiar = taxa de rede + SideShift (se Taxas Reais) + queda_compra_pct
+-- (se queda_compra_pct for NULL, cai em retorno_desejado_pct). Venda e modo crash inalterados.
+--
 -- ATUALIZADA em 2026-10-05 (2): (a) compra normal e crash so' chamam GN_RoboComprar se houver saldo
 -- (valor + taxa); sem saldo registra 'saldo insuficiente' e SEGUE para a venda -- antes o erro 50012
 -- deixava a transacao inutilizavel (XACT_ABORT) e o job inteiro falhava, deixando robos presos em PR.
@@ -206,7 +210,8 @@ BEGIN
         END
 
         DECLARE @limiar_pct DECIMAL(9,4) =
-            (@fee_rede / NULLIF(@valor_operacao,0) * 100.0) + @sideshift_fee_pct + @retorno_desejado_pct;
+            (@fee_rede / NULLIF(@valor_operacao,0) * 100.0) + @sideshift_fee_pct
+            + ISNULL((SELECT queda_compra_pct FROM dbo.GN_Robos WHERE id = @robo_id), @retorno_desejado_pct); -- 2026-10-12: percentual de COMPRA separado do de venda (queda_compra_pct)
 
         /* 4) decisao de COMPRA (gatilho normal): preco caiu >= limiar_pct abaixo da maxima recente */
         DECLARE @lookback_min INT = 30;

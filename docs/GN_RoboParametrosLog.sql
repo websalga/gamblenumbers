@@ -11,6 +11,7 @@ CREATE TABLE dbo.GN_RoboParametrosLog (
     [moeda] CHAR(3) NOT NULL,
     [valor_operacao] DECIMAL(18,2) NOT NULL,
     [retorno_desejado_pct] DECIMAL(9,4) NOT NULL,
+    [queda_compra_pct] DECIMAL(9,4) NULL,   -- adicionada em 2026-10-12
     [limite_perda_diaria_pct] DECIMAL(9,4) NOT NULL,
     [ativo] BIT NOT NULL,
     [config_json] NVARCHAR(MAX) NULL,

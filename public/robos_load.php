@@ -62,7 +62,7 @@ try {
     $pdo = db();
 
     $st = $pdo->prepare('SELECT robo_client_id, seq, apelido, moeda, valor_operacao,
-            retorno_desejado_pct, limite_perda_diaria_pct, ativo, config_json, criado_em, atualizado_em
+            retorno_desejado_pct, queda_compra_pct, limite_perda_diaria_pct, ativo, config_json, criado_em, atualizado_em
         FROM dbo.GN_Robos
         WHERE session_id = ?
         ORDER BY seq ASC');
@@ -77,6 +77,7 @@ try {
             'moeda'                  => $r['moeda'],
             'valorOperacao'          => num($r['valor_operacao']),
             'retornoDesejadoPct'     => num($r['retorno_desejado_pct']),
+            'quedaCompraPct'         => num($r['queda_compra_pct'] ?? $r['retorno_desejado_pct']),
             'limitePerdaDiariaPct'   => num($r['limite_perda_diaria_pct']),
             'ativo'                  => (bool)$r['ativo'],
             'taxasReais'             => taxasReaisDeConfig($r['config_json']),

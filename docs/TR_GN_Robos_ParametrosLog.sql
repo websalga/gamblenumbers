@@ -17,29 +17,30 @@ BEGIN
         DECLARE @app NVARCHAR(128) = APP_NAME(), @host NVARCHAR(128) = HOST_NAME(), @usr NVARCHAR(128) = SUSER_SNAME();
 
         -- INSERT
-        INSERT dbo.GN_RoboParametrosLog (operacao, robo_id, session_id, seq, robo_client_id, apelido, moeda, valor_operacao, retorno_desejado_pct,
+        INSERT dbo.GN_RoboParametrosLog (operacao, robo_id, session_id, seq, robo_client_id, apelido, moeda, valor_operacao, retorno_desejado_pct, queda_compra_pct,
                limite_perda_diaria_pct, ativo, config_json, ciclo_segundos, publico, clonado_de_id, campos_alterados, origem, aplicacao, host, usuario_bd, autor, motivo)
-        SELECT 'I', i.id, i.session_id, i.seq, i.robo_client_id, i.apelido, i.moeda, i.valor_operacao, i.retorno_desejado_pct,
+        SELECT 'I', i.id, i.session_id, i.seq, i.robo_client_id, i.apelido, i.moeda, i.valor_operacao, i.retorno_desejado_pct, i.queda_compra_pct,
                i.limite_perda_diaria_pct, i.ativo, i.config_json, i.ciclo_segundos, i.publico, i.clonado_de_id, NULL, @origem, @app, @host, @usr, @autor, @motivo
         FROM inserted i WHERE NOT EXISTS (SELECT 1 FROM deleted d WHERE d.id = i.id);
 
         -- DELETE
-        INSERT dbo.GN_RoboParametrosLog (operacao, robo_id, session_id, seq, robo_client_id, apelido, moeda, valor_operacao, retorno_desejado_pct,
+        INSERT dbo.GN_RoboParametrosLog (operacao, robo_id, session_id, seq, robo_client_id, apelido, moeda, valor_operacao, retorno_desejado_pct, queda_compra_pct,
                limite_perda_diaria_pct, ativo, config_json, ciclo_segundos, publico, clonado_de_id, campos_alterados, origem, aplicacao, host, usuario_bd, autor, motivo)
-        SELECT 'D', d.id, d.session_id, d.seq, d.robo_client_id, d.apelido, d.moeda, d.valor_operacao, d.retorno_desejado_pct,
+        SELECT 'D', d.id, d.session_id, d.seq, d.robo_client_id, d.apelido, d.moeda, d.valor_operacao, d.retorno_desejado_pct, d.queda_compra_pct,
                d.limite_perda_diaria_pct, d.ativo, d.config_json, d.ciclo_segundos, d.publico, d.clonado_de_id, NULL, @origem, @app, @host, @usr, @autor, @motivo
         FROM deleted d WHERE NOT EXISTS (SELECT 1 FROM inserted i WHERE i.id = d.id);
 
         -- UPDATE (so' se algum campo de configuracao mudou de verdade; texto comparado em binario p/ pegar maiusc./minusc.)
-        INSERT dbo.GN_RoboParametrosLog (operacao, robo_id, session_id, seq, robo_client_id, apelido, moeda, valor_operacao, retorno_desejado_pct,
+        INSERT dbo.GN_RoboParametrosLog (operacao, robo_id, session_id, seq, robo_client_id, apelido, moeda, valor_operacao, retorno_desejado_pct, queda_compra_pct,
                limite_perda_diaria_pct, ativo, config_json, ciclo_segundos, publico, clonado_de_id, campos_alterados, origem, aplicacao, host, usuario_bd, autor, motivo)
-        SELECT 'U', i.id, i.session_id, i.seq, i.robo_client_id, i.apelido, i.moeda, i.valor_operacao, i.retorno_desejado_pct,
+        SELECT 'U', i.id, i.session_id, i.seq, i.robo_client_id, i.apelido, i.moeda, i.valor_operacao, i.retorno_desejado_pct, i.queda_compra_pct,
                i.limite_perda_diaria_pct, i.ativo, i.config_json, i.ciclo_segundos, i.publico, i.clonado_de_id,
                CONCAT_WS(',',
                  CASE WHEN NOT EXISTS (SELECT i.apelido COLLATE Latin1_General_BIN2 INTERSECT SELECT d.apelido COLLATE Latin1_General_BIN2) THEN 'apelido' END,
                  CASE WHEN NOT EXISTS (SELECT i.moeda COLLATE Latin1_General_BIN2 INTERSECT SELECT d.moeda COLLATE Latin1_General_BIN2) THEN 'moeda' END,
                  CASE WHEN i.valor_operacao <> d.valor_operacao THEN 'valor_operacao' END,
                  CASE WHEN i.retorno_desejado_pct <> d.retorno_desejado_pct THEN 'retorno_desejado_pct' END,
+                 CASE WHEN NOT EXISTS (SELECT i.queda_compra_pct INTERSECT SELECT d.queda_compra_pct) THEN 'queda_compra_pct' END,
                  CASE WHEN i.limite_perda_diaria_pct <> d.limite_perda_diaria_pct THEN 'limite_perda_diaria_pct' END,
                  CASE WHEN i.ativo <> d.ativo THEN 'ativo' END,
                  CASE WHEN NOT EXISTS (SELECT i.config_json COLLATE Latin1_General_BIN2 INTERSECT SELECT d.config_json COLLATE Latin1_General_BIN2) THEN 'config_json' END,
@@ -54,6 +55,7 @@ BEGIN
            OR i.moeda COLLATE Latin1_General_BIN2 <> d.moeda COLLATE Latin1_General_BIN2
            OR i.valor_operacao <> d.valor_operacao
            OR i.retorno_desejado_pct <> d.retorno_desejado_pct
+           OR NOT EXISTS (SELECT i.queda_compra_pct INTERSECT SELECT d.queda_compra_pct)
            OR i.limite_perda_diaria_pct <> d.limite_perda_diaria_pct
            OR i.ativo <> d.ativo
            OR NOT EXISTS (SELECT i.config_json COLLATE Latin1_General_BIN2 INTERSECT SELECT d.config_json COLLATE Latin1_General_BIN2)

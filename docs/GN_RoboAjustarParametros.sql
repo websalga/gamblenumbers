@@ -12,6 +12,7 @@ CREATE OR ALTER PROCEDURE dbo.GN_RoboAjustarParametros
     @queda_crash_pct         DECIMAL(9,4)   = NULL,   -- config_json.queda_crash_pct
     @lookback_minutos        INT            = NULL,   -- config_json.lookback_minutos
     @taxas_reais             BIT            = NULL,   -- config_json.taxas_reais
+    @queda_compra_pct        DECIMAL(9,4)   = NULL,   -- GN_Robos.queda_compra_pct (queda minima p/ COMPRAR; separado da meta de venda)
     @hist_id                 BIGINT         = NULL OUTPUT  -- id da linha criada em GN_RoboParametrosLog (NULL = nada mudou)
 AS
 BEGIN
@@ -26,13 +27,14 @@ BEGIN
     IF @motivo IS NULL OR LEN(LTRIM(RTRIM(@motivo))) < 5 THROW 50101, 'motivo obrigatorio (explique por que os parametros estao sendo alterados)', 1;
     IF @origem NOT IN ('ia','auto')                       THROW 50102, 'origem invalida (use ia ou auto)', 1;
     IF NOT EXISTS (SELECT 1 FROM dbo.GN_Robos WHERE id = @robo_id) THROW 50103, 'robo nao encontrado', 1;
-    IF COALESCE(@valor_operacao,@retorno_desejado_pct,@limite_perda_diaria_pct,@ciclo_segundos,@queda_crash_pct,@lookback_minutos,CAST(@taxas_reais AS INT)) IS NULL
+    IF COALESCE(@valor_operacao,@retorno_desejado_pct,@limite_perda_diaria_pct,@ciclo_segundos,@queda_crash_pct,@lookback_minutos,CAST(@taxas_reais AS INT),@queda_compra_pct) IS NULL
                                                           THROW 50104, 'nenhum parametro informado', 1;
     IF @valor_operacao          IS NOT NULL AND @valor_operacao <= 0                           THROW 50111, 'valor_operacao deve ser > 0', 1;
     IF @retorno_desejado_pct    IS NOT NULL AND (@retorno_desejado_pct < 0 OR @retorno_desejado_pct > 100)         THROW 50112, 'retorno_desejado_pct fora de 0..100', 1;
     IF @limite_perda_diaria_pct IS NOT NULL AND (@limite_perda_diaria_pct <= 0 OR @limite_perda_diaria_pct > 100)  THROW 50113, 'limite_perda_diaria_pct fora de (0..100]', 1;
     IF @ciclo_segundos          IS NOT NULL AND (@ciclo_segundos < 5 OR @ciclo_segundos > 86400)                   THROW 50114, 'ciclo_segundos fora de 5..86400', 1;
     IF @queda_crash_pct         IS NOT NULL AND (@queda_crash_pct < 0 OR @queda_crash_pct > 100)                   THROW 50115, 'queda_crash_pct fora de 0..100', 1;
+    IF @queda_compra_pct        IS NOT NULL AND (@queda_compra_pct < 0 OR @queda_compra_pct > 100)                 THROW 50117, 'queda_compra_pct fora de 0..100', 1;
     IF @lookback_minutos        IS NOT NULL AND (@lookback_minutos < 1 OR @lookback_minutos > 10080)               THROW 50116, 'lookback_minutos fora de 1..10080', 1;
 
     DECLARE @t0 DATETIME2 = SYSUTCDATETIME();
@@ -51,6 +53,7 @@ BEGIN
            SET valor_operacao          = COALESCE(@valor_operacao, valor_operacao),
                retorno_desejado_pct    = COALESCE(@retorno_desejado_pct, retorno_desejado_pct),
                limite_perda_diaria_pct = COALESCE(@limite_perda_diaria_pct, limite_perda_diaria_pct),
+               queda_compra_pct        = COALESCE(@queda_compra_pct, queda_compra_pct),
                ciclo_segundos          = COALESCE(@ciclo_segundos, ciclo_segundos),
                config_json             = CASE WHEN @queda_crash_pct IS NULL AND @lookback_minutos IS NULL AND @taxas_reais IS NULL THEN config_json ELSE @cfg END,
                atualizado_em           = SYSUTCDATETIME()
