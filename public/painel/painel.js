@@ -139,7 +139,7 @@
       el('dt', { text: T('automatos_valor_operacao') }), el('dd', { text: money(r.valor_operacao) }),
       el('dt', { text: lbl('automatos_queda_compra_pct') }), el('dd', { text: pct(r.queda_compra_pct, 2) }),
       el('dt', { text: lbl('automatos_retorno_desejado') }), el('dd', { text: pct(r.retorno_pct, 2) }),
-      el('dt', { text: lbl('automatos_queda_crash_pct') }), el('dd', { text: pct(r.queda_crash_pct, 1) }),
+      el('dt', { text: lbl('automatos_queda_crash_pct') }), el('dd', { text: pct(r.queda_crash_pct, 2) }),
       el('dt', { text: T('automatos_taxas_reais') }), el('dd', { text: yn }),
       el('dt', { text: T('automatos_limite_perda') }), el('dd', { text: pct(r.limite_perda_pct, 0) }),
       el('dt', { text: T('painel_p_ciclo') }), el('dd', { text: r.ciclo_s ? T('painel_p_ciclo_val', { s: r.ciclo_s }) : '—' }),

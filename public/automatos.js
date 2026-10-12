@@ -115,7 +115,7 @@
       </div>
       <div class="field" title="${t('automatos_queda_crash_pct_hint')}">
         <label for="roboQuedaCrash">${t('automatos_queda_crash_pct')}${tip('automatos_queda_crash_pct_tip')}</label>
-        <input id="roboQuedaCrash" type="number" step="0.1" min="0" max="90" value="${Number(d.quedaCrashPct ?? 23).toFixed(1)}">
+        <input id="roboQuedaCrash" type="number" step="0.01" min="0" max="90" value="${Number(d.quedaCrashPct ?? 23)}">
         <div class="field-hint">${t('automatos_queda_crash_pct_hint')}</div>
       </div>
       <div class="form-actions">

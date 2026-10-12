@@ -1,5 +1,17 @@
 # Changelog
 
+## [v1.18.1] — 2026-10-12
+
+### English
+
+**Fixed: two decimal places in the "Buy on sharp drop (%)" field and in the dashboard**
+- The robot form field used a 0.1 step and one decimal (1.55 was refused and shown as 1.6 when editing). It now accepts two decimals, like "Desired return" and "Buy percentage". "Meu painel" shows the crash trigger with two decimals.
+
+### Português
+
+**Corrigido: duas casas decimais no campo "Compra em queda forte (%)" e no painel**
+- O campo do formulário do robô usava passo de 0,1 e uma casa decimal (1,55 era recusado e aparecia como 1,6 ao editar). Agora aceita duas casas, como "Retorno desejado" e "Percentual de compra". O "Meu painel" mostra o gatilho de crash com duas casas.
+
 ## [v1.18.0] — 2026-10-12
 
 ### English
