@@ -53,12 +53,25 @@ function client_ip(): string {
 }
 
 /* Limite de tentativas (senha/passkey) — tabela própria GN_AppTentativas */
+/* A chave de tentativa vira HMAC (prefixo + hash): nunca grava IP nem session_id em claro. */
+function chave_anon(string $chave): string {
+    static $salt = null;
+    if ($salt === null) {
+        $salt = 'gn';
+        $f = __DIR__ . '/anon_config.php';
+        if (is_file($f)) { $c = include $f; if (is_array($c) && !empty($c['anon_salt'])) $salt = (string)$c['anon_salt']; }
+    }
+    $p = strpos($chave, ':');
+    return ($p === false ? '' : substr($chave, 0, $p + 1)) . substr(hash_hmac('sha256', 'tentativa|' . $chave, $salt), 0, 40);
+}
 function tentativas_excedidas(string $chave, int $max, int $janelaMin): bool {
+    $chave = chave_anon($chave);
     $st = db()->prepare('SELECT COUNT(*) FROM dbo.GN_AppTentativas WHERE chave=? AND criado_em > DATEADD(MINUTE, CAST(? AS INT), SYSUTCDATETIME())');
     $st->execute([$chave, -$janelaMin]);
     return (int)$st->fetchColumn() >= $max;
 }
 function registrar_tentativa(string $chave): void {
+    $chave = chave_anon($chave);
     db()->prepare('INSERT INTO dbo.GN_AppTentativas (chave) VALUES (?)')->execute([$chave]);
     db()->exec("DELETE FROM dbo.GN_AppTentativas WHERE criado_em < DATEADD(DAY,-2,SYSUTCDATETIME())");
 }

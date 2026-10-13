@@ -45,13 +45,24 @@ function destino_btc(array $u): string {
     return $d;
 }
 
+/* Mensagem que pode ir para o usuário: detalhes de SQL/RPC ficam só no app.log. */
+function msg_publica(Throwable $e): string {
+    $m = $e->getMessage();
+    if (stripos($m, 'does not cover') !== false || stripos($m, 'insufficient funds') !== false) return 'Saldo insuficiente para este valor mais a taxa de rede.';
+    if ($e instanceof PDOException || str_contains($m, 'SQLSTATE') || str_contains($m, 'RPC') || str_contains($m, 'CBOR')) return 'Erro interno. Tente novamente em instantes.';
+    return $m;
+}
+
 function mascara(string $a): string { return strlen($a) > 18 ? substr($a, 0, 8) . '…' . substr($a, -6) : $a; }
 
 /* Valor pedido → satoshis (null = tudo) */
 function valor_em_sats(array $b, float $preco): ?int {
     $tipo = (string)($b['tipo'] ?? 'brl');
     if ($tipo === 'max') return null;
-    $v = (float)str_replace(',', '.', (string)($b['valor'] ?? '0'));
+    // Aceita "1.234,56", "1234,56" e "0.001": com vírgula, o ponto é separador de milhar.
+    $txt = preg_replace('/\s+/', '', (string)($b['valor'] ?? '0'));
+    if (str_contains($txt, ',')) $txt = str_replace(',', '.', str_replace('.', '', $txt));
+    $v = is_numeric($txt) ? (float)$txt : 0.0;
     if ($v <= 0) out(['ok' => false, 'error' => 'Informe um valor maior que zero.'], 422);
     return $tipo === 'btc' ? (int)round($v * 1e8) : (int)floor($v / $preco * 1e8);
 }
@@ -357,5 +368,5 @@ try {
     }
 } catch (Throwable $e) {
     app_log('excecao', ['action' => $action, 'msg' => $e->getMessage(), 'linha' => $e->getLine()]);
-    out(['ok' => false, 'error' => $e->getMessage()], 500);
+    out(['ok' => false, 'error' => msg_publica($e)], 500);
 }

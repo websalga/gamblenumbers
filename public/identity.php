@@ -374,6 +374,28 @@ function client_ip(): string {
     return '0.0.0.0';
 }
 
+/* --- Limite de tentativas de senha.
+ *     Anonimo: a chave guarda so um HMAC do IP (com o segredo de anon_config.php), nunca o IP,
+ *     e as linhas somem depois de 2 dias. --- */
+function gn_chave_tentativa(string $tipo): string {
+    static $salt = null;
+    if ($salt === null) {
+        $salt = 'gn';
+        $f = __DIR__ . '/../private/anon_config.php';
+        if (is_file($f)) { $c = include $f; if (is_array($c) && !empty($c['anon_salt'])) $salt = (string)$c['anon_salt']; }
+    }
+    return $tipo . ':' . substr(hash_hmac('sha256', 'tentativa|' . client_ip(), $salt), 0, 32);
+}
+function gn_bloqueado(string $chave, int $max, int $janelaMin): bool {
+    $st = db()->prepare('SELECT COUNT(*) FROM dbo.GN_AppTentativas WHERE chave=? AND criado_em > DATEADD(MINUTE, CAST(? AS INT), SYSUTCDATETIME())');
+    $st->execute([$chave, -$janelaMin]);
+    return (int)$st->fetchColumn() >= $max;
+}
+function gn_registrar_falha(string $chave): void {
+    db()->prepare('INSERT INTO dbo.GN_AppTentativas (chave) VALUES (?)')->execute([$chave]);
+    db()->exec("DELETE FROM dbo.GN_AppTentativas WHERE criado_em < DATEADD(DAY,-2,SYSUTCDATETIME())");
+}
+
 /* ============================================================
  * Roteador de ações
  * ============================================================ */
@@ -741,6 +763,19 @@ try {
             $st->execute([$sid]);
             if (!$st->fetch()) { echo json_encode(['ok'=>false,'error'=>'sessão não encontrada']); return; }
 
+            // A senha e' a unica chave de acesso (nao existe usuario nem e-mail), entao nao pode
+            // repetir a de outra conta: o login_senha entraria no perfil errado.
+            $chave = gn_chave_tentativa('senha');
+            if (gn_bloqueado($chave, 5, 15)) { echo json_encode(['ok'=>false,'error'=>'Muitas tentativas. Aguarde 15 minutos e tente de novo.']); return; }
+            $st = db()->prepare('SELECT senha_hash FROM dbo.GN_Usuarios WHERE senha_hash IS NOT NULL AND session_id<>?');
+            $st->execute([$sid]);
+            foreach ($st->fetchAll(PDO::FETCH_COLUMN) as $outro) {
+                if (password_verify($senha, (string)$outro)) {
+                    gn_registrar_falha($chave);
+                    echo json_encode(['ok'=>false,'error'=>'Esta senha não pode ser usada. Escolha outra.']); return;
+                }
+            }
+
             $hash = password_hash($senha, PASSWORD_DEFAULT);
             db()->prepare('UPDATE dbo.GN_Usuarios SET senha_hash=?, ultimo_acesso=GETUTCDATE() WHERE session_id=?')
                 ->execute([$hash, $sid]);
@@ -752,6 +787,12 @@ try {
         'login_senha' => (function() use ($body) {
             $senha = (string)($body['senha'] ?? '');
             if ($senha === '') { echo json_encode(['matched'=>false]); return; }
+
+            // Sem usuario/e-mail a senha e' testada contra todos os perfis: limita as falhas por IP.
+            $chave = gn_chave_tentativa('login');
+            if (gn_bloqueado($chave, 10, 15)) {
+                echo json_encode(['matched'=>false, 'bloqueado'=>true, 'error'=>'Muitas tentativas de senha. Aguarde 15 minutos e tente de novo.']); return;
+            }
 
             $st = db()->query("SELECT session_id, btc_address, bch_address, btc_saldo_visto, bch_saldo_visto,
                 modo_real, moeda_saida, endereco_saida, senha_hash, idioma_preferido,
@@ -787,6 +828,7 @@ try {
                     return;
                 }
             }
+            gn_registrar_falha($chave);
             echo json_encode(['matched'=>false]);
         })(),
 

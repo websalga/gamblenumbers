@@ -383,6 +383,7 @@
         try {
           const r = await api('login_senha', {senha});
           if (r && r.matched) { ov.remove(); res({status:'matched', session:r}); return; }
+          if (r && r.bloqueado && r.error) mostrarErro(r.error); else
           mostrarErro(t('login_senha_invalida','Senha informada inválida. Confira e tente novamente, ou deixe em branco para continuar sem senha.'));
         } catch(e) {
           mostrarErro(t('login_senha_falha','Não foi possível verificar a senha agora. Tente novamente.'));

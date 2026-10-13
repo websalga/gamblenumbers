@@ -16,6 +16,8 @@ const brl = n => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: '
 const btc = s => (s / 1e8).toFixed(8).replace('.', ',');
 const mins = m => m == null ? '' : (m < 60 ? '~' + m + ' min' : '~' + Math.round(m / 6) / 10 + ' h');
 const sat = n => (Math.round(n * 100) / 100).toString().replace('.', ',');
+/* "1.234,56" → 1234.56; "0,001" e "0.001" → 0.001 (com vírgula, o ponto é milhar) */
+const numBR = s => { s = String(s == null ? '' : s).replace(/\s+/g, ''); if (s.includes(',')) s = s.replace(/\./g, '').replace(',', '.'); return parseFloat(s); };
 
 function h(tag, attrs, ...kids) {
   const e = document.createElement(tag);
@@ -78,7 +80,7 @@ function telaLogin() {
     try {
       const r = await fetch('/identity.php', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'login_senha', senha }) });
       const j = await r.json();
-      if (!j.matched) { erro.textContent = 'Senha inválida.'; btn.disabled = false; return; }
+      if (!j.matched) { erro.textContent = j.bloqueado && j.error ? j.error : 'Senha inválida.'; btn.disabled = false; return; }
       SID = j.session_id; LS.set('gn_app_sid', SID); inp.value = '';
       location.hash = '#inicio'; render();
     } catch (e) { erro.textContent = 'Não foi possível conectar. Verifique a internet.'; btn.disabled = false; }
@@ -149,7 +151,11 @@ async function telaRobos() {
   const lista = h('div', { class: 'col', style: 'gap:14px' }, carregando());
   async function pausarTodos() {
     if (!confirm('Pausar todos os robôs?')) return;
-    try { await fetch('/robos_pause_all.php', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ session_id: SID }) }); } catch (e) {}
+    try {
+      const r = await fetch('/robos_pause_all.php', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ session_id: SID }) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.ok) alert('Não foi possível pausar os robôs. Tente de novo.');
+    } catch (e) { alert('Sem conexão. Os robôs não foram pausados.'); }
     telaRobos();
   }
   shell('robos', h('div', { class: 'row' }, h('h1', {}, 'Robôs'), h('button', { class: 'btn ghost sm', type: 'button', onclick: pausarTodos }, 'Pausar todos')), lista);
@@ -228,18 +234,18 @@ function telaSacar() {
   }
   async function cotar() {
     erro.textContent = '';
-    if (S.tipo !== 'max' && !(parseFloat(String(S.valor).replace(',', '.')) > 0)) { eq.textContent = ' '; btn.disabled = true; if (!S.cot) await cotarBase(); return; }
+    if (S.tipo !== 'max' && !(numBR(S.valor) > 0)) { eq.textContent = ' '; btn.disabled = true; if (!S.cot) await cotarBase(); return; }
     await cotarBase();
   }
   async function cotarBase() {
     const mySeq = ++S.seq;
     try {
-      const p = pedido(); if (S.tipo !== 'max' && !(parseFloat(String(S.valor).replace(',', '.')) > 0)) { p.tipo = 'brl'; p.valor = '10'; }
+      const p = pedido(); if (S.tipo !== 'max' && !(numBR(S.valor) > 0)) { p.tipo = 'brl'; p.valor = '10'; }
       const c = await api('saque_cotar', p);
       if (mySeq !== S.seq) return;
       S.cot = c; destEl.textContent = c.destino; disp.textContent = 'Disponível: ' + brl(c.saldo_sats / 1e8 * c.preco_brl);
       desenharTaxas();
-      if (S.tipo === 'max' || parseFloat(String(S.valor).replace(',', '.')) > 0) resumoTotal();
+      if (S.tipo === 'max' || numBR(S.valor) > 0) resumoTotal();
     } catch (e) {
       if (mySeq !== S.seq) return;
       btn.disabled = true;
@@ -307,24 +313,44 @@ function telaSacar() {
 }
 
 /* ---------- cadastro da digital (passkey) ---------- */
+function nomeAparelho() {
+  const ua = navigator.userAgent || '';
+  if (/iPhone/.test(ua)) return 'iPhone';
+  if (/iPad/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1)) return 'iPad';
+  if (/Android/.test(ua)) return 'Android';
+  return (navigator.userAgentData && navigator.userAgentData.platform) || 'Meu celular';
+}
 function cadastrarDigital() {
   return new Promise(resolve => {
     if (!window.PublicKeyCredential) { alert('Este navegador não suporta digital/biometria para confirmar saques.'); resolve(false); return; }
     const senha = h('input', { type: 'password', autocomplete: 'current-password', 'aria-label': 'Senha da conta' });
     const msg = h('div', { class: 'err', role: 'alert' });
-    const ok = h('button', { class: 'btn', type: 'button' }, 'Cadastrar digital');
+    const ok = h('button', { class: 'btn', type: 'button' }, 'Continuar');
     const fechar = v => { modal.remove(); resolve(v); };
+    let pk = null, chStr = '';
+    const recomecar = () => { pk = null; senha.disabled = false; ok.textContent = 'Continuar'; };
     ok.addEventListener('click', async () => {
       ok.disabled = true; msg.textContent = '';
       try {
-        const o = await api('passkey_reg_opcoes', { senha: senha.value });
-        const pk = o.publicKey; const chStr = pk.challenge;
-        pk.challenge = b64uToBuf(pk.challenge); pk.user.id = b64uToBuf(pk.user.id);
-        pk.excludeCredentials = (pk.excludeCredentials || []).map(c => ({ ...c, id: b64uToBuf(c.id) }));
+        if (!pk) {
+          /* 1º toque confere a senha; a digital abre só no 2º toque, porque o Safari do iPhone
+           * exige que navigator.credentials.create() venha direto de um toque do usuário. */
+          const o = await api('passkey_reg_opcoes', { senha: senha.value });
+          pk = o.publicKey; chStr = pk.challenge;
+          pk.challenge = b64uToBuf(pk.challenge); pk.user.id = b64uToBuf(pk.user.id);
+          pk.excludeCredentials = (pk.excludeCredentials || []).map(c => ({ ...c, id: b64uToBuf(c.id) }));
+          senha.value = ''; senha.disabled = true; ok.textContent = 'Usar a digital'; ok.disabled = false;
+          msg.textContent = '';
+          return;
+        }
         const cred = await navigator.credentials.create({ publicKey: pk });
-        await api('passkey_reg_verificar', { challenge: chStr, clientDataJSON: bufToB64u(cred.response.clientDataJSON), attestationObject: bufToB64u(cred.response.attestationObject), apelido: (navigator.userAgentData && navigator.userAgentData.platform) || 'Meu celular' });
+        await api('passkey_reg_verificar', { challenge: chStr, clientDataJSON: bufToB64u(cred.response.clientDataJSON), attestationObject: bufToB64u(cred.response.attestationObject), apelido: nomeAparelho() });
         fechar(true);
-      } catch (e) { msg.textContent = e.name === 'NotAllowedError' ? 'Cadastro cancelado.' : e.message; ok.disabled = false; }
+      } catch (e) {
+        if (e.name === 'NotAllowedError') msg.textContent = 'Cadastro cancelado. Toque em "Usar a digital" para tentar de novo.';
+        else { msg.textContent = e.message; if (pk) recomecar(); }
+        ok.disabled = false;
+      }
     });
     const modal = h('div', { class: 'modal', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Cadastrar digital' },
       h('div', { class: 'sheet' }, h('h1', {}, 'Cadastrar a digital deste aparelho'),
@@ -377,7 +403,7 @@ function telaSaque(txid) {
       if (feito || s.estado === 'substituida') stopTimer();
     } catch (e) { fill(corpo, h('div', { class: 'err' }, e.message), h('a', { class: 'btn ghost', href: '#sacar' }, 'Voltar')); stopTimer(); }
   }
-  atualizar(); timer = setInterval(atualizar, 60000);
+  atualizar(); timer = setInterval(() => { if (!document.hidden) atualizar(); }, 60000);
 }
 
 /* ---------- roteador ---------- */
@@ -388,5 +414,5 @@ function render() {
   ({ inicio: telaInicio, robos: telaRobos, sacar: telaSacar }[hsh] || telaInicio)();
 }
 window.addEventListener('hashchange', render);
-if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js?v=20261013-1').catch(() => {});
 render();
