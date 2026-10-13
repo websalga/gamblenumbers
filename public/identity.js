@@ -364,22 +364,33 @@
         <p class="sub">${t('login_senha_sub','Se você já configurou uma senha de acesso em outro navegador ou aparelho, digite ela aqui pra recuperar suas moedas. Primeiro acesso, ou ainda não tem senha? Deixe em branco e clique em Continuar.')}</p>
         <div class="gn-f"><label>${t('login_senha_label','Senha (opcional)')}</label>
           <input id="li-senha" type="password" placeholder="${t('login_senha_placeholder','deixe em branco se não tiver')}" autocomplete="current-password"></div>
+        <div id="li-erro" class="gn-warn-notice" role="alert" style="display:none;color:#fca5a5"></div>
         <div class="gn-btns">
           <button class="gn-br" id="li-ok">${t('login_senha_btn','Continuar')}</button>
         </div></div>`;
       document.body.appendChild(ov);
       const btn = document.getElementById('li-ok');
+      const inp = document.getElementById('li-senha');
+      const erro = document.getElementById('li-erro');
+      const mostrarErro = (msg) => { erro.textContent = msg; erro.style.display = 'block'; };
       btn.onclick = async () => {
-        const senha = document.getElementById('li-senha').value;
+        erro.style.display = 'none';
+        const senha = inp.value;
+        // Campo em branco = escolha explicita de seguir sem senha (primeiro acesso).
         if (!senha) { ov.remove(); res({status:'blank'}); return; }
+        // Senha informada: so' avanca se for valida. Senha errada NAO cai no fluxo "sem senha".
         btn.disabled = true; btn.textContent = '...';
         try {
           const r = await api('login_senha', {senha});
-          ov.remove();
-          if (r.matched) res({status:'matched', session:r});
-          else res({status:'no_match'});
-        } catch(e) { ov.remove(); res({status:'no_match'}); }
+          if (r && r.matched) { ov.remove(); res({status:'matched', session:r}); return; }
+          mostrarErro(t('login_senha_invalida','Senha informada inválida. Confira e tente novamente, ou deixe em branco para continuar sem senha.'));
+        } catch(e) {
+          mostrarErro(t('login_senha_falha','Não foi possível verificar a senha agora. Tente novamente.'));
+        }
+        btn.disabled = false; btn.textContent = t('login_senha_btn','Continuar');
+        inp.focus(); inp.select();
       };
+      inp.addEventListener('keydown', ev => { if (ev.key === 'Enter') { ev.preventDefault(); btn.click(); } });
     });
   }
 
