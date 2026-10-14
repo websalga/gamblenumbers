@@ -638,6 +638,10 @@
   function logoutSimples() {
     if (!confirm(t('logout_confirm','Sair deste navegador? Suas moedas continuam salvas — use sua senha pra acessar de novo, aqui ou em qualquer outro aparelho.'))) return;
     try { localStorage.removeItem(SK); localStorage.removeItem(SENHA_K); } catch(e) {}
+    // O saldo virtual e o valor da operacao ficam no sessionStorage (gn_saldo, gn_opvalue...),
+    // que sobrevive ao reload na mesma aba: sem limpar, o proximo perfil criado ou logado nesta
+    // aba herdava o saldo do anterior (o saldosync grava o valor da tela num perfil sem saldo).
+    try { sessionStorage.clear(); } catch(e) {}
     location.reload();
   }
 
