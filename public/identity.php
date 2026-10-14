@@ -495,6 +495,18 @@ try {
                 VALUES (?,?,?,?,1,1,0,0,?,?,?,?)');
             $ins->execute([$sid, $fp, $btcAddr, $bchAddr, $ip, $ua, $idioma, password_hash($senha, PASSWORD_DEFAULT)]);
 
+            // Saldo virtual inicial de todo perfil novo: R$ 55.000,00, gravado AQUI no servidor.
+            // Antes quem gravava era a tela (saldosync), que podia mandar o saldo de outro perfil
+            // aberto antes na mesma aba. Falha aqui nao impede a criacao do perfil.
+            try {
+                db()->prepare('DECLARE @sd DECIMAL(18,2), @v BIGINT;
+                    EXEC dbo.GN_SaldoDefinir @session_id = ?, @saldo_brl = ?, @origem = ?, @ref = ?,
+                         @saldo_depois = @sd OUTPUT, @versao = @v OUTPUT;')
+                    ->execute([$sid, '55000.00', 'front', 'saldo-inicial']);
+            } catch (Throwable $e) {
+                debug_log('create_profile:saldo_inicial_falhou', ['msg' => $e->getMessage()]);
+            }
+
             echo json_encode([
                 'session_id'  => $sid,
                 'btc_address' => $btcAddr,
