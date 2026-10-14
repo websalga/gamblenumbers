@@ -265,6 +265,48 @@
     });
   }
 
+  /* --- Senha gerada no primeiro acesso: unica chave do perfil anonimo (sem e-mail/nome) --- */
+  const SENHA_K = 'gn_senha';
+  function salvarSenhaLocal(senha) { try { localStorage.setItem(SENHA_K, senha); } catch (e) {} }
+  function showSenhaGerada(senha) {
+    return new Promise(res => {
+      injectStyles();
+      const ov = document.createElement('div'); ov.id='gn-overlay';
+      ov.innerHTML = `<div id="gn-modal">
+        <h2>${t('senha_gerada_titulo','🔑 Sua senha de acesso')}</h2>
+        <p class="sub">${t('senha_gerada_sub','Geramos uma senha só sua. Ela é a ÚNICA forma de entrar neste perfil em outro navegador, em outro aparelho ou no app. Não pedimos e-mail nem nome, então ninguém consegue recuperar essa senha por você.')}</p>
+        <div class="gn-f"><label>${t('senha_gerada_label','Senha')}</label><input id="gs-senha" readonly style="font-size:15px;letter-spacing:1px"></div>
+        <div class="gn-btns" style="margin-bottom:14px">
+          <button class="gn-bs" id="gs-copiar" style="flex:1">${t('senha_gerada_copiar','Copiar')}</button>
+          <button class="gn-bs" id="gs-baixar" style="flex:1">${t('senha_gerada_baixar','Baixar arquivo')}</button>
+        </div>
+        <div class="gn-notice">${t('senha_gerada_aviso','Anote a senha ou baixe o arquivo e guarde em local seguro (gerenciador de senhas, papel guardado, pendrive). Se você perder a senha e os dados deste navegador forem apagados, o perfil e o saldo ficam inacessíveis para sempre. Nunca envie esta senha para ninguém.')}</div>
+        <label style="display:flex;gap:8px;align-items:flex-start;font-size:12px;color:var(--txt);margin-bottom:16px;cursor:pointer">
+          <input type="checkbox" id="gs-ok" style="margin-top:2px"><span>${t('senha_gerada_confirmo','Anotei ou baixei a senha e guardei em local seguro.')}</span></label>
+        <div class="gn-btns"><button class="gn-br" id="gs-continuar" disabled>${t('senha_gerada_continuar','Continuar')}</button></div></div>`;
+      document.body.appendChild(ov);
+      const inp = document.getElementById('gs-senha'); inp.value = senha;
+      inp.addEventListener('click', () => inp.select());
+      const ok = document.getElementById('gs-ok'), cont = document.getElementById('gs-continuar');
+      ok.addEventListener('change', () => { cont.disabled = !ok.checked; });
+      document.getElementById('gs-copiar').addEventListener('click', async ev => {
+        try { await navigator.clipboard.writeText(senha); ev.target.textContent = t('senha_gerada_copiada','Copiada!'); }
+        catch (e) { inp.select(); ev.target.textContent = t('senha_gerada_copie_manual','Selecione e copie'); }
+      });
+      document.getElementById('gs-baixar').addEventListener('click', () => {
+        const txt = 'GambleNumbers - senha de acesso\r\n\r\n' + senha + '\r\n\r\n'
+          + 'Esta senha e a unica forma de entrar no seu perfil anonimo, no site\r\n'
+          + '(https://gamblenumbers.com) e no app (https://gamblenumbers.com/app/).\r\n'
+          + 'Guarde este arquivo em local seguro e nunca envie a senha para ninguem.\r\n';
+        const url = URL.createObjectURL(new Blob([txt], {type:'text/plain;charset=utf-8'}));
+        const a = document.createElement('a'); a.href = url; a.download = 'gamblenumbers-senha.txt';
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 10000);
+      });
+      cont.addEventListener('click', () => { ov.remove(); res(); });
+    });
+  }
+
   /* --- Terminal verde (ou vermelho, via opts.danger) --- */
   function showTerminal(steps, opts) {
     opts = opts || {};
@@ -446,7 +488,7 @@
     }
 
     // Terminal de verificação
-    let fpData, sessionData;
+    let fpData, sessionData, senhaNova = null;
     await showTerminal([
       { id:'fp',      label:t('term_step_fp','Coletando impressão digital do dispositivo'), ms:800,
         fn: async()=>{ fpData=await collectFingerprint(); return {ok:true}; } },
@@ -457,7 +499,11 @@
             user_agent:  navigator.userAgent,
             idioma: currentLang(),
           });
-          if(r.session_id){ saveSess(r); sessionData=r; window.GNIdentity.session=r; }
+          if(r.session_id){
+            // A senha gerada nao entra no gn_session: fica so na chave propria (gn_senha).
+            if (r.senha_gerada) { senhaNova = r.senha_gerada; delete r.senha_gerada; salvarSenhaLocal(senhaNova); }
+            saveSess(r); sessionData=r; window.GNIdentity.session=r;
+          }
           return r.session_id
             ? {ok:true, detail:'· BTC + BCH'}
             : {ok:false,text:t('term_erro','ERRO'),fatal:true};
@@ -469,6 +515,8 @@
             : {ok:false, text:t('term_sem_moedas','ERRO')};
         }}
     ]);
+
+    if (senhaNova) await showSenhaGerada(senhaNova);
 
     window.dispatchEvent(new CustomEvent('gn:identity:ready',
       {detail: window.GNIdentity.session || {mode:'simulation'}}));
@@ -589,7 +637,7 @@
 
   function logoutSimples() {
     if (!confirm(t('logout_confirm','Sair deste navegador? Suas moedas continuam salvas — use sua senha pra acessar de novo, aqui ou em qualquer outro aparelho.'))) return;
-    try { localStorage.removeItem(SK); } catch(e) {}
+    try { localStorage.removeItem(SK); localStorage.removeItem(SENHA_K); } catch(e) {}
     location.reload();
   }
 

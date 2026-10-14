@@ -353,6 +353,22 @@ function make_session_id(string $fp, string $btc, string $bch, string $ip): stri
     return hash('sha256', $fp . '|' . $btc . '|' . $bch . '|' . $ip);
 }
 
+/* --- Senha gerada no primeiro acesso: 4 grupos de 5 caracteres (~117 bits), sem caracteres
+ *     ambiguos (0/O, 1/l/I). Sempre tem maiuscula, minuscula e numero (mesma regra do configurar_senha). --- */
+function gn_gerar_senha(): string {
+    $alfa = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
+    do {
+        $g = [];
+        for ($i = 0; $i < 4; $i++) {
+            $s = '';
+            for ($j = 0; $j < 5; $j++) $s .= $alfa[random_int(0, strlen($alfa) - 1)];
+            $g[] = $s;
+        }
+        $senha = implode('-', $g);
+    } while (!preg_match('/[A-Z]/', $senha) || !preg_match('/[a-z]/', $senha) || !preg_match('/[0-9]/', $senha));
+    return $senha;
+}
+
 /* --- Codigo publico da sessao (GN-XXXXXX): HMAC-SHA256 do session_id com segredo fora do docroot.
  *     Sem segredo configurado devolve '' (selo some). --- */
 function gn_codigo_sessao(string $sid): string {
@@ -461,29 +477,11 @@ try {
 
             if (strlen($fp) < 16) { echo json_encode(['error'=>'fingerprint inválido']); return; }
 
-            $sid = make_session_id($fp, '', '', $ip);
-
-            // Já existe?
-            $st = db()->prepare('SELECT session_id, btc_address, bch_address,
-                btc_saldo_visto, bch_saldo_visto, modo_real, senha_hash,
-                CASE WHEN criado_em > DATEADD(HOUR,-24,GETUTCDATE()) THEN 1 ELSE 0 END AS nova FROM dbo.GN_Usuarios WHERE session_id=?');
-            $st->execute([$sid]);
-            $existing = $st->fetch();
-            if ($existing) {
-                db()->prepare('UPDATE dbo.GN_Usuarios SET ultimo_acesso=GETUTCDATE() WHERE session_id=?')
-                    ->execute([$sid]);
-                echo json_encode(['session_id'=>$sid,
-                    'btc_address'=>$existing['btc_address'],
-                    'bch_address'=>$existing['bch_address'],
-                    'btc_saldo'=>$existing['btc_saldo_visto'],
-                    'bch_saldo'=>$existing['bch_saldo_visto'],
-                    'modo_real'=>(bool)$existing['modo_real'],
-                    'tem_senha'=>!empty($existing['senha_hash']),
-                    'codigo'=>gn_codigo_sessao($sid),
-                    'nova'=>(bool)$existing['nova'],
-                ]);
-                return;
-            }
+            // session_id ALEATORIO (256 bits). Antes era SHA256(fingerprint|IP): dava para calcular
+            // por fora e dois aparelhos iguais atras do mesmo IP (CGNAT) caiam no mesmo perfil.
+            // Voltar ao perfil: localStorage deste navegador ou a senha gerada abaixo.
+            $sid = bin2hex(random_bytes(32));
+            $senha = gn_gerar_senha();
 
             // Gera endereços reais nas duas wallets gamblenumbers
             $btcAddr = gerar_endereco_deposito('BTC', 'usuario-' . substr($sid, 0, 12));
@@ -493,9 +491,9 @@ try {
             $ins = db()->prepare('INSERT INTO dbo.GN_Usuarios
                 (session_id, fingerprint_hash, btc_address, bch_address,
                  btc_habilitado, bch_habilitado, btc_saldo_visto, bch_saldo_visto,
-                 ip_primeiro, user_agent, idioma_preferido)
-                VALUES (?,?,?,?,1,1,0,0,?,?,?)');
-            $ins->execute([$sid, $fp, $btcAddr, $bchAddr, $ip, $ua, $idioma]);
+                 ip_primeiro, user_agent, idioma_preferido, senha_hash)
+                VALUES (?,?,?,?,1,1,0,0,?,?,?,?)');
+            $ins->execute([$sid, $fp, $btcAddr, $bchAddr, $ip, $ua, $idioma, password_hash($senha, PASSWORD_DEFAULT)]);
 
             echo json_encode([
                 'session_id'  => $sid,
@@ -504,9 +502,11 @@ try {
                 'btc_saldo'   => '0',
                 'bch_saldo'   => '0',
                 'modo_real'   => false,
-                'tem_senha'   => false,
+                'tem_senha'   => true,
                 'codigo'      => gn_codigo_sessao($sid),
                 'nova'        => true,
+                // Unica vez que a senha sai do servidor: no SQL fica so o hash.
+                'senha_gerada'=> $senha,
             ]);
         })(),
 
