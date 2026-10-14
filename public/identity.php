@@ -428,7 +428,7 @@ try {
             $st = db()->prepare('SELECT session_id, btc_address, bch_address,
                 btc_saldo_visto, bch_saldo_visto, modo_real, moeda_saida, endereco_saida, senha_hash,
                 CASE WHEN criado_em > DATEADD(HOUR,-24,GETUTCDATE()) THEN 1 ELSE 0 END AS nova
-                FROM dbo.GN_Usuarios WHERE session_id=?');
+                FROM dbo.GN_Usuarios WHERE session_id=? AND ativo=1');
             $st->execute([$sid]);
             $row = $st->fetch();
             if (!$row) { echo json_encode(['valid'=>false]); return; }
@@ -528,7 +528,7 @@ try {
             if (strlen($sid) !== 64) { echo json_encode(['error'=>'session_id inválido']); return; }
 
             $st = db()->prepare('SELECT btc_address, bch_address, modo_real
-                FROM dbo.GN_Usuarios WHERE session_id=?');
+                FROM dbo.GN_Usuarios WHERE session_id=? AND ativo=1');
             $st->execute([$sid]);
             $row = $st->fetch();
             if (!$row) { echo json_encode(['error'=>'sessão não encontrada']); return; }
@@ -575,7 +575,7 @@ try {
             if (!in_array($moeda, ['BTC','BCH'], true)) { echo json_encode(['ok'=>false,'error'=>'moeda inválida']); return; }
             if (!$endereco) { echo json_encode(['ok'=>false,'error'=>'endereço obrigatório']); return; }
 
-            db()->prepare('UPDATE dbo.GN_Usuarios SET moeda_saida=?, endereco_saida=?, ultimo_acesso=GETUTCDATE() WHERE session_id=?')
+            db()->prepare('UPDATE dbo.GN_Usuarios SET moeda_saida=?, endereco_saida=?, ultimo_acesso=GETUTCDATE() WHERE session_id=? AND ativo=1')
                 ->execute([$moeda, $endereco, $sid]);
 
             echo json_encode(['ok'=>true, 'moeda_saida'=>$moeda, 'endereco_saida'=>$endereco]);
@@ -590,7 +590,7 @@ try {
             if (strlen($sid) !== 64) { debug_log('sacar_externa:erro', ['motivo'=>'session_id_invalido']); echo json_encode(['ok'=>false,'error'=>'session_id inválido']); return; }
             if (!in_array($moeda, ['BTC','BCH'], true)) { debug_log('sacar_externa:erro', ['motivo'=>'moeda_invalida', 'moeda'=>$moeda]); echo json_encode(['ok'=>false,'error'=>'moeda inválida']); return; }
 
-            $st = db()->prepare('SELECT btc_address, bch_address, moeda_saida, endereco_saida FROM dbo.GN_Usuarios WHERE session_id=?');
+            $st = db()->prepare('SELECT btc_address, bch_address, moeda_saida, endereco_saida FROM dbo.GN_Usuarios WHERE session_id=? AND ativo=1');
             $st->execute([$sid]);
             $perfil = $st->fetch();
             if (!$perfil) { echo json_encode(['ok'=>false,'error'=>'sessão não encontrada']); return; }
@@ -771,7 +771,7 @@ try {
                 echo json_encode(['ok'=>false,'error'=>'A senha precisa ter pelo menos 1 número.']); return;
             }
 
-            $st = db()->prepare('SELECT session_id FROM dbo.GN_Usuarios WHERE session_id=?');
+            $st = db()->prepare('SELECT session_id FROM dbo.GN_Usuarios WHERE session_id=? AND ativo=1');
             $st->execute([$sid]);
             if (!$st->fetch()) { echo json_encode(['ok'=>false,'error'=>'sessão não encontrada']); return; }
 
@@ -809,7 +809,7 @@ try {
             $st = db()->query("SELECT session_id, btc_address, bch_address, btc_saldo_visto, bch_saldo_visto,
                 modo_real, moeda_saida, endereco_saida, senha_hash, idioma_preferido,
                 CASE WHEN criado_em > DATEADD(HOUR,-24,GETUTCDATE()) THEN 1 ELSE 0 END AS nova
-                FROM dbo.GN_Usuarios WHERE senha_hash IS NOT NULL");
+                FROM dbo.GN_Usuarios WHERE senha_hash IS NOT NULL AND ativo=1");
             $candidatos = $st->fetchAll();
 
             foreach ($candidatos as $row) {

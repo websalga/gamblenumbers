@@ -24,7 +24,7 @@ $sid    = trim((string)($body['session_id'] ?? ''));
 
 function usuario(string $sid): array {
     if (strlen($sid) !== 64 || !ctype_xdigit($sid)) out(['ok' => false, 'error' => 'sessão inválida'], 400);
-    $st = db()->prepare('SELECT session_id, btc_address, moeda_saida, endereco_saida, senha_hash FROM dbo.GN_Usuarios WHERE session_id=?');
+    $st = db()->prepare('SELECT session_id, btc_address, moeda_saida, endereco_saida, senha_hash FROM dbo.GN_Usuarios WHERE session_id=? AND ativo=1');
     $st->execute([$sid]);
     $u = $st->fetch();
     if (!$u) out(['ok' => false, 'error' => 'sessão não encontrada'], 404);
