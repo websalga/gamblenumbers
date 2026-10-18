@@ -30,9 +30,10 @@
 -- limite_perda_diaria_pct, queda_crash_pct, taxas_reais) vem de GN_Robos e
 -- NAO sao alterados por esta procedure.
 --
--- ATUALIZADA em 2026-10-12: o limiar de COMPRA passou a usar GN_Robos.queda_compra_pct (percentual de compra proprio, padrao 1.5)
--- em vez de retorno_desejado_pct, que agora controla SO' a venda. limiar = taxa de rede + SideShift (se Taxas Reais) + queda_compra_pct
--- (se queda_compra_pct for NULL, cai em retorno_desejado_pct). Venda e modo crash inalterados.
+-- ATUALIZADA em 2026-10-18: o gatilho normal de compra compara com a maxima do prazo
+-- config_json.lookback_minutos (padrao 1440 = 24 h; antes era 30 min fixo na pratica) e respeita o
+-- teto por robo config_json.teto_saldo_pct (padrao 20%): lotes abertos do robo + novo lote <= teto% do
+-- saldo livre da conta no momento (saldo compartilhado entre os robos da sessao). Modo crash e venda inalterados.
 --
 -- ATUALIZADA em 2026-10-05 (2): (a) compra normal e crash so' chamam GN_RoboComprar se houver saldo
 -- (valor + taxa); sem saldo registra 'saldo insuficiente' e SEGUE para a venda -- antes o erro 50012
@@ -72,7 +73,7 @@
 -- apuracao da venda/PnL, nao os parametros estrategicos de compra.
 -- =============================================================================
 
-CREATE OR ALTER PROCEDURE dbo.GN_RoboOrquestrador
+CREATE   PROCEDURE dbo.GN_RoboOrquestrador
     @robo_id  BIGINT,
     @fila_id  BIGINT = NULL
 AS
@@ -214,7 +215,7 @@ BEGIN
             + ISNULL((SELECT queda_compra_pct FROM dbo.GN_Robos WHERE id = @robo_id), @retorno_desejado_pct); -- 2026-10-12: percentual de COMPRA separado do de venda (queda_compra_pct)
 
         /* 4) decisao de COMPRA (gatilho normal): preco caiu >= limiar_pct abaixo da maxima recente */
-        DECLARE @lookback_min INT = 30;
+        DECLARE @lookback_min INT = 1440; -- 2026-10-18: padrao 24 h (configuravel na tela: config_json.lookback_minutos)
         IF @config_json IS NOT NULL AND ISNUMERIC(JSON_VALUE(@config_json, '$.lookback_minutos')) = 1
             SET @lookback_min = CAST(JSON_VALUE(@config_json, '$.lookback_minutos') AS INT);
 
@@ -230,8 +231,19 @@ BEGIN
 
         DECLARE @queda_pct DECIMAL(9,4) = CASE WHEN @maxima > 0 THEN (@maxima - @preco) / @maxima * 100.0 ELSE 0 END;
 
+        /* teto por robo (2026-10-18): lotes abertos do robo + novo lote <= teto_saldo_pct% do saldo livre
+         * da conta no momento (padrao 20%). So' no gatilho normal; o modo crash nao tem teto. */
+        DECLARE @teto_pct DECIMAL(9,4) = 20;
+        IF @config_json IS NOT NULL AND ISNUMERIC(JSON_VALUE(@config_json, '$.teto_saldo_pct')) = 1
+            SET @teto_pct = CAST(JSON_VALUE(@config_json, '$.teto_saldo_pct') AS DECIMAL(9,4));
+        DECLARE @aberto_robo DECIMAL(18,2) = (SELECT ISNULL(SUM(restante * preco), 0) FROM dbo.GN_SimLotes
+            WHERE session_id = @session_id AND moeda = @moeda AND robo_client_id = @robo_client_id AND restante > 0 AND excluido = 0);
+        DECLARE @teto_valor DECIMAL(18,2) = @teto_pct / 100.0 * ISNULL(@saldo, 0);
+
         IF @queda_pct >= @limiar_pct AND ISNULL(@saldo, 0) < @valor_operacao + @fee_rede
             SET @detalhe = CONCAT(@detalhe, 'sem compra: saldo insuficiente (', ISNULL(@saldo, 0), ' < ', @valor_operacao + @fee_rede, '); queda ', @queda_pct, '% >= limiar ', @limiar_pct, '%. ');
+        ELSE IF @queda_pct >= @limiar_pct AND @aberto_robo + @valor_operacao > @teto_valor
+            SET @detalhe = CONCAT(@detalhe, 'sem compra: teto do robo (lotes abertos ', @aberto_robo, ' + lote ', @valor_operacao, ' > ', @teto_pct, '% do saldo livre = ', @teto_valor, '); queda ', @queda_pct, '% >= limiar ', @limiar_pct, '%. ');
         ELSE IF @queda_pct >= @limiar_pct
         BEGIN
             DECLARE @c_lote VARCHAR(20), @c_preco DECIMAL(24,8), @c_qtd DECIMAL(24,10);
@@ -250,7 +262,7 @@ BEGIN
             END CATCH
         END
         ELSE
-            SET @detalhe = CONCAT(@detalhe, 'sem compra: queda ', @queda_pct, '% < limiar ', @limiar_pct, '%. ');
+            SET @detalhe = CONCAT(@detalhe, 'sem compra: queda ', @queda_pct, '% < limiar ', @limiar_pct, '% (vs maxima de ', @lookback_min, ' min). ');
 
         /* 4b) MODO CRASH (regra 2026-10-05): gatilho de compra em paralelo ao normal
          *     (no maximo 1 lote por ciclo: so' roda se o normal nao comprou).
@@ -392,6 +404,3 @@ BEGIN
     END CATCH
 END
 GO
-
--- Exemplo de uso:
--- EXEC dbo.GN_RoboOrquestrador @robo_id = 1, @fila_id = NULL;

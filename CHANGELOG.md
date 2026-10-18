@@ -1,5 +1,38 @@
 # Changelog
 
+## [v1.19.0] — 2026-10-18
+
+### English
+
+**Changed: BTC node accepts transactions from 0.1 sat/vB**
+- `minrelaytxfee=0.000001` on the BTC node (lxbtc01), the Bitcoin Core default since 29.1. The local mempool and its dashboard now see the cheap transactions miners are confirming. The BCH node stays at 1 sat/byte on purpose (BCHN `estimatefee` returns the relay minimum, and the site uses it).
+
+**Added: custom fee from 0.1 sat/vB in the PWA app**
+- The "Custom" slider goes from 0.1 to 50 sat/vB, read live from the node. The ready-made levels (Economy, Normal, Fast) still start at 1 sat/vB, so paying less is always the user's choice.
+
+**Added: fee collector (`gn-fee-collector`) and confirmation time per fee band**
+- New service on the BTC and BCH nodes that records when each transaction entered the queue, the fee paid and when it was confirmed. New tables `GN_FeeMempoolTx` and `GN_FeeBlocos` and the report `GN_FeeTempoPorTaxa` (average, median and 90th-percentile wait per fee band over the last N blocks). See `infra/lxbtc01/gn-fee-collector` and `infra/lsql2019/2026-10-18_gn_fee_coletor.sql`. Next step: show these measured times in the app, the site and the robots.
+
+**Changed: robots buy against a configurable reference window, with a per-bot cap**
+- The normal buy trigger used to compare the price with the high of the last 30 minutes only, so slow multi-day drops never triggered a buy. It now compares with the high of a configurable window (new field "Drop reference window", in minutes, hours or days; default 24 hours).
+- New field "Bot cap (% of free balance)", default 20%: a robot only buys if its open lots plus the new lot stay within that share of the account's free balance at that moment (bots on the same account share it). The crash-buy trigger and selling are unchanged.
+- `GN_RoboOrquestrador` updated (`docs/GN_RoboOrquestrador.sql`); robot screen texts in the 11 site languages (`infra/lsql2019/2026-10-18_textos_robos_prazo_teto.sql`).
+
+### Português
+
+**Alterado: node BTC aceita transações a partir de 0,1 sat/vB**
+- `minrelaytxfee=0.000001` no node BTC (lxbtc01), o padrão do Bitcoin Core desde a 29.1. A mempool local e o painel dela passam a ver as transações baratas que os mineradores estão confirmando. O node BCH fica em 1 sat/byte de propósito (no BCHN o `estimatefee` devolve o mínimo de relay, e o site usa esse valor).
+
+**Adicionado: taxa personalizada a partir de 0,1 sat/vB no app PWA**
+- A barra "Personalizada" vai de 0,1 a 50 sat/vB, lida do node na hora. Os níveis prontos (Econômica, Normal e Rápida) continuam a partir de 1 sat/vB, então pagar menos é sempre escolha do usuário.
+
+**Adicionado: coletor de taxas (`gn-fee-collector`) e tempo de confirmação por faixa de taxa**
+- Novo serviço nos nodes BTC e BCH que registra quando cada transação entrou na fila, a taxa paga e quando foi confirmada. Novas tabelas `GN_FeeMempoolTx` e `GN_FeeBlocos` e o relatório `GN_FeeTempoPorTaxa` (espera média, mediana e de 90% das transações por faixa de taxa nos últimos N blocos). Ver `infra/lxbtc01/gn-fee-collector` e `infra/lsql2019/2026-10-18_gn_fee_coletor.sql`. Próximo passo: mostrar esses tempos medidos no app, no site e nos robôs.
+
+**Alterado: robôs compram contra um prazo de referência configurável, com teto por robô**
+- O gatilho normal de compra comparava o preço só com a máxima dos últimos 30 minutos, então quedas lentas, de vários dias, nunca disparavam compra. Agora compara com a máxima de um prazo configurável (campo novo "Prazo de referência da queda", em minutos, horas ou dias; padrão de 24 horas).
+- Campo novo "Teto por robô (% do saldo livre)", padrão de 20%: o robô só compra se os lotes abertos dele mais o novo lote ficarem dentro desse percentual do saldo livre da conta no momento (robôs da mesma conta dividem esse saldo). A compra em queda forte e a venda não mudaram.
+- `GN_RoboOrquestrador` atualizado (`docs/GN_RoboOrquestrador.sql`); textos da tela de robôs nos 11 idiomas do site (`infra/lsql2019/2026-10-18_textos_robos_prazo_teto.sql`).
 ## [v1.18.1] — 2026-10-12
 
 ### English
