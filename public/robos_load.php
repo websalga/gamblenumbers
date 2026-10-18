@@ -19,6 +19,8 @@ header('X-Content-Type-Options: nosniff');
 require_once __DIR__ . '/../private/config.php';
 
 const QUEDA_CRASH_PCT_PADRAO = 23.0;
+const LOOKBACK_MIN_PADRAO = 1440;
+const TETO_SALDO_PCT_PADRAO = 20.0;
 
 function db(): PDO {
     global $DB_SERVER, $DB_DATABASE, $DB_USER, $DB_PASSWORD, $DB_PORT;
@@ -48,6 +50,16 @@ function taxasReaisDeConfig(?string $configJson): bool {
 function quedaCrashPctDeConfig(?string $configJson): float {
     $j = configDecode($configJson);
     return array_key_exists('queda_crash_pct', $j) ? (float)$j['queda_crash_pct'] : QUEDA_CRASH_PCT_PADRAO;
+}
+
+function lookbackMinDeConfig(?string $configJson): int {
+    $j = configDecode($configJson);
+    return array_key_exists('lookback_minutos', $j) ? (int)$j['lookback_minutos'] : LOOKBACK_MIN_PADRAO;
+}
+
+function tetoSaldoPctDeConfig(?string $configJson): float {
+    $j = configDecode($configJson);
+    return array_key_exists('teto_saldo_pct', $j) ? (float)$j['teto_saldo_pct'] : TETO_SALDO_PCT_PADRAO;
 }
 
 $sid = trim((string)($_GET['session_id'] ?? ''));
@@ -82,6 +94,8 @@ try {
             'ativo'                  => (bool)$r['ativo'],
             'taxasReais'             => taxasReaisDeConfig($r['config_json']),
             'quedaCrashPct'          => quedaCrashPctDeConfig($r['config_json']),
+            'lookbackMinutos'        => lookbackMinDeConfig($r['config_json']),
+            'tetoSaldoPct'           => tetoSaldoPctDeConfig($r['config_json']),
             'criadoEm'               => $r['criado_em'],
             'atualizadoEm'           => $r['atualizado_em'],
         ];

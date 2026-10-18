@@ -18,6 +18,9 @@
   function tip(key) { const txt = t(key); return ` <span class="info-tip" tabindex="0" title="${esc(txt)}" aria-label="${esc(txt)}">\u24D8</span>`; }
   function sessionId() { try { return JSON.parse(localStorage.getItem('gn_session') || '{}').session_id || ''; } catch (_) { return ''; } }
   function brl(v) { return 'R$ ' + Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+  /* prazo de referência: guardado em minutos; na tela mostra na maior unidade exata (dias, horas ou minutos) */
+  function prazoParaTela(min) { min = Number(min) || 1440; if (min % 1440 === 0) return [min / 1440, 'd']; if (min % 60 === 0) return [min / 60, 'h']; return [min, 'm']; }
+  function prazoTexto(min) { const [v, u] = prazoParaTela(min); return v + ' ' + t(u === 'd' ? 'automatos_unid_dias' : u === 'h' ? 'automatos_unid_horas' : 'automatos_unid_minutos'); }
   function pct(v) { return Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 4 }) + '%'; }
 
   const MAX_ROBOS = 5;
@@ -67,10 +70,11 @@
   function renderForm(robo) {
     const editando = !!robo;
     _editandoId = editando ? robo.id : null;
-    const d = editando ? robo : Object.assign({ apelido: '', moeda: moedaAtual(), ativo: false, taxasReais: true, quedaCrashPct: 23 }, defaultsDaTelaPrincipal());
+    const d = editando ? robo : Object.assign({ apelido: '', moeda: moedaAtual(), ativo: false, taxasReais: true, quedaCrashPct: 23, lookbackMinutos: 1440, tetoSaldoPct: 20 }, defaultsDaTelaPrincipal());
 
     const form = document.getElementById('automatosForm');
     if (!form) return;
+    const [prazoValor, prazoUnid] = prazoParaTela(d.lookbackMinutos ?? 1440);
     form.innerHTML = `
       <h3>${editando ? t('automatos_editar_robo') : t('automatos_novo_robo')}</h3>
       <div class="field">
@@ -98,6 +102,23 @@
         <label for="roboQuedaCompra">${t('automatos_queda_compra_pct')}${tip('automatos_queda_compra_pct_tip')}</label>
         <input id="roboQuedaCompra" type="number" step="0.01" min="0" max="100" value="${Number(d.quedaCompraPct ?? 1.5)}">
         <div class="field-hint">${t('automatos_queda_compra_pct_hint')}</div>
+      </div>
+      <div class="field">
+        <label for="roboPrazoRef">${t('automatos_prazo_ref')}${tip('automatos_prazo_ref_tip')}</label>
+        <div style="display:flex;gap:8px">
+          <input id="roboPrazoRef" type="number" step="1" min="1" value="${prazoValor}" style="flex:1">
+          <select id="roboPrazoUnid" style="flex:1">
+            <option value="m" ${prazoUnid === 'm' ? 'selected' : ''}>${t('automatos_unid_minutos')}</option>
+            <option value="h" ${prazoUnid === 'h' ? 'selected' : ''}>${t('automatos_unid_horas')}</option>
+            <option value="d" ${prazoUnid === 'd' ? 'selected' : ''}>${t('automatos_unid_dias')}</option>
+        </select>
+        </div>
+        <div class="field-hint">${t('automatos_prazo_ref_hint')}</div>
+      </div>
+      <div class="field">
+        <label for="roboTeto">${t('automatos_teto_saldo_pct')}${tip('automatos_teto_saldo_pct_tip')}</label>
+        <input id="roboTeto" type="number" step="1" min="1" max="100" value="${Number(d.tetoSaldoPct ?? 20)}">
+        <div class="field-hint">${t('automatos_teto_saldo_pct_hint')}</div>
       </div>
       <div class="field">
         <label>${t('automatos_limite_perda')}${tip('automatos_limite_perda_tip')}</label>
@@ -144,12 +165,18 @@
     const quedaCompraPct = parseFloat(document.getElementById('roboQuedaCompra').value);
     const quedaCrashPctTxt = document.getElementById('roboQuedaCrash').value;
     const quedaCrashPct = parseFloat(quedaCrashPctTxt);
+    const prazoValor = parseFloat(document.getElementById('roboPrazoRef').value);
+    const prazoUnid = document.getElementById('roboPrazoUnid').value;
+    const lookbackMinutos = Math.round(prazoValor * (prazoUnid === 'd' ? 1440 : prazoUnid === 'h' ? 60 : 1));
+    const tetoSaldoPct = parseFloat(document.getElementById('roboTeto').value);
 
     if (!apelido) { if (status) status.textContent = t('automatos_erro_apelido'); return; }
     if (!(valorOperacao > 0)) { if (status) status.textContent = t('automatos_erro_valor'); return; }
     if (!(quedaCompraPct >= 0) || quedaCompraPct > 100) { if (status) status.textContent = t('automatos_erro_queda_compra'); return; }
     if (!(retornoPct > 0)) { if (status) status.textContent = t('automatos_erro_retorno'); return; }
     if (!(quedaCrashPct >= 0) || quedaCrashPct > 90) { if (status) status.textContent = t('automatos_erro_queda_crash'); return; }
+    if (!(lookbackMinutos >= 5) || lookbackMinutos > 43200) { if (status) status.textContent = t('automatos_erro_prazo_ref'); return; }
+    if (!(tetoSaldoPct >= 1) || tetoSaldoPct > 100) { if (status) status.textContent = t('automatos_erro_teto'); return; }
 
     if (status) status.textContent = '...';
     const resp = await salvarRobo({
@@ -162,6 +189,8 @@
       ativo,
       taxas_reais: taxasReais,
       queda_crash_pct: quedaCrashPct,
+      lookback_minutos: lookbackMinutos,
+      teto_saldo_pct: tetoSaldoPct,
     });
 
     if (!resp.ok) {
@@ -183,6 +212,8 @@
           <span>${t('automatos_moeda')}</span><b>${esc(r.moeda)}</b>
           <span>${t('automatos_valor_operacao')}</span><b>${brl(r.valorOperacao)}</b>
           <span>${t('automatos_queda_compra_pct')}</span><b>${pct(r.quedaCompraPct ?? r.retornoDesejadoPct)}</b>
+          <span>${t('automatos_prazo_ref')}</span><b>${prazoTexto(r.lookbackMinutos ?? 1440)}</b>
+          <span>${t('automatos_teto_saldo_pct')}</span><b>${pct(r.tetoSaldoPct ?? 20)}</b>
           <span>${t('automatos_retorno_desejado')}</span><b>${pct(r.retornoDesejadoPct)}</b>
           <span>${t('automatos_limite_perda')}</span><b>${pct(r.limitePerdaDiariaPct)}</b>
           <span>${t('automatos_taxas_reais')}</span><b>${(r.taxasReais ?? true) ? t('automatos_status_ativo') : t('automatos_status_inativo')}</b>

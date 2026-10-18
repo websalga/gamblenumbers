@@ -49,6 +49,8 @@
  *     ativo: boolean,
  *     taxas_reais: boolean,        // opcional; omitido = não mexe (update) / true (criação)
  *     queda_crash_pct: number,     // opcional; omitido = não mexe (update) / 23 (criação); 0 desativa
+ *     lookback_minutos: number,    // opcional; prazo da máxima usada no gatilho de compra (5 min a 30 dias); padrão 1440 (24 h)
+ *     teto_saldo_pct: number,      // opcional; teto do robô em % do saldo livre da conta (1 a 100); padrão 20
  *   }
  *
  * Resposta:
@@ -64,6 +66,10 @@ const ROBOS_MAX_POR_SESSAO = 5;
 const LIMITE_PERDA_DIARIA_PCT_FIXO = 10;
 const QUEDA_CRASH_PCT_PADRAO = 23.0;
 const QUEDA_CRASH_PCT_MAX = 90.0;
+const LOOKBACK_MIN_PADRAO = 1440;
+const LOOKBACK_MIN_MIN = 5;
+const LOOKBACK_MIN_MAX = 43200;
+const TETO_SALDO_PCT_PADRAO = 20.0;
 
 function db(): PDO {
     global $DB_SERVER, $DB_DATABASE, $DB_USER, $DB_PASSWORD, $DB_PORT;
@@ -95,10 +101,20 @@ function quedaCrashPctDeConfig(?string $configJson): float {
     return array_key_exists('queda_crash_pct', $j) ? (float)$j['queda_crash_pct'] : QUEDA_CRASH_PCT_PADRAO;
 }
 
+function lookbackMinDeConfig(?string $configJson): int {
+    $j = configDecode($configJson);
+    return array_key_exists('lookback_minutos', $j) ? (int)$j['lookback_minutos'] : LOOKBACK_MIN_PADRAO;
+}
+
+function tetoSaldoPctDeConfig(?string $configJson): float {
+    $j = configDecode($configJson);
+    return array_key_exists('teto_saldo_pct', $j) ? (float)$j['teto_saldo_pct'] : TETO_SALDO_PCT_PADRAO;
+}
+
 /* Mescla os campos informados nesta requisição (quando presentes) com o
  * config_json já existente, preservando o que não foi mandado. Só grava no
  * json as chaves que diferem do padrão -- mantém o registro limpo. */
-function mesclarConfig(?string $configJsonAtual, ?bool $taxasReais, ?float $quedaCrashPct): ?string {
+function mesclarConfig(?string $configJsonAtual, ?bool $taxasReais, ?float $quedaCrashPct, ?int $lookbackMin = null, ?float $tetoPct = null): ?string {
     $j = configDecode($configJsonAtual);
 
     if ($taxasReais !== null) {
@@ -109,6 +125,16 @@ function mesclarConfig(?string $configJsonAtual, ?bool $taxasReais, ?float $qued
     if ($quedaCrashPct !== null) {
         if (abs($quedaCrashPct - QUEDA_CRASH_PCT_PADRAO) < 0.0001) unset($j['queda_crash_pct']);
         else $j['queda_crash_pct'] = $quedaCrashPct;
+    }
+
+    if ($lookbackMin !== null) {
+        if ($lookbackMin === LOOKBACK_MIN_PADRAO) unset($j['lookback_minutos']);
+        else $j['lookback_minutos'] = $lookbackMin;
+    }
+
+    if ($tetoPct !== null) {
+        if (abs($tetoPct - TETO_SALDO_PCT_PADRAO) < 0.0001) unset($j['teto_saldo_pct']);
+        else $j['teto_saldo_pct'] = $tetoPct;
     }
 
     return empty($j) ? null : json_encode($j);
@@ -141,6 +167,12 @@ $quedaCompraInput = $temQuedaCompra ? $body['queda_compra_pct'] : null;
 $temQuedaCrash   = array_key_exists('queda_crash_pct', $body);
 $quedaCrashInput = $temQuedaCrash ? $body['queda_crash_pct'] : null;
 
+$temLookback   = array_key_exists('lookback_minutos', $body);
+$lookbackInput = $temLookback ? $body['lookback_minutos'] : null;
+
+$temTeto   = array_key_exists('teto_saldo_pct', $body);
+$tetoInput = $temTeto ? $body['teto_saldo_pct'] : null;
+
 if (strlen($sid) !== 64 || !ctype_xdigit($sid)) erro(400, 'sessao invalida');
 if ($apelido === '' || mb_strlen($apelido) > 60) erro(400, 'apelido invalido');
 if (!in_array($moeda, ['BTC', 'BCH'], true)) erro(400, 'moeda invalida');
@@ -154,6 +186,14 @@ if ($temQuedaCrash && (!is_numeric($quedaCrashInput) || (float)$quedaCrashInput 
     erro(400, 'queda de crash invalida');
 }
 $quedaCrashPct = $temQuedaCrash ? (float)$quedaCrashInput : null;
+if ($temLookback && (!is_numeric($lookbackInput) || (int)$lookbackInput < LOOKBACK_MIN_MIN || (int)$lookbackInput > LOOKBACK_MIN_MAX)) {
+    erro(400, 'prazo de referencia invalido');
+}
+$lookbackMin = $temLookback ? (int)$lookbackInput : null;
+if ($temTeto && (!is_numeric($tetoInput) || (float)$tetoInput < 1 || (float)$tetoInput > 100)) {
+    erro(400, 'teto por robo invalido');
+}
+$tetoPct = $temTeto ? round((float)$tetoInput, 2) : null;
 
 try {
     $pdo = db();
@@ -172,7 +212,7 @@ try {
         $roboId = 'RB' . $seq;
 
         // config_json nasce so' com o que o cliente mandou diferente do padrao
-        $configJsonNovo = mesclarConfig(null, $taxasReais, $quedaCrashPct);
+        $configJsonNovo = mesclarConfig(null, $taxasReais, $quedaCrashPct, $lookbackMin, $tetoPct);
 
         // proxima_execucao so' entra ja' marcada se o robo ja' nasce ativo
         $stIns = $pdo->prepare('INSERT INTO dbo.GN_Robos
@@ -190,12 +230,12 @@ try {
         // ja' estava ativo com agenda em andamento -> mantem (nao reinicia o ciclo a
         // cada save).
         // COALESCE(?, queda_compra_pct): campo omitido (NULL) preserva o valor atual
-        if ($temTaxasReais || $temQuedaCrash) {
+        if ($temTaxasReais || $temQuedaCrash || $temLookback || $temTeto) {
             // le o config_json atual pra mesclar sem perder o que nao foi mandado agora
             $stCfg = $pdo->prepare('SELECT config_json FROM dbo.GN_Robos WHERE session_id = ? AND robo_client_id = ?');
             $stCfg->execute([$sid, $roboId]);
             $configAtual = $stCfg->fetchColumn();
-            $configJsonNovo = mesclarConfig($configAtual === false ? null : $configAtual, $taxasReais, $quedaCrashPct);
+            $configJsonNovo = mesclarConfig($configAtual === false ? null : $configAtual, $taxasReais, $quedaCrashPct, $lookbackMin, $tetoPct);
 
             $stUpd = $pdo->prepare('UPDATE dbo.GN_Robos SET
                     apelido = ?, moeda = ?, valor_operacao = ?, retorno_desejado_pct = ?,
@@ -253,6 +293,8 @@ try {
         'ativo'                => (bool)$r['ativo'],
         'taxasReais'           => taxasReaisDeConfig($r['config_json']),
         'quedaCrashPct'        => quedaCrashPctDeConfig($r['config_json']),
+        'lookbackMinutos'      => lookbackMinDeConfig($r['config_json']),
+        'tetoSaldoPct'         => tetoSaldoPctDeConfig($r['config_json']),
         'criadoEm'             => $r['criado_em'],
         'atualizadoEm'         => $r['atualizado_em'],
     ]]);
