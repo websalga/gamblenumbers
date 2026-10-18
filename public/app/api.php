@@ -71,10 +71,10 @@ function taxa_escolhida(array $b, array $niveis): array {
     $nivel = (string)($b['nivel'] ?? 'min');
     if ($nivel === 'custom') {
         $r = round((float)($b['taxa'] ?? 0), 2);
-        if ($r < $niveis['min'] || $r > APP_TAXA_MAX_SATVB) out(['ok' => false, 'error' => 'Taxa fora da faixa permitida (' . $niveis['min'] . ' a ' . APP_TAXA_MAX_SATVB . ' sat/vB).'], 422);
+        if ($r < $niveis['piso'] || $r > APP_TAXA_MAX_SATVB) out(['ok' => false, 'error' => 'Taxa fora da faixa permitida (' . $niveis['piso'] . ' a ' . APP_TAXA_MAX_SATVB . ' sat/vB).'], 422);
         return ['custom', $r];
     }
-    if (!isset($niveis[$nivel])) $nivel = 'min';
+    if (!in_array($nivel, ['min', 'normal', 'rapida'], true)) $nivel = 'min';
     return [$nivel, (float)$niveis[$nivel]];
 }
 
@@ -236,7 +236,7 @@ try {
             $lista[] = $mk('custom', $rate);
         }
         out(['ok' => true, 'preco_brl' => $preco, 'saldo_sats' => $base['saldo_sats'], 'destino' => mascara($destino),
-            'vsize' => $vs, 'faixa' => ['min' => $niveis['min'], 'max' => APP_TAXA_MAX_SATVB],
+            'vsize' => $vs, 'faixa' => ['min' => $niveis['piso'], 'max' => APP_TAXA_MAX_SATVB],
             'tudo_igual' => ($niveis['min'] === $niveis['rapida']),
             'niveis' => $lista, 'dica' => dica_endereco($u['btc_address'], $vs)]);
     }

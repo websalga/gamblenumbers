@@ -192,7 +192,7 @@ function telaSacar() {
   const erro = h('div', { class: 'err', role: 'alert' });
   const btn = h('button', { class: 'btn', type: 'button', disabled: true }, 'Confirmar com a digital');
   const recentes = h('div', { class: 'col' });
-  const slider = h('input', { type: 'range', min: 1, max: 50, step: 1, value: 1, 'aria-label': 'Taxa personalizada em sat/vB' });
+  const slider = h('input', { type: 'range', min: 0.1, max: 50, step: 0.1, value: 1, 'aria-label': 'Taxa personalizada em sat/vB' });
   const sliderVal = h('span', { class: 'mono' }, '');
   const sliderMin = h('span', {}, ''), sliderMax = h('span', {}, '');
 
@@ -211,14 +211,14 @@ function telaSacar() {
       h('div', { class: 'row' }, h('span', { style: 'font-size:14px;font-weight:500;color:var(--tx2)' }, 'Velocidade do envio'),
         h('span', { class: 'mut xs' }, 'taxa mín. ' + sat(c.faixa.min) + ' · máx. ' + c.faixa.max + ' sat/vB')),
       h('div', { class: 'fees' }, ...c.niveis.filter(n => n.id !== 'custom').map(n => h('button', { type: 'button', class: 'fee' + (S.nivel === n.id ? ' on' : ''),
-        onclick: () => { S.nivel = n.id; S.taxa = n.taxa_satvb; slider.value = Math.round(n.taxa_satvb); desenharTaxas(); resumoTotal(); } },
+        onclick: () => { S.nivel = n.id; S.taxa = n.taxa_satvb; slider.value = n.taxa_satvb; desenharTaxas(); resumoTotal(); } },
         h('span', { class: 't' }, nivelNome(n.id)), h('span', { class: 'v' }, brl(n.fee_brl)), h('span', { class: 's' }, sat(n.taxa_satvb) + ' sat/vB'),
         h('span', { class: 'e' + (n.blocos > 2 ? ' slow' : '') }, mins(n.eta_min))))),
       h('div', { class: 'card', style: 'padding:8px 12px 6px;gap:2px;border-radius:12px' },
         h('div', { class: 'row mut xs' }, h('span', {}, 'Personalizada'), sliderVal),
         slider, h('div', { class: 'row mut', style: 'font-size:11px' }, sliderMin, sliderMax)));
     sliderMin.textContent = sat(c.faixa.min) + ' sat/vB'; sliderMax.textContent = c.faixa.max + ' sat/vB';
-    slider.min = Math.ceil(c.faixa.min); slider.max = c.faixa.max;
+    slider.min = Math.ceil(c.faixa.min * 10) / 10; slider.max = c.faixa.max;
     sliderVal.textContent = (S.nivel === 'custom' ? sat(S.taxa) : '—') + ' sat/vB';
     fill(tipBox, c.dica && c.dica.economia_pct ? h('div', { class: 'tip' }, 'Dica: a carteira de saque usa endereço de formato antigo. Um endereço SegWit nativo (bc1q) reduziria a taxa em cerca de ' + c.dica.economia_pct + '%.') : null);
   }

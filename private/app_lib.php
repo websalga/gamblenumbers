@@ -13,6 +13,7 @@ const APP_ORIGENS      = ['https://gamblenumbers.com', 'https://www.gamblenumber
 const APP_MEMPOOL_API  = 'http://192.168.18.149:4000';   // mempool.space em lxbtc01
 const APP_FULCRUM_HOST = '192.168.18.149';
 const APP_FULCRUM_PORT = 50002;
+const APP_TAXA_MIN_SATVB = 0.1;                           // piso da taxa personalizada
 const APP_TAXA_MAX_SATVB = 50;                            // teto da taxa personalizada
 const APP_CONF_ALVO    = 3;                               // confirmações exibidas como "concluído"
 const APP_DESAFIO_TTL  = 120;                             // segundos para confirmar com a digital
@@ -118,10 +119,11 @@ function mempool_get(string $path, int $timeout = 4): ?array {
 function niveis_taxa(): array {
     $rec = mempool_get('/api/v1/fees/recommended') ?? [];
     $min = max(1.0, (float)($rec['minimumFee'] ?? 1));
-    try { $mp = btc_rpc('getmempoolinfo'); $min = max($min, (float)$mp['mempoolminfee'] * 1e5); } catch (Throwable $e) {}
+    $piso = APP_TAXA_MIN_SATVB;   // só para a taxa personalizada; os níveis prontos continuam a partir de 1 sat/vB
+    try { $mp = btc_rpc('getmempoolinfo'); $mpMin = (float)$mp['mempoolminfee'] * 1e5; $min = max($min, $mpMin); $piso = max($piso, $mpMin); } catch (Throwable $e) { $piso = $min; }
     $normal = max($min, (float)($rec['halfHourFee'] ?? $min));
     $rapida = max($normal, (float)($rec['fastestFee'] ?? $normal));
-    return ['min' => $min, 'normal' => $normal, 'rapida' => $rapida];
+    return ['min' => $min, 'normal' => $normal, 'rapida' => $rapida, 'piso' => $piso];
 }
 
 /* Quantos blocos até confirmar, dado o fee rate, pelos blocos projetados do mempool. */
