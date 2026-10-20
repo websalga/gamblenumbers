@@ -195,6 +195,7 @@ function telaSacar() {
   const slider = h('input', { type: 'range', min: 0.1, max: 50, step: 0.1, value: 1, 'aria-label': 'Taxa personalizada em sat/vB' });
   const sliderVal = h('span', { class: 'mono' }, '');
   const sliderMin = h('span', {}, ''), sliderMax = h('span', {}, '');
+  const sliderTempo = h('div', { class: 'mut xs', style: 'padding-top:2px' }, '');
 
   function tipoSet(t) { S.tipo = t; segBrl.className = t === 'brl' ? 'on' : ''; segBtc.className = t === 'btc' ? 'on' : ''; cur.textContent = t === 'brl' ? 'R$' : 'BTC'; cotar(); }
   segBrl.addEventListener('click', () => tipoSet('brl')); segBtc.addEventListener('click', () => tipoSet('btc'));
@@ -203,6 +204,9 @@ function telaSacar() {
   inp.addEventListener('input', () => { if (S.tipo === 'max') S.tipo = segBtc.className === 'on' ? 'btc' : 'brl'; S.valor = inp.value; clearTimeout(deb); deb = setTimeout(cotar, 450); });
 
   function pedido() { const p = { tipo: S.tipo, valor: S.valor, nivel: S.nivel }; if (S.nivel === 'custom') p.taxa = S.taxa; return p; }
+  // Tempo medido nas últimas 24 h (média · 90%); sem dados suficientes, usa a previsão pelos blocos do mempool.
+  function tempoTxt(n) { return n.medido ? mins(n.medido.media_min) : mins(n.eta_min); }
+  function lento(n) { return n.medido ? n.medido.p90_min > 60 : n.blocos > 2; }
   function nivelNome(id) { return { min: 'Econômica', normal: 'Normal', rapida: 'Rápida', custom: 'Personalizada' }[id]; }
 
   function desenharTaxas() {
@@ -213,10 +217,16 @@ function telaSacar() {
       h('div', { class: 'fees' }, ...c.niveis.filter(n => n.id !== 'custom').map(n => h('button', { type: 'button', class: 'fee' + (S.nivel === n.id ? ' on' : ''),
         onclick: () => { S.nivel = n.id; S.taxa = n.taxa_satvb; slider.value = n.taxa_satvb; desenharTaxas(); resumoTotal(); } },
         h('span', { class: 't' }, nivelNome(n.id)), h('span', { class: 'v' }, brl(n.fee_brl)), h('span', { class: 's' }, sat(n.taxa_satvb) + ' sat/vB'),
-        h('span', { class: 'e' + (n.blocos > 2 ? ' slow' : '') }, mins(n.eta_min))))),
+        h('span', { class: 'e' + (lento(n) ? ' slow' : '') }, tempoTxt(n)),
+        n.medido ? h('span', { class: 'p' }, '90% até ' + mins(n.medido.p90_min)) : null))),
       h('div', { class: 'card', style: 'padding:8px 12px 6px;gap:2px;border-radius:12px' },
         h('div', { class: 'row mut xs' }, h('span', {}, 'Personalizada'), sliderVal),
-        slider, h('div', { class: 'row mut', style: 'font-size:11px' }, sliderMin, sliderMax)));
+        slider, h('div', { class: 'row mut', style: 'font-size:11px' }, sliderMin, sliderMax), sliderTempo));
+    const cu = S.nivel === 'custom' ? c.niveis.find(n => n.id === 'custom') : null;
+    sliderTempo.className = 'mut xs' + (cu && lento(cu) ? ' slow' : '');
+    sliderTempo.textContent = !cu ? 'Mova para escolher a taxa e ver o tempo de espera.'
+      : cu.medido ? 'Tempo medido nas últimas 24 h: ' + mins(cu.medido.media_min) + ' em média · 90% em até ' + mins(cu.medido.p90_min)
+      : 'Previsão: ' + mins(cu.eta_min) + ' (poucos dados medidos para esta taxa)';
     sliderMin.textContent = sat(c.faixa.min) + ' sat/vB'; sliderMax.textContent = c.faixa.max + ' sat/vB';
     slider.min = Math.ceil(c.faixa.min * 10) / 10; slider.max = c.faixa.max;
     sliderVal.textContent = (S.nivel === 'custom' ? sat(S.taxa) : '—') + ' sat/vB';

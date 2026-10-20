@@ -17,6 +17,9 @@ const APP_TAXA_MIN_SATVB = 0.1;                           // piso da taxa person
 const APP_TAXA_MAX_SATVB = 50;                            // teto da taxa personalizada
 const APP_CONF_ALVO    = 3;                               // confirmações exibidas como "concluído"
 const APP_DESAFIO_TTL  = 120;                             // segundos para confirmar com a digital
+const APP_TEMPO_CACHE  = '/tmp/gn_app_tempos_btc.json';  // cache do tempo medido por faixa de taxa
+const APP_TEMPO_TTL    = 300;                             // segundos de validade desse cache
+const APP_TEMPO_AMOSTRA_MIN = 30;                         // abaixo disso a faixa não tem dados suficientes
 
 /* ---------- utilidades ---------- */
 function db(): PDO {
@@ -135,6 +138,36 @@ function blocos_ate_confirmar(float $rate): int {
         if ($rate >= $min) return $i + 1;
     }
     return count($blocks) + 1;
+}
+
+/* Tempo de espera medido por faixa de taxa nos últimos 144 blocos (coletor gn-fee-collector em lxbtc01).
+ * A procedure lê ~1 dia de transações; o resultado fica em cache por APP_TEMPO_TTL segundos. */
+function tempos_medidos(): array {
+    $f = APP_TEMPO_CACHE;
+    if (is_file($f) && time() - filemtime($f) < APP_TEMPO_TTL) {
+        $j = json_decode((string)@file_get_contents($f), true);
+        if (is_array($j)) return $j;
+    }
+    try {
+        $st = db()->prepare("EXEC dbo.GN_FeeTempoPorTaxa @coin='BTC', @blocos=144");
+        $st->execute();
+        $rows = $st->fetchAll();
+    } catch (Throwable $e) { app_log('tempos_medidos:erro', ['msg' => $e->getMessage()]); return []; }
+    @file_put_contents($f, json_encode($rows), LOCK_EX);
+    return $rows;
+}
+
+/* Tempo medido (média e 90%) para um fee rate; null se a faixa tiver poucos dados. */
+function tempo_medido(float $rate): ?array {
+    foreach (tempos_medidos() as $r) {
+        $de = (float)$r['taxa_de'];
+        $ate = $r['taxa_ate'] === null ? INF : (float)$r['taxa_ate'];
+        if ($rate < $de || $rate >= $ate) continue;
+        if ((int)$r['qtd_tx'] < APP_TEMPO_AMOSTRA_MIN) return null;
+        return ['media_min' => max(1, (int)round($r['espera_media_seg'] / 60)),
+                'p90_min' => max(1, (int)round($r['espera_p90_seg'] / 60)), 'amostra' => (int)$r['qtd_tx']];
+    }
+    return null;
 }
 
 /* ---------- Fulcrum (protocolo Electrum) ---------- */

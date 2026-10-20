@@ -228,7 +228,7 @@ try {
             $blocos = blocos_ate_confirmar($rate);
             return ['id' => $id, 'taxa_satvb' => $rate, 'fee_sats' => $fee, 'fee_brl' => round($fee / 1e8 * $preco, 2),
                 'recebido_sats' => $rec, 'debitado_sats' => $rec + $fee, 'debitado_brl' => round(($rec + $fee) / 1e8 * $preco, 2),
-                'eta_min' => $blocos * 10, 'blocos' => $blocos];
+                'eta_min' => $blocos * 10, 'blocos' => $blocos, 'medido' => tempo_medido($rate)];
         };
         $lista = [$mk('min', $niveis['min']), $mk('normal', $niveis['normal']), $mk('rapida', $niveis['rapida'])];
         if (isset($body['taxa']) && ($body['nivel'] ?? '') === 'custom') {

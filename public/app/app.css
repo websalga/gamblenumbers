@@ -46,6 +46,7 @@ input:focus{border-color:var(--acc)}
 .fee.on{border-color:var(--acc);background:var(--accbg)} .fee.on .t{color:var(--acc)}
 .fee .t{font-size:13px;font-weight:600} .fee .v{font-family:var(--mono);font-size:13px} .fee .s{font-size:11px;color:var(--mut)}
 .fee .e{font-size:11px;color:var(--ok)} .fee .e.slow{color:var(--bad)}
+.fee .p{font-size:10px;color:var(--mut)} .xs.slow{color:var(--bad)}
 .tip{padding:10px 12px;border-radius:12px;background:var(--infobg);border:1px solid var(--infoline);font-size:12px;line-height:18px;color:#B6D8EA}
 .warn{padding:10px 12px;border-radius:12px;background:#2A1A10;border:1px solid #6B3A1A;font-size:13px;line-height:19px;color:#F3C9A0}
 .bar{display:flex;gap:6px} .bar i{flex:1;height:8px;border-radius:4px;background:var(--line)} .bar i.on{background:var(--ok)}
