@@ -791,6 +791,7 @@
         <div class="gn-f" id="sac-valor-wrap" style="display:none">
           <label>${t('sac_valor_label','Valor (em {moeda})').replace('{moeda}', moedaExib)}</label>
           <input id="sac-valor" placeholder="0,00" inputmode="decimal"></div>
+        <div class="gn-f" id="sac-vel" style="display:none"></div>
         <div class="gn-f" id="sac-taxa" style="font-size:12px;color:#7d8aa3"></div>
         <div class="gn-warn-notice"><b>${t('aviso_label','Atenção:')}</b> ${t('sac_aviso','essa transferência é real e irreversível. Confira o endereço com cuidado antes de confirmar — se estiver errado, ou você não tiver domínio total sobre ele, o valor pode ser')} <b>${t('perdido_para_sempre','perdido para sempre')}</b>, ${t('sac_aviso2','sem possibilidade de recuperação pelo site.')}</div>
         <div class="gn-btns">
@@ -799,10 +800,66 @@
         </div></div>`;
       document.body.appendChild(ov);
 
+      /* Escolha de taxa no BTC: níveis + personalizada, com o tempo medido nas últimas 24 h. */
+      let taxaEscolhida = null, nivelSel = 'normal';   // sat/vB; null = carteira escolhe (BCH)
+      function minTxt(m) { return m < 60 ? '~' + m + ' min' : '~' + (Math.round(m / 6) / 10) + ' h'; }
+      function tempoFaixa(c, r) {
+        const f = (c.tempos || []).find(x => r >= x.de && (x.ate == null || r < x.ate));
+        return f ? { media_min: f.media_min, p90_min: f.p90_min } : null;
+      }
+      function tempoTxt(md) {
+        return md ? t('sac_tempo_medido', '{media} em média · 90% em até {p90}').replace('{media}', minTxt(md.media_min)).replace('{p90}', minTxt(md.p90_min))
+                  : t('sac_tempo_sem_dados', 'poucos dados de tempo para esta taxa');
+      }
+      function resumoVel(c) {
+        const md = tempoFaixa(c, taxaEscolhida);
+        const cripto = taxaEscolhida * c.vsize_estimado / 1e8;
+        const el = document.getElementById('sac-vel-resumo');
+        el.style.color = md && md.p90_min > 60 ? '#fca5a5' : '#86efac';
+        el.textContent = t('sac_taxa_escolhida', 'Taxa escolhida: {fiat} ({cripto} BTC · {satvb} sat/vB)')
+          .replace('{fiat}', fmtFiat(cripto * c.preco_unitario, moedaExib)).replace('{cripto}', cripto.toFixed(8)).replace('{satvb}', taxaEscolhida)
+          + ' — ' + tempoTxt(md);
+      }
+      function desenharVel() {
+        const moeda = document.getElementById('sac-moeda').value;
+        const c = cotacoes[moeda];
+        const vel = document.getElementById('sac-vel');
+        if (moeda !== 'BTC' || !c || !c.ok || !c.niveis || !c.faixa_taxa) { vel.style.display = 'none'; vel.innerHTML = ''; taxaEscolhida = null; return false; }
+        if (taxaEscolhida == null) { nivelSel = 'normal'; taxaEscolhida = c.niveis.find(n => n.id === 'normal').taxa_satvb; }
+        const nomes = { economica: t('sac_vel_economica', 'Econômica'), normal: t('sac_vel_normal', 'Normal'), rapida: t('sac_vel_rapida', 'Rápida') };
+        const marcado = 'border-color:#5ab0ff;color:#5ab0ff';
+        vel.style.display = 'block';
+        vel.innerHTML = `<label>${t('sac_vel_titulo', 'Velocidade do envio')}</label>
+          <div style="display:flex;gap:6px">${c.niveis.map(n => `<button type="button" class="gn-bs" data-nivel="${n.id}"
+            style="flex:1;margin:0;padding:6px 4px;font-size:11px;line-height:1.4;${nivelSel === n.id ? marcado : ''}">
+            <b>${nomes[n.id]}</b><br>${fmtFiat(n.taxa_exib, moedaExib)}<br>${n.taxa_satvb} sat/vB<br>${n.medido ? minTxt(n.medido.media_min) : '—'}</button>`).join('')}</div>
+          <div style="display:flex;align-items:center;gap:8px;margin-top:8px;font-size:12px;color:#7d8aa3">
+            <span>${t('sac_vel_personalizada', 'Personalizada')}</span>
+            <input type="range" id="sac-slider" min="${c.faixa_taxa.min}" max="${c.faixa_taxa.max}" step="0.1" value="${taxaEscolhida}"
+              aria-label="sat/vB" style="flex:1;padding:0;border:0;background:none">
+            <span id="sac-slider-val" style="min-width:78px;text-align:right">${taxaEscolhida} sat/vB</span></div>
+          <div id="sac-vel-resumo" style="font-size:12px;margin-top:6px"></div>
+          <div style="font-size:11px;color:#7d8aa3;margin-top:2px">${t('sac_tempo_nota', 'Tempos medidos pelo nosso nó nas últimas 24 h; podem variar com o movimento da rede.')}</div>`;
+        const botoes = vel.querySelectorAll('button[data-nivel]');
+        botoes.forEach(b => b.onclick = () => {
+          nivelSel = b.dataset.nivel; taxaEscolhida = c.niveis.find(n => n.id === nivelSel).taxa_satvb; desenharVel();
+        });
+        const sl = document.getElementById('sac-slider');
+        sl.oninput = () => {
+          nivelSel = 'custom'; taxaEscolhida = Math.round(Number(sl.value) * 10) / 10;
+          document.getElementById('sac-slider-val').textContent = taxaEscolhida + ' sat/vB';
+          botoes.forEach(b => { b.style.borderColor = ''; b.style.color = ''; });
+          resumoVel(c);
+        };
+        resumoVel(c);
+        return true;
+      }
+
       function atualizarTaxa() {
         const moeda = document.getElementById('sac-moeda').value;
         const c = cotacoes[moeda];
         const taxaEl = document.getElementById('sac-taxa');
+        if (desenharVel()) { taxaEl.textContent = ''; return; }
         if (c && c.ok) {
           taxaEl.textContent = t('sac_taxa_estimada','Taxa de rede estimada: {fiat} ({cripto} {moeda})')
             .replace('{fiat}', fmtFiat(c.taxa_rede_exib, moedaExib)).replace('{cripto}', c.taxa_rede_cripto).replace('{moeda}', moeda);
@@ -832,7 +889,7 @@
           if (!c || !c.ok || !(c.preco_unitario > 0)) { alert(t('saque_cotacao_indisponivel','Cotação indisponível — tente novamente em instantes.')); return; }
           valorCripto = valorFiat / c.preco_unitario;
         }
-        ov.remove(); res({moeda, endereco, valor: valorCripto});
+        ov.remove(); res({moeda, endereco, valor: valorCripto, taxa_satvb: moeda === 'BTC' ? taxaEscolhida : null});
       };
     });
   }
@@ -856,7 +913,7 @@
         fn: async()=>{
           const r = await window.GNIdentity._api('sacar_externa', {
             session_id: s.session_id, moeda: pedido.moeda,
-            endereco_destino: pedido.endereco, valor: pedido.valor,
+            endereco_destino: pedido.endereco, valor: pedido.valor, taxa_satvb: pedido.taxa_satvb,
           });
           if (!r.ok) {
             const msg = r.error || t('falhou','falhou');

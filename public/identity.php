@@ -120,7 +120,7 @@ function ler_saque(string $txid): ?array {
     ];
 }
 
-function transferir_de_endereco(string $coin, string $enderecoOrigem, string $enderecoDestino, ?float $valor = null): array {
+function transferir_de_endereco(string $coin, string $enderecoOrigem, string $enderecoDestino, ?float $valor = null, ?float $feeRate = null): array {
     debug_log('transferir_de_endereco:inicio', [
         'coin'=>$coin, 'origem'=>$enderecoOrigem, 'destino'=>$enderecoDestino, 'valor_pedido'=>$valor,
     ]);
@@ -148,6 +148,7 @@ function transferir_de_endereco(string $coin, string $enderecoOrigem, string $en
     debug_log('transferir_de_endereco:rawtx_criada', ['rawtx_len'=>strlen($rawtx)]);
 
     $fundOpts = ['add_inputs' => false];
+    if ($feeRate !== null) $fundOpts['fee_rate'] = sprintf('%.3f', $feeRate);   // sat/vB escolhido pelo usuário (só BTC)
     if ($ehTotal) {
         $fundOpts['subtractFeeFromOutputs'] = [0];
     } else {
@@ -166,6 +167,70 @@ function transferir_de_endereco(string $coin, string $enderecoOrigem, string $en
     debug_log('transferir_de_endereco:transmitida', ['txid'=>$txid, 'valor'=>$valorSaque, 'eh_total'=>$ehTotal]);
 
     return ['txid' => $txid, 'valor' => $valorSaque, 'total' => $ehTotal];
+}
+
+/* ============================================================
+ * Taxa do saque BTC: níveis pela estimativa do node + tempo de espera
+ * medido por faixa de taxa (coletor gn-fee-collector, dbo.GN_FeeTempoPorTaxa).
+ * ============================================================ */
+const SAQUE_TAXA_MAX_SATVB    = 50;
+const SAQUE_TEMPO_CACHE       = '/tmp/gn_site_tempos_btc.json';   // php-fpm usa PrivateTmp
+const SAQUE_TEMPO_TTL         = 300;                               // segundos
+const SAQUE_TEMPO_AMOSTRA_MIN = 30;                                // faixas com menos transações ficam de fora
+
+/* Faixas medidas nos últimos 144 blocos: [{de, ate, media_min, p90_min, amostra}], com cache. */
+function saque_tempos_btc(): array {
+    $f = SAQUE_TEMPO_CACHE;
+    if (is_file($f) && time() - filemtime($f) < SAQUE_TEMPO_TTL) {
+        $j = json_decode((string)@file_get_contents($f), true);
+        if (is_array($j)) return $j;
+    }
+    try {
+        $st = db()->prepare("EXEC dbo.GN_FeeTempoPorTaxa @coin='BTC', @blocos=144");
+        $st->execute();
+        $faixas = [];
+        foreach ($st->fetchAll() as $r) {
+            if ((int)$r['qtd_tx'] < SAQUE_TEMPO_AMOSTRA_MIN) continue;
+            $faixas[] = ['de' => (float)$r['taxa_de'], 'ate' => $r['taxa_ate'] === null ? null : (float)$r['taxa_ate'],
+                'media_min' => max(1, (int)round($r['espera_media_seg'] / 60)),
+                'p90_min' => max(1, (int)round($r['espera_p90_seg'] / 60)), 'amostra' => (int)$r['qtd_tx']];
+        }
+    } catch (Throwable $e) { debug_log('saque_tempos_btc:erro', ['mensagem' => $e->getMessage()]); return []; }
+    @file_put_contents($f, json_encode($faixas), LOCK_EX);
+    return $faixas;
+}
+
+function saque_tempo_btc(array $faixas, float $rate): ?array {
+    foreach ($faixas as $f) {
+        if ($rate >= $f['de'] && ($f['ate'] === null || $rate < $f['ate'])) return ['media_min' => $f['media_min'], 'p90_min' => $f['p90_min']];
+    }
+    return null;
+}
+
+/* Menor taxa aceita pela mempool do node (sat/vB), nunca abaixo de 0,1. */
+function saque_piso_btc(): float {
+    try { return round(max(0.1, (float)wallet_rpc('BTC', 'getmempoolinfo')['mempoolminfee'] * 1e5), 2); }
+    catch (Throwable $e) { return 1.0; }
+}
+
+/* Níveis em sat/vB. Rápida = menor taxa cuja faixa medida já confirma quase tão rápido
+ * quanto a melhor (média até 10% maior); pagar acima disso não encurta a espera. */
+function saque_niveis_btc(array $faixas): array {
+    $piso = saque_piso_btc();
+    $est = function (int $blocos) use ($piso): float {
+        try {
+            $e = wallet_rpc('BTC', 'estimatesmartfee', [$blocos]);
+            if (!empty($e['feerate'])) return max($piso, (float)$e['feerate'] * 1e5);
+        } catch (Throwable $e) { }
+        return max($piso, 1.0);
+    };
+    $econ = $est(144); $normal = max($econ, $est(6)); $rapida = max($normal, $est(2));
+    if ($faixas) {
+        $melhor = min(array_column($faixas, 'media_min'));
+        foreach ($faixas as $f) if ($f['media_min'] <= $melhor * 1.1) { $rapida = max($rapida, $f['de']); break; }
+    }
+    $r2 = fn(float $x): float => round(min($x, SAQUE_TAXA_MAX_SATVB), 2);
+    return ['piso' => $piso, 'economica' => $r2($econ), 'normal' => $r2($normal), 'rapida' => $r2($rapida)];
 }
 
 function varrer_saldo_para(string $coin, string $enderecoOrigem, string $enderecoDestino) {
@@ -590,6 +655,17 @@ try {
             if (strlen($sid) !== 64) { debug_log('sacar_externa:erro', ['motivo'=>'session_id_invalido']); echo json_encode(['ok'=>false,'error'=>'session_id inválido']); return; }
             if (!in_array($moeda, ['BTC','BCH'], true)) { debug_log('sacar_externa:erro', ['motivo'=>'moeda_invalida', 'moeda'=>$moeda]); echo json_encode(['ok'=>false,'error'=>'moeda inválida']); return; }
 
+            // Taxa escolhida pelo usuário (sat/vB), só no BTC; sem ela a carteira usa a própria estimativa.
+            $taxaSatVb = null;
+            if ($moeda === 'BTC' && isset($body['taxa_satvb']) && $body['taxa_satvb'] !== '') {
+                $taxaSatVb = round((float)$body['taxa_satvb'], 2);
+                $piso = saque_piso_btc();
+                if ($taxaSatVb < $piso || $taxaSatVb > SAQUE_TAXA_MAX_SATVB) {
+                    debug_log('sacar_externa:erro', ['motivo'=>'taxa_fora_da_faixa', 'taxa_satvb'=>$taxaSatVb, 'piso'=>$piso]);
+                    echo json_encode(['ok'=>false,'error'=>'taxa fora da faixa permitida (' . $piso . ' a ' . SAQUE_TAXA_MAX_SATVB . ' sat/vB)']); return;
+                }
+            }
+
             $st = db()->prepare('SELECT btc_address, bch_address, moeda_saida, endereco_saida FROM dbo.GN_Usuarios WHERE session_id=? AND ativo=1');
             $st->execute([$sid]);
             $perfil = $st->fetch();
@@ -607,7 +683,7 @@ try {
             // A exigência de concentração só se aplica ao wipe_profile (encerrar a conta).
 
             try {
-                $r = transferir_de_endereco($moeda, $enderecoOrigem, $destino, $valor);
+                $r = transferir_de_endereco($moeda, $enderecoOrigem, $destino, $valor, $taxaSatVb);
             } catch (Throwable $e) {
                 debug_log('sacar_externa:excecao', ['mensagem'=>$e->getMessage(), 'trace'=>$e->getTraceAsString()]);
                 echo json_encode(['ok'=>false, 'error'=>$e->getMessage()]);
@@ -737,11 +813,26 @@ try {
             $taxaCripto = $taxaSats / 1e8;
             $taxaExib = $taxaCripto * $precoExib;
 
+            // BTC: três níveis com custo e tempo medido, mais as faixas para a taxa personalizada.
+            $niveis = null; $tempos = null; $faixaTaxa = null;
+            if ($moeda === 'BTC') {
+                $tempos = saque_tempos_btc();
+                $nv = saque_niveis_btc($tempos);
+                $faixaTaxa = ['min' => $nv['piso'], 'max' => SAQUE_TAXA_MAX_SATVB];
+                $niveis = [];
+                foreach (['economica', 'normal', 'rapida'] as $id) {
+                    $cr = $nv[$id] * $tamanhoTxVbytes / 1e8;
+                    $niveis[] = ['id' => $id, 'taxa_satvb' => $nv[$id], 'taxa_cripto' => $cr, 'taxa_exib' => $cr * $precoExib,
+                        'medido' => saque_tempo_btc($tempos, $nv[$id])];
+                }
+            }
+
             echo json_encode([
                 'ok' => true, 'moeda' => $moeda, 'moeda_exibicao' => $moedaExibicao,
                 'preco_unitario' => $precoExib,
                 'taxa_rede_cripto' => $taxaCripto,
                 'taxa_rede_exib' => $taxaExib,
+                'vsize_estimado' => $tamanhoTxVbytes, 'faixa_taxa' => $faixaTaxa, 'niveis' => $niveis, 'tempos' => $tempos,
             ]);
         })(),
 
