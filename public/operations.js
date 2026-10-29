@@ -284,7 +284,7 @@ class OperationsController {
     // execPrice ja chega na moeda de exibicao ATUAL (vem de currentAvg()).
     // lot.price pode ter sido gravado numa moeda diferente (lote comprado
     // antes de trocar o par) - converte antes de calcular o PnL.
-    let qty = sell.qty, orderPnl = 0, orderCost = 0, orderQty = 0;
+    let qty = sell.qty, orderPnl = 0, orderCost = 0, orderQty = 0, orderBuyFee = 0;
     const touched = [];   // lotes consumidos: vao ao SQL na mesma acao que a venda
     const lots = this.lots.filter(l => l.remaining > 1e-12).sort((a, b) => a.seq - b.seq);
     for (const lot of lots) {
@@ -292,6 +292,9 @@ class OperationsController {
       const take = Math.min(lot.remaining, qty);
       const precoLote = this.precoOp(lot);
       const pnl = take * (execPrice - precoLote);
+      // taxa de compra so do lote consumido, proporcional ao que saiu dele,
+      // na moeda de exibicao atual (fee_brl foi gravada na moeda do lote)
+      if (lot.fee_brl > 0 && lot.qty > 0) orderBuyFee += this.converterPreco(lot.fee_brl, lot.moedaExib) * (take / lot.qty);
       lot.remaining -= take;
       lot.sold += take;
       lot.realized += pnl;
@@ -302,10 +305,8 @@ class OperationsController {
     // Taxa de rede na venda
     const _sellFeerate = this._getFee(this._now());
     const _sellFeeBrl  = this._calcFeeBrl(_sellFeerate, execPrice);
-    // Taxa de compra proporcional às cotas vendidas
-    const _buyFeeTotal = this.lots.reduce((s, l) => s + (l.fee_brl || 0), 0);
-    // Descontar ambas as fees do PnL líquido
-    const _netPnl = orderPnl - _sellFeeBrl - (_buyFeeTotal > 0 ? _buyFeeTotal * (orderQty / Math.max(this.totalRemainingBTC() + orderQty, orderQty)) : 0);
+    // Descontar a taxa da venda e a parte da taxa de compra dos lotes consumidos
+    const _netPnl = orderPnl - _sellFeeBrl - orderBuyFee;
     sell.status = 'executed';
     sell.execPrice = execPrice;
     sell.execTime = this._now();
@@ -411,7 +412,7 @@ class OperationsController {
         let _pnl0 = '';
         this.openLots().slice(0, 4).forEach(l => {
           const pL = this.precoOp(l);
-          const luc = l.remaining * (_mp - pL) - (l.fee_brl || 0) - _sf;
+          const luc = l.remaining * (_mp - pL) - this.converterPreco(l.fee_brl || 0, l.moedaExib) - _sf;
           _pnl0 += `<span style="color:${luc >= 0 ? 'var(--green)' : 'var(--red)'}">${_esc(l.id)} ${luc >= 0 ? abrevL0 : abrevP0} ${this._fmt.brl(Math.abs(luc))}</span> `;
         });
         const _feeHtml0 = _sf >= 0.005 ? `<br><span style="color:var(--muted);font-size:0.9em">⛓ Taxa rede: <b>${this._fmt.brl(_sf)}</b> (${_esc(this._feeLabel(_sfr))})</span>` : '';
@@ -434,11 +435,11 @@ class OperationsController {
         const abrevL = _esc(this._t('tooltip_lucro_abrev')), abrevP = _esc(this._t('tooltip_prejuizo_abrev'));
         open.slice(0, 4).forEach(l => {
           const precoLote = this.precoOp(l);
-          const buyFeePerBtc = (l.fee_brl || 0) / (l.qty || 1);
+          const buyFeePerBtc = this.converterPreco(l.fee_brl || 0, l.moedaExib) / (l.qty || 1);
           const sellFeePerBtc = _futSellFee / (l.remaining || l.qty || 1);
           const netPrice = price - sellFeePerBtc - buyFeePerBtc;
           const win = netPrice > precoLote;
-          const lucro = l.remaining * (price - precoLote) - (l.fee_brl || 0) - _futSellFee;
+          const lucro = l.remaining * (price - precoLote) - this.converterPreco(l.fee_brl || 0, l.moedaExib) - _futSellFee;
           const lucroStr = this._fmt.brl(Math.abs(lucro));
           html += `<span style="color:${win ? 'var(--green)' : 'var(--red)'}">${_esc(l.id)} ${win ? abrevL : abrevP} ${lucroStr}</span> `;
         });
