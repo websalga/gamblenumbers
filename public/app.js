@@ -340,6 +340,29 @@
      * quase em tempo real. Best-effort: qualquer falha aqui é silenciosa e
      * nunca deve atrapalhar quem está operando no gráfico.
      */
+    /** Texto do I18N com fallback em portugues quando a chave ainda nao existe no Site_Textos. */
+    _txt(k, fb) { const v = (typeof window !== 'undefined' && window.I18N) ? I18N.t(k) : k; return v && v !== k ? v : fb; }
+
+    /** Som + aviso de venda executada com lucro (vendasom.js). Prejuizo nao toca. Uma vez por venda. */
+    _avisarVendaLucro(s) {
+      if (!s || s.status !== 'executed' || !(Number(s._pnl) > 0)) return;
+      this._vendasAvisadas = this._vendasAvisadas || new Set();
+      const k = this.moeda + ':' + (s.id || ('V' + s.seq));
+      if (this._vendasAvisadas.has(k)) return;
+      this._vendasAvisadas.add(k);
+      if (typeof window !== 'undefined' && window.GNVendaSom) GNVendaSom.tocar();
+      const quem = s.roboApelido || s.roboClientId || this._txt('som_venda_manual', 'manual');
+      this.toast('ok', '\u{1F4B0} ' + this._txt('som_venda_lucro', 'Venda com lucro') + ' ' + (s.id || '') + ' (' + quem + ')');
+    }
+
+    /** Vendas de robo chegam pelo servidor (_mergeServerOps): avisa so' as executadas depois que a pagina abriu. */
+    _somVendasRobos() {
+      this._somDesde = this._somDesde || (Date.now() - 60000);
+      for (const s of this.operations.sells) {
+        if (s.roboClientId && s.status === 'executed' && Number(s.execTime) >= this._somDesde) this._avisarVendaLucro(s);
+      }
+    }
+
     async _mergeServerOps() {
       try {
         const sid = window.GNIdentity && window.GNIdentity.session && window.GNIdentity.session.session_id;
@@ -352,7 +375,9 @@
         if (!j || !j.ok) return false;
         // Algo foi enviado/confirmado enquanto a leitura viajava: ela pode estar velha; a proxima leitura corrige.
         if (ob && ob.marca !== marca0) return false;
-        return this.operations.mergeServer(j, ob ? ((t, id) => ob.temPendente(this.moeda, t, id)) : null);
+        const mudou = this.operations.mergeServer(j, ob ? ((t, id) => ob.temPendente(this.moeda, t, id)) : null);
+        if (mudou) this._somVendasRobos();
+        return mudou;
       } catch (e) { return false; /* mescla é best-effort */ }
     }
 
@@ -706,7 +731,8 @@
       this.bus.on('control:ret', () => { this.renderCards(); this.renderChart(); this.renderSidePanel(); });
       this.bus.on('control:opValue', () => {});
       this.bus.on('control:stop', () => {});
-      this.bus.on('operations:changed', () => {
+      this.bus.on('operations:changed', e => {
+        if (e && e.reason === 'sell:executed') this._avisarVendaLucro(e.subject);   // venda manual executada aqui
         this.renderCards(); this.renderChart(); this.renderSidePanel(); this.operationsTable.render();
         this._persist();
       });

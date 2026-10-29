@@ -1,4 +1,4 @@
 magic.mp3 - som de notificacao copiado do projeto mempool (https://github.com/mempool/mempool,
 frontend/src/resources/sounds/magic.mp3, adicionado no commit a122432 de 25/02/2020).
 O repositorio da mempool e' licenciado pela GNU AGPL v3; a origem do audio nao esta documentada la.
-Usado no app do GambleNumbers para avisar a 1a confirmacao de saque/deposito (decisao do dono, 29/10/2026).
+Usado no GambleNumbers (app e site) para avisar a 1a confirmacao de saque/deposito e vendas com lucro (decisao do dono, 29/10/2026).

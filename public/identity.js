@@ -682,6 +682,12 @@
 
       <hr style="border:none;border-top:1px solid #1e2a44;margin:22px 0">
 
+      <h3 style="font-size:13px;color:#5ab0ff;margin:0 0 6px">🔔 ${t('cfg_secao_som','Som nas vendas')}</h3>
+      <div class="gn-f"><label style="display:flex;align-items:center;gap:8px;font-weight:400;text-transform:none">
+        <input type="checkbox" id="cfg-som" style="width:auto" ${(!window.GNVendaSom || window.GNVendaSom.ligado()) ? 'checked' : ''}> ${t('cfg_som_vendas','Tocar um som quando uma venda (manual ou de robô) for realizada com lucro')}</label></div>
+
+      <hr style="border:none;border-top:1px solid #1e2a44;margin:22px 0">
+
       <h3 style="font-size:13px;color:#5ab0ff;margin:0 0 6px">🔑 ${t('cfg_secao_senha','Senha de acesso')}</h3>
       <p class="sub">${t('cfg_senha_sub','Permite acessar suas mesmas moedas de qualquer navegador ou aparelho — celular, computador do trabalho, etc. Mínimo 8 caracteres, com maiúscula, minúscula e número.')}</p>
       <div class="gn-f"><label>${t('cfg_senha_label','Senha')}</label>
@@ -711,6 +717,7 @@
       document.getElementById('sen-b').type = t;
     };
 
+    document.getElementById('cfg-som').onchange = e => { if (window.GNVendaSom) window.GNVendaSom.definir(e.target.checked); };
     document.getElementById('cfg-ok').onclick = async () => {
       const moeda = document.getElementById('cfg-moeda').value;
       const endereco = document.getElementById('cfg-endereco').value.trim();
