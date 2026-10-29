@@ -51,6 +51,31 @@ async function api(action, data) {
 function sair() { LS.del('gn_app_sid'); SID = null; location.hash = ''; render(); }
 function stopTimer() { if (timer) { clearInterval(timer); timer = null; } }
 
+/* ---------- som da 1ª confirmação ----------
+ * Os navegadores só tocam áudio depois de um toque do usuário: no primeiro toque o som é
+ * carregado e "destravado" (play mudo + pause). Cada aviso toca uma vez só (chave no aparelho). */
+const SOM = { audio: null };
+function liberarSom() {
+  if (SOM.audio) return;
+  try {
+    const a = new Audio('sounds/magic.mp3'); a.preload = 'auto'; a.muted = true; SOM.audio = a;
+    a.play().then(() => { a.pause(); a.currentTime = 0; a.muted = false; }).catch(() => { a.muted = false; });
+  } catch (e) {}
+}
+['pointerdown', 'keydown'].forEach(ev => document.addEventListener(ev, liberarSom, { capture: true }));
+function aviso(texto) {
+  const t = h('div', { role: 'status', style: 'position:fixed;left:16px;right:16px;bottom:84px;z-index:50;padding:14px 16px;border-radius:12px;background:var(--okbg);color:var(--ok);font-weight:600;text-align:center;box-shadow:0 6px 24px rgba(0,0,0,.35)' }, texto);
+  document.body.append(t); setTimeout(() => t.remove(), 6000);
+}
+function avisarConfirmacao(chave, texto) {
+  const k = 'gn_app_conf1_' + chave;
+  if (LS.get(k)) return;
+  LS.set(k, '1');
+  try { if (SOM.audio) { SOM.audio.currentTime = 0; SOM.audio.play().catch(() => {}); } } catch (e) {}
+  try { if (navigator.vibrate) navigator.vibrate([120, 60, 120]); } catch (e) {}
+  aviso(texto);
+}
+
 /* ---------- estrutura comum ---------- */
 const ICONS = {
   inicio: 'M3 11l9-7 9 7v9a1 1 0 01-1 1h-5v-6H9v6H4a1 1 0 01-1-1z',
@@ -143,6 +168,16 @@ async function telaInicio() {
         h('div', { class: 'card', style: 'flex:1;padding:14px;gap:2px' }, h('div', { class: 'mut xs' }, 'Robôs ativos'), h('div', { style: 'font-size:22px;font-weight:600' }, r.robos_ativos, h('span', { class: 'mut', style: 'font-size:14px;font-weight:400' }, ' de ' + r.robos_total))),
         h('div', { class: 'card', style: 'flex:1;padding:14px;gap:2px' }, h('div', { class: 'mut xs' }, 'Lotes abertos'), h('div', { style: 'font-size:22px;font-weight:600' }, r.lotes_abertos))));
     desenhar();
+    // Depósito aguardando confirmação: consulta a cada 15 s (também em segundo plano) e avisa quando confirmar.
+    if (r.pendente_sats > 0) {
+      timer = setInterval(async () => {
+        try {
+          const n = await api('resumo');
+          if (n.pendente_sats < r.pendente_sats && n.saldo_sats > r.saldo_sats) { avisarConfirmacao('dep_' + n.saldo_sats, 'Depósito confirmado na rede'); telaInicio(); }
+          else if (n.pendente_sats !== r.pendente_sats || n.saldo_sats !== r.saldo_sats) telaInicio();
+        } catch (e) {}
+      }, 15000);
+    }
   } catch (e) { conteudo.replaceChildren(h('div', { class: 'err' }, e.message)); }
 }
 
@@ -374,9 +409,19 @@ function cadastrarDigital() {
 function telaSaque(txid) {
   const corpo = h('div', { class: 'col', style: 'gap:14px' }, carregando('Carregando…'));
   shell('sacar', corpo);
+  let confAnterior = null, ritmo = 0;
+  // Esperando a 1ª confirmação: a cada 15 s, também em segundo plano. Depois: a cada 60 s, só com a tela visível.
+  function ajustarRitmo(esperando) {
+    const ms = esperando ? 15000 : 60000;
+    if (ms === ritmo && timer) return;
+    ritmo = ms; stopTimer();
+    timer = setInterval(() => { if (esperando || !document.hidden) atualizar(); }, ms);
+  }
   async function atualizar() {
     try {
       const s = await api('saque_status', { txid });
+      if (confAnterior === 0 && s.confirmacoes >= 1) avisarConfirmacao(txid, '1ª confirmação recebida');
+      confAnterior = s.confirmacoes;
       const feito = s.estado === 'concluido';
       const passos = [];
       const passo = (ok, agora, texto, extra) => h('div', { class: 'step' + (ok || agora ? '' : ' todo') },
@@ -408,12 +453,12 @@ function telaSaque(txid) {
           h('div', { class: 'row' },
             h('button', { class: 'btn ghost', style: 'flex:1', type: 'button', onclick: async ev => { try { await navigator.clipboard.writeText(s.txid); ev.target.textContent = 'Copiado!'; } catch (e) { ev.target.textContent = 'Copie manualmente'; } } }, 'Copiar TXID'),
             h('a', { class: 'btn ghost', style: 'flex:1', href: s.explorer, target: '_blank', rel: 'noopener noreferrer' }, 'Ver no explorador'))),
-        !feito && s.atualizado_ha_seg != null ? h('div', { class: 'mut xs', style: 'text-align:center' }, 'Atualizado ' + (s.atualizado_ha_seg < 90 ? 'agora há pouco' : 'há ' + Math.round(s.atualizado_ha_seg / 60) + ' min') + ' · a rede é checada a cada 5 min') : null,
+        !feito && s.atualizado_ha_seg != null ? h('div', { class: 'mut xs', style: 'text-align:center' }, 'Atualizado ' + (s.atualizado_ha_seg < 90 ? 'agora há pouco' : 'há ' + Math.round(s.atualizado_ha_seg / 60) + ' min') + (s.confirmacoes < 1 ? ' · verificando a cada 15 s' : ' · a rede é checada a cada 5 min')) : null,
         h('a', { class: 'btn', href: '#inicio' }, 'Voltar ao início'));
-      if (feito || s.estado === 'substituida') stopTimer();
+      if (feito || s.estado === 'substituida') stopTimer(); else ajustarRitmo(s.confirmacoes < 1);
     } catch (e) { fill(corpo, h('div', { class: 'err' }, e.message), h('a', { class: 'btn ghost', href: '#sacar' }, 'Voltar')); stopTimer(); }
   }
-  atualizar(); timer = setInterval(() => { if (!document.hidden) atualizar(); }, 60000);
+  atualizar(); ajustarRitmo(true);
 }
 
 /* ---------- roteador ---------- */
@@ -424,5 +469,5 @@ function render() {
   ({ inicio: telaInicio, robos: telaRobos, sacar: telaSacar }[hsh] || telaInicio)();
 }
 window.addEventListener('hashchange', render);
-if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js?v=20261013-1').catch(() => {});
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js?v=20261029-1').catch(() => {});
 render();

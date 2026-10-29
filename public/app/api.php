@@ -334,6 +334,13 @@ try {
         $visto = $temStatus ? (bool)$s['visto_no_destino'] : false;
         $recebido = ($temStatus && $s['recebido_sats'] !== null) ? (int)$s['recebido_sats'] : sats($s['valor']);
 
+        $bloco = $temStatus && $s['bloco'] !== null ? (int)$s['bloco'] : null;
+        // Esperando a 1a confirmacao: pergunta na hora a mempool local (o gn-saque-sync so roda a cada 5 min).
+        if ($conf < 1 && $estado !== 'substituida') {
+            $v = mempool_get('/api/tx/' . $txid . '/status', 3);
+            if ($v && !empty($v['confirmed'])) { $conf = 1; $visto = true; if (isset($v['block_height'])) $bloco = (int)$v['block_height']; }
+        }
+
         $eta1 = null; $etaAlvo = null;
         if ($conf < APP_CONF_ALVO && $estado !== 'substituida') {
             if ($conf >= 1) { $eta1 = 10; $etaAlvo = 10 + (APP_CONF_ALVO - $conf - 1) * 10; }
@@ -341,7 +348,7 @@ try {
         $sync = db()->query("SELECT DATEDIFF(SECOND, ultimo_ciclo, SYSUTCDATETIME()) AS seg FROM dbo.GN_AppSyncEstado WHERE nome='saque_status'")->fetch();
         $seg = $sync ? (int)$sync['seg'] : null;
         out(['ok' => true, 'txid' => $txid, 'estado' => $estado, 'confirmacoes' => max(0, $conf), 'alvo' => APP_CONF_ALVO,
-            'bloco' => $temStatus && $s['bloco'] !== null ? (int)$s['bloco'] : null,
+            'bloco' => $bloco,
             'visto_no_destino' => $visto, 'recebido_sats' => $recebido,
             'fee_sats' => $s['fee_sats'] !== null ? (int)$s['fee_sats'] : null,
             'taxa_satvb' => $s['fee_rate_satvb'] !== null ? (float)$s['fee_rate_satvb'] : null,
