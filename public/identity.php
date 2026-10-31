@@ -741,25 +741,33 @@ try {
 
         /* ---- status_saque: consulta confirmações reais de um saque pelo TXID ---- */
         'status_saque' => (function() use ($body) {
-            $txid = trim($body['txid'] ?? '');
+            // So' o dono do saque consulta. A resposta e' a mesma para "nao existe" e "nao e' seu",
+            // e nunca devolve o session_id nem o texto de erro do RPC.
+            $sid   = trim($body['session_id'] ?? '');
+            $txid  = strtolower(trim($body['txid'] ?? ''));
             $moeda = strtoupper($body['moeda'] ?? '');
-            if (!$txid || !in_array($moeda, ['BTC','BCH'], true)) {
+            if (strlen($sid) !== 64 || !preg_match('/^[0-9a-f]{64}$/', $txid) || !in_array($moeda, ['BTC','BCH'], true)) {
                 echo json_encode(['ok'=>false, 'error'=>'txid/moeda inválidos']); return;
             }
             $registro = ler_saque($txid);
+            if (!$registro || !hash_equals((string)$registro['session_id'], $sid) || strtoupper(trim((string)$registro['moeda'])) !== $moeda) {
+                echo json_encode(['ok'=>false, 'error'=>'saque não encontrado']); return;
+            }
+            $publico = $registro; unset($publico['session_id']);
             try {
                 $tx = wallet_rpc($moeda, 'gettransaction', [$txid]);
                 $conf = $tx['confirmations'] ?? 0;
-                if ($conf > 0 && $registro && !$registro['confirmado']) {
-                    $registro['confirmado'] = true;
+                if ($conf > 0 && !$registro['confirmado']) {
+                    $registro['confirmado'] = true; $publico['confirmado'] = true;
                     salvar_saque($registro);
                 }
                 echo json_encode([
                     'ok' => true, 'txid' => $txid, 'confirmations' => $conf,
-                    'registro' => $registro,
+                    'registro' => $publico,
                 ]);
             } catch (Throwable $e) {
-                echo json_encode(['ok'=>false, 'error'=>$e->getMessage(), 'registro'=>$registro]);
+                debug_log('status_saque:excecao', ['txid'=>$txid, 'mensagem'=>$e->getMessage()]);
+                echo json_encode(['ok'=>false, 'error'=>'não foi possível consultar a rede agora', 'registro'=>$publico]);
             }
         })(),
 

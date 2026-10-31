@@ -942,7 +942,7 @@
           const MAX_TENTATIVAS = 240;
           for (let i=0;i<MAX_TENTATIVAS;i++){
             try {
-              const st = await window.GNIdentity._api('status_saque', { txid:r.txid, moeda:pedido.moeda });
+              const st = await window.GNIdentity._api('status_saque', { session_id:(window.GNIdentity.session||{}).session_id, txid:r.txid, moeda:pedido.moeda });
               if (st.ok && st.confirmations > 0) {
                 return { ok:true, text:t('sac_confirmado','CONFIRMADO'), detail: st.confirmations + ' ' + t('sac_confirmacoes','confirmação(ões)') };
               }
