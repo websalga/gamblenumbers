@@ -227,18 +227,26 @@
     return sec;
   }
 
+  /* TXID abreviado com link para o explorador (BTC: mempool.space; BCH: blockchair). */
+  function txLink(s) {
+    if (!s.txid_full) return s.txid || '—';
+    var url = s.moeda === 'BCH' ? 'https://blockchair.com/bitcoin-cash/transaction/' + s.txid_full
+                                : 'https://mempool.space/tx/' + s.txid_full;
+    return el('a', { class: 'txlink', href: url, target: '_blank', rel: 'noopener noreferrer', title: s.txid_full, text: s.txid || s.txid_full });
+  }
+
   function renderSaques(d) {
     var sec = el('section', { class: 'card' }, el('h2', { text: T('painel_sec_saques') }));
     if (!d.saques.length) { sec.appendChild(el('p', { class: 'empty', text: T('painel_sem_saques') })); return sec; }
     var head = el('tr', null, el('th', { text: T('painel_col_quando') }), el('th', { text: T('painel_col_moeda') }), el('th', { class: 'num', text: T('painel_col_valor') }),
-      el('th', { text: T('painel_wd_destino') }), el('th', { text: T('painel_col_status') }));
+      el('th', { text: T('painel_wd_destino') }), el('th', { text: T('painel_wd_txid') }), el('th', { text: T('painel_col_status') }));
     var body = document.createElement('tbody');
     d.saques.forEach(function (s) {
       var stt = s.confirmado ? T('painel_wd_conf') : T('painel_wd_pend');
       if (s.confs !== null) stt += ' · ' + T('painel_wd_confs', { n: s.confs });
       body.appendChild(el('tr', null, el('td', { text: when(s.e) }), el('td', { text: s.moeda }),
         el('td', { class: 'num', text: qty(s.valor) + (s.total ? ' (' + T('painel_wd_total') + ')' : '') }),
-        el('td', { class: 'muted', text: s.destino || '—' }), el('td', { text: stt })));
+        el('td', { class: 'muted', text: s.destino || '—' }), el('td', { class: 'mono' }, txLink(s)), el('td', { text: stt })));
     });
     sec.appendChild(el('div', { class: 'tablewrap' }, el('table', null, el('thead', null, head), body)));
     return sec;

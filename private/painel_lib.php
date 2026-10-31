@@ -226,7 +226,9 @@ function painel_dados(PDO $pdo, string $sid, string $sel, string $roboSel, strin
     foreach (painel_q($pdo, "SELECT TOP ({$k}) txid, moeda, valor, destino, foi_total, confirmado, confirmacoes,
             DATEDIFF_BIG(SECOND,'19700101',criado_em) AS e
         FROM dbo.GN_Saques WHERE session_id = ? ORDER BY criado_em DESC", [$sid]) as $r) {
-        $saques[] = ['txid' => painel_mask((string)$r['txid']), 'moeda' => trim((string)$r['moeda']), 'valor' => painel_f($r['valor']),
+        // txid completo: e' a transacao publica do proprio usuario (verificavel no explorador)
+        $tx = strtolower(trim((string)$r['txid']));
+        $saques[] = ['txid' => painel_mask((string)$r['txid']), 'txid_full' => preg_match('/^[0-9a-f]{64}$/', $tx) ? $tx : null, 'moeda' => trim((string)$r['moeda']), 'valor' => painel_f($r['valor']),
                      'destino' => painel_mask((string)$r['destino']), 'total' => (bool)$r['foi_total'],
                      'confirmado' => (bool)$r['confirmado'], 'confs' => painel_i($r['confirmacoes']), 'e' => (int)$r['e']];
     }

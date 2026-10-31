@@ -97,3 +97,6 @@ footer a{color:var(--accent)}
   .kpi .v{font-size:17px}
   .robos{grid-template-columns:1fr}
 }
+
+.txlink{color:var(--accent);text-decoration:none;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+.txlink:hover{text-decoration:underline}
