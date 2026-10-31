@@ -647,7 +647,7 @@ try {
         })(),
 
         'sacar_externa' => (function() use ($body) {
-            debug_log('sacar_externa:requisicao', $body);
+            debug_log('sacar_externa:requisicao', array_diff_key($body, ['session_id' => 1]));   // nunca grava a sessao no log
             $sid    = trim($body['session_id'] ?? '');
             $moeda  = strtoupper($body['moeda'] ?? '');
             $valor  = isset($body['valor']) && $body['valor'] !== '' ? (float)$body['valor'] : null; // null = tudo
