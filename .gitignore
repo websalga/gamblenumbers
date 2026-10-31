@@ -22,3 +22,6 @@ __pycache__/
 
 # segredo do codigo publico de sessao GN-XXXXXX
 private/anon_config.php
+
+# chave de cifra do 2FA (nunca versionar)
+private/seguranca_config.php

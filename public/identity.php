@@ -13,6 +13,7 @@ header('X-Content-Type-Options: nosniff');
 
 require_once __DIR__ . '/../private/config.php';
 require_once __DIR__ . '/../private/wallet_config.php';
+require_once __DIR__ . '/../private/seguranca_lib.php';   // verificacao em 2 etapas (TOTP)
 
 /* --- Log de depuração temporário (fase de desenvolvimento com dinheiro real) --- */
 const DEBUG_LOG_FILE = __DIR__ . '/../private/logs/debug.log';
@@ -458,6 +459,13 @@ function client_ip(): string {
 /* --- Limite de tentativas de senha.
  *     Anonimo: a chave guarda so um HMAC do IP (com o segredo de anon_config.php), nunca o IP,
  *     e as linhas somem depois de 2 dias. --- */
+/* Perfil ativo com o que a verificacao em 2 etapas precisa (senha e endereco de saida). */
+function gn_perfil_seg(string $sid): ?array {
+    $st = db()->prepare('SELECT senha_hash, moeda_saida, endereco_saida FROM dbo.GN_Usuarios WHERE session_id=? AND ativo=1');
+    $st->execute([$sid]);
+    $r = $st->fetch();
+    return $r ?: null;
+}
 function gn_chave_tentativa(string $tipo): string {
     static $salt = null;
     if ($salt === null) {
@@ -631,6 +639,36 @@ try {
 
         /* ---- sacar_externa: envia parte ou todo o saldo de UM endereço pra fora, sem apagar o perfil ---- */
         /* ---- configurar_saida: cadastra o endereço/moeda de saída preferido do usuário ---- */
+        /* ---- verificacao em 2 etapas (TOTP): situacao, ativacao e confirmacao ---- */
+        'seg_2fa_status' => (function() use ($body) {
+            $sid = trim($body['session_id'] ?? '');
+            $p = strlen($sid) === 64 ? gn_perfil_seg($sid) : null;
+            if (!$p) { echo json_encode(['ok'=>false,'error'=>'sessão inválida']); return; }
+            echo json_encode(['ok'=>true, 'tem_senha'=>!empty($p['senha_hash'])] + seg_status(db(), $sid));
+        })(),
+
+        'seg_2fa_iniciar' => (function() use ($body) {
+            $sid = trim($body['session_id'] ?? '');
+            $p = strlen($sid) === 64 ? gn_perfil_seg($sid) : null;
+            if (!$p) { echo json_encode(['ok'=>false,'error'=>'sessão inválida']); return; }
+            if (seg_status(db(), $sid)['ativo']) { echo json_encode(['ok'=>false,'erro_chave'=>'seg2fa_e_ja_ativa', 'error'=>'A verificação em 2 etapas já está ativa.']); return; }
+            // conta com senha: a ativacao exige a senha (quem so' tem a sessao nao ativa o 2FA no proprio celular)
+            if (!empty($p['senha_hash'])) {
+                if (seg_erros_excedidos(db(), $sid)) { echo json_encode(['ok'=>false,'erro_chave'=>'seg2fa_e_muitos_erros', 'error'=>'Muitas tentativas erradas. Aguarde 15 minutos.']); return; }
+                if (!password_verify((string)($body['senha'] ?? ''), $p['senha_hash'])) {
+                    seg_registrar_erro(db(), $sid);
+                    echo json_encode(['ok'=>false,'precisa_senha'=>true,'erro_chave'=>'seg2fa_e_senha_incorreta', 'error'=>'Senha incorreta.']); return;
+                }
+            }
+            echo json_encode(['ok'=>true] + seg_iniciar(db(), $sid, gn_codigo_sessao($sid) ?: 'conta'));
+        })(),
+
+        'seg_2fa_confirmar' => (function() use ($body) {
+            $sid = trim($body['session_id'] ?? '');
+            if (strlen($sid) !== 64 || !gn_perfil_seg($sid)) { echo json_encode(['ok'=>false,'error'=>'sessão inválida']); return; }
+            echo json_encode(seg_confirmar(db(), $sid, (string)($body['codigo'] ?? '')));
+        })(),
+
         'configurar_saida' => (function() use ($body) {
             $sid    = trim($body['session_id'] ?? '');
             $moeda  = strtoupper($body['moeda'] ?? '');
@@ -640,8 +678,16 @@ try {
             if (!in_array($moeda, ['BTC','BCH'], true)) { echo json_encode(['ok'=>false,'error'=>'moeda inválida']); return; }
             if (!$endereco) { echo json_encode(['ok'=>false,'error'=>'endereço obrigatório']); return; }
 
+            $p = gn_perfil_seg($sid);
+            if (!$p) { echo json_encode(['ok'=>false,'error'=>'sessão não encontrada']); return; }
+            $mudou = ($p['endereco_saida'] ?? '') !== $endereco || ($p['moeda_saida'] ?? '') !== $moeda;
+            if ($mudou) {
+                // com o 2FA ativo, trocar o endereco pede o codigo; e saques ficam 24 h bloqueados depois da troca
+                if ($e = seg_exigir_se_ativo(db(), $sid, trim((string)($body['codigo_2fa'] ?? '')))) { echo json_encode($e); return; }
+            }
             db()->prepare('UPDATE dbo.GN_Usuarios SET moeda_saida=?, endereco_saida=?, ultimo_acesso=GETUTCDATE() WHERE session_id=? AND ativo=1')
                 ->execute([$moeda, $endereco, $sid]);
+            if ($mudou && !empty($p['endereco_saida'])) seg_marcar_endereco_alterado(db(), $sid);
 
             echo json_encode(['ok'=>true, 'moeda_saida'=>$moeda, 'endereco_saida'=>$endereco]);
         })(),
@@ -670,6 +716,12 @@ try {
             $st->execute([$sid]);
             $perfil = $st->fetch();
             if (!$perfil) { echo json_encode(['ok'=>false,'error'=>'sessão não encontrada']); return; }
+
+            // Saque exige a verificacao em 2 etapas (fora da espera de 24 h) e o codigo atual do app autenticador.
+            if ($e = seg_exigir_para_saque(db(), $sid, trim((string)($body['codigo_2fa'] ?? '')))) {
+                debug_log('sacar_externa:2fa', ['recusado' => array_keys(array_diff_key($e, ['ok'=>1, 'error'=>1]))]);
+                echo json_encode($e); return;
+            }
 
             // Endereço de destino: usa o informado na chamada, ou cai pro endereço configurado previamente.
             $destino = trim($body['endereco_destino'] ?? '') ?: ($perfil['endereco_saida'] ?? '');
@@ -870,9 +922,13 @@ try {
                 echo json_encode(['ok'=>false,'error'=>'A senha precisa ter pelo menos 1 número.']); return;
             }
 
-            $st = db()->prepare('SELECT session_id FROM dbo.GN_Usuarios WHERE session_id=? AND ativo=1');
-            $st->execute([$sid]);
-            if (!$st->fetch()) { echo json_encode(['ok'=>false,'error'=>'sessão não encontrada']); return; }
+            $p = gn_perfil_seg($sid);
+            if (!$p) { echo json_encode(['ok'=>false,'error'=>'sessão não encontrada']); return; }
+            // Trocar uma senha que ja existe exige a verificacao em 2 etapas (criar a primeira senha, nao).
+            if (!empty($p['senha_hash']) && !seg_status(db(), $sid)['ativo']) {
+                echo json_encode(['ok'=>false,'precisa_2fa'=>true,'erro_chave'=>'seg2fa_e_ative_senha', 'error'=>'Para trocar a senha, ative antes a verificação em 2 etapas.']); return;
+            }
+            if ($e = seg_exigir_se_ativo(db(), $sid, trim((string)($body['codigo_2fa'] ?? '')))) { echo json_encode($e); return; }
 
             // A senha e' a unica chave de acesso (nao existe usuario nem e-mail), entao nao pode
             // repetir a de outra conta: o login_senha entraria no perfil errado.
@@ -984,6 +1040,8 @@ try {
 
                 $moedaComSaldo = $saldoBtc > 0 ? 'BTC' : ($saldoBch > 0 ? 'BCH' : null);
                 if ($moedaComSaldo) {
+                    // encerrar transferindo o saldo exige a verificacao em 2 etapas, como um saque
+                    if ($e = seg_exigir_para_saque(db(), $sid, trim((string)($body['codigo_2fa'] ?? '')))) { echo json_encode($e); return; }
                     $destino = trim($body['endereco_saida'] ?? '') ?: ($perfil['endereco_saida'] ?? '');
                     if (!$destino) {
                         echo json_encode(['ok'=>false, 'precisa_endereco_saida'=>true, 'moeda'=>$moedaComSaldo,

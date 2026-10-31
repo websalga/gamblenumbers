@@ -605,8 +605,11 @@
       steps.push({ id:'wipe-db', label:t('wipe_step_db','Apagando perfil e histórico no servidor'), ms:900,
         fn: async () => {
           try {
-            const r = await api('wipe_profile', { session_id: sid });
-            return (r && r.ok) ? {ok:true} : {ok:false, text:t('term_falhou_status','FALHOU')};
+            // com saldo real, encerrar transfere o saldo: o servidor pede o codigo do 2FA
+            const r = window.GNIdentity._com2FA
+              ? await window.GNIdentity._com2FA('wipe_profile', { session_id: sid }, t('seg2fa_titulo_encerrar','Confirmar encerramento'))
+              : await api('wipe_profile', { session_id: sid });
+            return (r && r.ok) ? {ok:true} : {ok:false, text:t('term_falhou_status','FALHOU'), detail: (r && r.erro_chave ? t(r.erro_chave, r.error) : (r && r.error)) || ''};
           } catch (e) { return {ok:false, text:t('term_falhou_status','FALHOU')}; }
         }});
     }
@@ -661,6 +664,103 @@
     const s = window.I18N && window.I18N.t ? window.I18N.t(key) : null;
     return (s && s !== key) ? s : fallback;
   }
+  /* ---------- verificacao em 2 etapas (2FA) ---------- */
+  const SEG_Z = 'position:fixed;inset:0;background:rgba(3,7,18,.78);display:flex;align-items:center;justify-content:center;z-index:2147483000;padding:16px';
+  function fmtData(iso) { try { return new Date(iso).toLocaleString(); } catch (e) { return iso; } }
+  /** Mensagem de erro do servidor no idioma do site (erro_chave = chave de Site_Textos). */
+  function erroTxt(r) { return r && r.erro_chave ? t(r.erro_chave, r.error) : ((r && r.error) || ''); }
+  function carregarQR() {
+    if (window.qrcode) return Promise.resolve();
+    return new Promise((ok, erro) => {
+      const sc = document.createElement('script');
+      sc.src = '/vendor/qrcode.min.js?v=1.4.4';
+      sc.integrity = 'sha512-ZDSPMa/JM1D+7kdg2x3BsruQ6T/JpJo3jWDWkCZsP+5yVyp1KfESqLI+7RqB5k24F7p2cV7i2YHh/890y6P6Sw==';
+      sc.onload = ok; sc.onerror = erro; document.head.appendChild(sc);
+    });
+  }
+  /** Pede o codigo do app autenticador (ou de recuperacao). Devolve o texto digitado ou null. */
+  function seg2faCaixaCodigo(titulo, aviso) {
+    window.GNIdentity._injectStyles();
+    return new Promise(res => {
+      const ov = document.createElement('div'); ov.className = 'gn-2fa-overlay'; ov.setAttribute('style', SEG_Z);
+      ov.innerHTML = `<div id="gn-modal" class="gn-modal-blue" style="max-width:360px">
+        <h2>🔐 ${titulo}</h2>
+        <p class="sub">${t('seg2fa_digite','Digite o código de 6 dígitos do seu app autenticador (ou um código de recuperação).')}</p>
+        ${aviso ? `<div class="gn-warn-notice">${aviso}</div>` : ''}
+        <div class="gn-f"><input class="seg2fa-cod" inputmode="numeric" autocomplete="one-time-code" maxlength="11" placeholder="000000"
+          style="font-size:22px;letter-spacing:4px;text-align:center"></div>
+        <div class="gn-btns"><button class="gn-br seg2fa-ok">${t('confirmar_btn','Confirmar')}</button>
+          <button class="gn-bs seg2fa-cancel">${t('cancelar_btn','Cancelar')}</button></div></div>`;
+      document.body.appendChild(ov);
+      const inp = ov.querySelector('.seg2fa-cod'); inp.focus();
+      const fim = v => { ov.remove(); res(v); };
+      ov.querySelector('.seg2fa-cancel').onclick = () => fim(null);
+      ov.querySelector('.seg2fa-ok').onclick = () => { const v = inp.value.trim(); if (v) fim(v); };
+      inp.onkeydown = e => { if (e.key === 'Enter') ov.querySelector('.seg2fa-ok').click(); };
+    });
+  }
+  /** Chama a API; se o servidor pedir o codigo do 2FA, pergunta e repete (ate 3 vezes). */
+  async function com2FA(action, payload, titulo) {
+    let r = await window.GNIdentity._api(action, payload);
+    for (let i = 0; i < 3 && r && r.precisa_codigo_2fa; i++) {
+      const cod = await seg2faCaixaCodigo(titulo || t('seg2fa_titulo','Verificação em 2 etapas'), (r.codigo_invalido || i) ? erroTxt(r) : '');
+      if (!cod) return r;
+      r = await window.GNIdentity._api(action, Object.assign({}, payload, { codigo_2fa: cod }));
+    }
+    return r;
+  }
+  window.GNIdentity._com2FA = com2FA;
+
+  /** Secao "Verificacao em 2 etapas" do Configuracao: situacao, ativacao com QR e codigos de recuperacao. */
+  async function desenhar2FA(box) {
+    const s = window.GNIdentity.session;
+    let st = null; try { st = await window.GNIdentity._api('seg_2fa_status', { session_id: s.session_id }); } catch (e) {}
+    if (!st || !st.ok) { box.innerHTML = `<div class="sub" style="color:#fca5a5">${t('seg2fa_erro_status','Não foi possível consultar a verificação em 2 etapas agora.')}</div>`; return; }
+    if (st.ativo) {
+      box.innerHTML = `<div class="sub" style="color:#86efac">✅ ${t('seg2fa_ativa','Ativada.')} ${t('seg2fa_restam','Códigos de recuperação restantes: {n}.').replace('{n}', st.codigos_recuperacao)}</div>`
+        + (st.saque_liberado_em ? `<div class="sub">${t('seg2fa_espera','Por segurança, saques ficam liberados a partir de {d}.').replace('{d}', fmtData(st.saque_liberado_em))}</div>` : '');
+      return;
+    }
+    box.innerHTML = (st.tem_senha ? `<div class="gn-f"><label>${t('seg2fa_senha_label','Senha da conta (para confirmar)')}</label>
+        <input class="seg2fa-senha" type="password" autocomplete="current-password" spellcheck="false"></div>` : '')
+      + `<div class="gn-btns"><button class="gn-br seg2fa-ativar">${t('seg2fa_ativar_btn','Ativar verificação em 2 etapas')}</button></div>
+         <div class="seg2fa-msg" style="font-size:12px;min-height:16px;margin-top:6px"></div>`;
+    box.querySelector('.seg2fa-ativar').onclick = async () => {
+      const msg = box.querySelector('.seg2fa-msg');
+      const senha = (box.querySelector('.seg2fa-senha') || {}).value || '';
+      let r; try { r = await window.GNIdentity._api('seg_2fa_iniciar', { session_id: s.session_id, senha }); } catch (e) { r = { error: e.message }; }
+      if (!r.ok) { msg.style.color = '#fca5a5'; msg.textContent = erroTxt(r) || t('falhou','falhou'); return; }
+      try { await carregarQR(); } catch (e) {}
+      box.innerHTML = `<p class="sub">1. ${t('seg2fa_passo1','Abra o app autenticador (Google Authenticator, Microsoft Authenticator...) e escaneie o QR code:')}</p>
+        <div class="seg2fa-qr" style="background:#fff;padding:10px;border-radius:8px;width:200px;height:200px;margin:6px auto"></div>
+        <p class="sub" style="text-align:center">${t('seg2fa_manual','Ou digite esta chave no app:')}<br>
+          <code style="user-select:all;word-break:break-all;font-size:13px">${r.segredo.replace(/(.{4})/g, '$1 ').trim()}</code></p>
+        <p class="sub">2. ${t('seg2fa_passo2','Digite o código de 6 dígitos que aparece no app:')}</p>
+        <div class="gn-f"><input class="seg2fa-cod1" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="000000"
+          style="font-size:20px;letter-spacing:4px;text-align:center"></div>
+        <div class="gn-btns"><button class="gn-br seg2fa-confirmar">${t('confirmar_btn','Confirmar')}</button></div>
+        <div class="seg2fa-msg" style="font-size:12px;min-height:16px;margin-top:6px"></div>`;
+      if (window.qrcode) {
+        const qr = window.qrcode(0, 'M'); qr.addData(r.uri); qr.make();
+        box.querySelector('.seg2fa-qr').innerHTML = qr.createSvgTag({ cellSize: 4, margin: 0, scalable: true });
+      }
+      box.querySelector('.seg2fa-confirmar').onclick = async () => {
+        const m2 = box.querySelector('.seg2fa-msg');
+        let c; try { c = await window.GNIdentity._api('seg_2fa_confirmar', { session_id: s.session_id, codigo: box.querySelector('.seg2fa-cod1').value.trim() }); } catch (e) { c = { error: e.message }; }
+        if (!c.ok) { m2.style.color = '#fca5a5'; m2.textContent = erroTxt(c) || t('falhou','falhou'); return; }
+        box.innerHTML = `<div class="sub" style="color:#86efac">✅ ${t('seg2fa_ativada_ok','Verificação em 2 etapas ativada!')}</div>
+          <div class="gn-warn-notice"><b>${t('seg2fa_guarde','Guarde estes códigos de recuperação.')}</b> ${t('seg2fa_guarde2','Cada um vale uma vez e é a única forma de sacar se você perder o celular. Eles não serão mostrados de novo.')}</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-family:monospace;font-size:14px;margin:8px 0">${c.codigos_recuperacao.map(x =>
+            `<div style="background:#0b1220;border:1px solid #1e2a44;border-radius:6px;padding:6px;text-align:center">${x}</div>`).join('')}</div>
+          <div class="gn-btns"><button class="gn-bs seg2fa-copiar">${t('seg2fa_copiar','Copiar códigos')}</button></div>
+          <div class="sub">${t('seg2fa_espera','Por segurança, saques ficam liberados a partir de {d}.').replace('{d}', fmtData(c.saque_liberado_em))}</div>`;
+        box.querySelector('.seg2fa-copiar').onclick = async ev => {
+          try { await navigator.clipboard.writeText(c.codigos_recuperacao.join('\n')); ev.target.textContent = t('copiado','Copiado!'); } catch (e) {}
+        };
+      };
+    };
+  }
+
   function showConfigSaida(atual) {
     window.GNIdentity._injectStyles();
     const ov = document.createElement('div'); ov.id='gn-overlay';
@@ -688,6 +788,12 @@
 
       <hr style="border:none;border-top:1px solid #1e2a44;margin:22px 0">
 
+      <h3 style="font-size:13px;color:#5ab0ff;margin:0 0 6px">🔐 ${t('cfg_secao_2fa','Verificação em 2 etapas')}</h3>
+      <p class="sub">${t('cfg_2fa_sub','Protege saques, o encerramento da conta e a troca de senha com um código do app autenticador do seu celular (Google Authenticator, Microsoft Authenticator, Authy...). Obrigatória para sacar.')}</p>
+      <div id="cfg-2fa"><div class="sub">…</div></div>
+
+      <hr style="border:none;border-top:1px solid #1e2a44;margin:22px 0">
+
       <h3 style="font-size:13px;color:#5ab0ff;margin:0 0 6px">🔑 ${t('cfg_secao_senha','Senha de acesso')}</h3>
       <p class="sub">${t('cfg_senha_sub','Permite acessar suas mesmas moedas de qualquer navegador ou aparelho — celular, computador do trabalho, etc. Mínimo 8 caracteres, com maiúscula, minúscula e número.')}</p>
       <div class="gn-f"><label>${t('cfg_senha_label','Senha')}</label>
@@ -710,6 +816,7 @@
     </div>`;
     document.body.appendChild(ov);
     document.getElementById('cfg-fechar').onclick = () => ov.remove();
+    desenhar2FA(document.getElementById('cfg-2fa'));
     document.getElementById('cfg-encerrar').onclick = () => { ov.remove(); window.GNIdentity.wipe(); };
     document.getElementById('sen-ver').onchange = (e) => {
       const t = e.target.checked ? 'text' : 'password';
@@ -725,12 +832,12 @@
       if (!endereco) { msg.style.color='#fca5a5'; msg.textContent=t('cfg_endereco_vazio','Informe um endereço.'); return; }
       const s = window.GNIdentity.session;
       try {
-        const r = await window.GNIdentity._api('configurar_saida', { session_id: s.session_id, moeda, endereco });
+        const r = await com2FA('configurar_saida', { session_id: s.session_id, moeda, endereco }, t('seg2fa_titulo_endereco','Confirmar novo endereço'));
         if (r.ok) {
           const merged = Object.assign({}, s, { moeda_saida: r.moeda_saida, endereco_saida: r.endereco_saida });
           window.GNIdentity.session = merged; window.GNIdentity._saveSess(merged);
           msg.style.color = '#86efac'; msg.textContent = t('cfg_endereco_salvo','Endereço salvo.');
-        } else { msg.style.color='#fca5a5'; msg.textContent = t('erro_prefixo','Erro:') + ' ' + (r.error||t('falhou','falhou')); }
+        } else { msg.style.color='#fca5a5'; msg.textContent = t('erro_prefixo','Erro:') + ' ' + (erroTxt(r)||t('falhou','falhou')); }
       } catch (e) { msg.style.color='#fca5a5'; msg.textContent = t('erro_rede_prefixo','Erro de rede:') + ' ' + e.message; }
     };
 
@@ -744,9 +851,9 @@
       }
       const s = window.GNIdentity.session;
       try {
-        const r = await window.GNIdentity._api('configurar_senha', { session_id: s.session_id, senha: a });
+        const r = await com2FA('configurar_senha', { session_id: s.session_id, senha: a }, t('seg2fa_titulo_senha','Confirmar troca de senha'));
         if (r.ok) { msg.style.color='#86efac'; msg.textContent=t('senha_configurada','Senha configurada!'); }
-        else { msg.style.color='#fca5a5'; msg.textContent = 'Erro: ' + (r.error||'falhou'); }
+        else { msg.style.color='#fca5a5'; msg.textContent = t('erro_prefixo','Erro:') + ' ' + (erroTxt(r)||t('falhou','falhou')); }
       } catch (e) { msg.style.color='#fca5a5'; msg.textContent = t('erro_rede_prefixo','Erro de rede:') + ' ' + e.message; }
     };
   }
@@ -910,8 +1017,19 @@
   async function fluxoSacarExterno() {
     const s = window.GNIdentity.session;
     if (!s || !s.session_id) { alert(t('sessao_nao_encontrada','Sessão não encontrada.')); return; }
+    // saque exige a verificacao em 2 etapas ativa e fora da espera de 24 h
+    let st2 = null; try { st2 = await window.GNIdentity._api('seg_2fa_status', { session_id: s.session_id }); } catch (e) {}
+    if (st2 && st2.ok && !st2.ativo) {
+      alert(t('seg2fa_ative_para_sacar','Para sacar, ative antes a verificação em 2 etapas em ⚙ Configuração.'));
+      showConfigSaida(s); return;
+    }
+    if (st2 && st2.ok && st2.saque_liberado_em) {
+      alert(t('seg2fa_espera','Por segurança, saques ficam liberados a partir de {d}.').replace('{d}', fmtData(st2.saque_liberado_em))); return;
+    }
     const pedido = await showSacarExterno(s);
     if (!pedido) return;
+    const codigo2fa = await seg2faCaixaCodigo(t('seg2fa_titulo_saque','Confirmar saque'), '');
+    if (!codigo2fa) return;
 
     function sleep(ms){ return new Promise(r=>setTimeout(r,ms)); }
     const steps = [
@@ -920,10 +1038,10 @@
         fn: async()=>{
           const r = await window.GNIdentity._api('sacar_externa', {
             session_id: s.session_id, moeda: pedido.moeda,
-            endereco_destino: pedido.endereco, valor: pedido.valor, taxa_satvb: pedido.taxa_satvb,
+            endereco_destino: pedido.endereco, valor: pedido.valor, taxa_satvb: pedido.taxa_satvb, codigo_2fa: codigo2fa,
           });
           if (!r.ok) {
-            const msg = r.error || t('falhou','falhou');
+            const msg = erroTxt(r) || t('falhou','falhou');
             return { ok:false, text: r.precisa_consolidar ? t('sac_consolide_primeiro','CONSOLIDE PRIMEIRO') : t('term_falhou_status','FALHOU'), detail: msg, fatal:true };
           }
           window._lastSaque = r;

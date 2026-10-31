@@ -16,6 +16,7 @@ header('X-Content-Type-Options: nosniff');
 require_once __DIR__ . '/../../private/config.php';
 require_once __DIR__ . '/../../private/wallet_config.php';
 require_once __DIR__ . '/../../private/app_lib.php';
+require_once __DIR__ . '/../../private/seguranca_lib.php';   // espera de 24 h apos ativar 2FA ou trocar endereco
 
 $body   = json_decode(file_get_contents('php://input'), true);
 if (!is_array($body)) $body = [];
@@ -244,6 +245,11 @@ try {
     /* ---------- saque: cria o desafio que a digital vai assinar ---------- */
     case 'saque_desafio': {
         $u = usuario($sid);
+        // mesma regra do site: saques so' 24 h depois de ativar o 2FA ou trocar o endereco de saida
+        $seg = seg_linha(db(), $sid);
+        if ($seg && $seg['bloqueado_admin']) out(['ok' => false, 'error' => 'Saques desta conta estão bloqueados. Fale com o suporte.'], 423);
+        if ($lib = seg_saque_liberado_em($seg)) out(['ok' => false, 'codigo' => 'espera_2fa', 'saque_liberado_em' => gmdate('c', $lib),
+            'error' => 'Por segurança, saques ficam liberados a partir de ' . gmdate('d/m H:i', $lib) . ' UTC (24 h depois de ativar a verificação em 2 etapas ou trocar o endereço de saída).'], 423);
         $destino = destino_btc($u);
         $pk = db()->prepare('SELECT credential_id FROM dbo.GN_AppPasskeys WHERE session_id=? AND revogado_em IS NULL');
         $pk->execute([$sid]);
