@@ -900,9 +900,11 @@ try {
             if ($senha === '') { echo json_encode(['matched'=>false]); return; }
 
             // Sem usuario/e-mail a senha e' testada contra todos os perfis: limita as falhas por IP.
-            // e um teto geral do site: varias origens (IPs diferentes) tentando senhas ao mesmo tempo
+            // Ataque espalhado por muitos IPs (mais de 150 falhas no site em 15 min): o limite por IP cai de 10
+            // para 3. Ninguem fica travado por causa dos outros; cada IP so' perde tentativas proprias.
             $chave = gn_chave_tentativa('login');
-            if (gn_bloqueado($chave, 10, 15) || gn_bloqueado('login:geral', 150, 15)) {
+            $maxIp = gn_bloqueado('login:geral', 150, 15) ? 3 : 10;
+            if (gn_bloqueado($chave, $maxIp, 15)) {
                 echo json_encode(['matched'=>false, 'bloqueado'=>true, 'error'=>'Muitas tentativas de senha. Aguarde 15 minutos e tente de novo.']); return;
             }
 
