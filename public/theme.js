@@ -54,7 +54,19 @@
       '--pos-bg1': '#00301a', '--pos-bg2': '#002a2a', '--neg-bg': '#5a0000', '--neg-bd': '#ff5252', '--neg-bg2': '#2a0000',
       '--tag-buy-fg': '#9cc9ff', '--tag-sell-fg': '#e6b3ff', '--shadow': 'rgba(0,0,0,.8)',
       '--grid': 'rgba(255,255,255,0.22)', '--now': 'rgba(255,255,255,0.75)', '--now-text': '#ffffff', '--trail': 'rgba(255,255,255,0.55)',
-      '--proj-bg': 'rgba(255,230,0,0.05)', '--muted-line': 'rgba(207,207,207,0.5)', 'color-scheme': 'dark' } }
+      '--proj-bg': 'rgba(255,230,0,0.05)', '--muted-line': 'rgba(207,207,207,0.5)', 'color-scheme': 'dark' } },
+    /* tema sazonal: so' entra no ciclo no dia (sazonal.js decide; hoje: 31/10) */
+    { id: 'halloween', names: { pt: 'Dia das Bruxas', en: 'Halloween' }, swatch: ['#0d0716', '#ff7a1a'], sazonal: true, vars: {
+      '--panel3': '#140a1d', '--muted2': '#7f6898', '--dim': '#43295a', '--edge': '#a990c0', '--line3': '#5e3a7d', '--txt2': '#e3d4f3', '--bg': '#0d0716', '--panel': '#1a0f24', '--panel2': '#22132e', '--border': '#3d2352', '--txt': '#f6ecff', '--muted': '#a990c0',
+      '--accent': '#ff7a1a', '--accent-rgb': '255,122,26', '--accent-ink': '#1a0a00',
+      '--avg': '#f3e8ff', '--binance': '#f7c948', '--kraken': '#c084fc', '--coinbase': '#60a5fa', '--morningstar': '#00e5ff',
+      '--green': '#22c55e', '--red': '#ef4444', '--yellow': '#f7c948', '--green-ink': '#04210f', '--yellow-ink': '#2a2205', '--green-soft': '#86efac',
+      '--forecast': '#ffb347', '--scenario': '#f472b6', '--badge-ink': '#04210f',
+      '--btn': '#2a1838', '--btn-hover': '#382049', '--line2': '#4a2a63', '--deep': '#07030c',
+      '--pos-bg1': '#10261a', '--pos-bg2': '#121a24', '--neg-bg': '#4a1c24', '--neg-bd': '#8b2f3f', '--neg-bg2': '#220f18',
+      '--tag-buy-fg': '#7fb4ff', '--tag-sell-fg': '#d8b4fe', '--shadow': 'rgba(0,0,0,.65)',
+      '--grid': 'rgba(61,35,82,0.6)', '--now': 'rgba(246,236,255,0.55)', '--now-text': '#f6ecff', '--trail': 'rgba(246,236,255,0.40)',
+      '--proj-bg': 'rgba(255,122,26,0.04)', '--muted-line': 'rgba(169,144,192,0.4)', 'color-scheme': 'dark' } }
   ];
   var CANVAS = { avg: '--avg', binance: '--binance', kraken: '--kraken', coinbase: '--coinbase', morningstar: '--morningstar',
     grid: '--grid', axisText: '--muted', target: '--green', now: '--now', nowText: '--now-text', projBg: '--proj-bg',
@@ -62,6 +74,8 @@
     accentRgb: '--accent-rgb', mutedLine: '--muted-line' };
   var doc = document, root = doc.documentElement, cache = {}, current = 'noite', btn = null;
 
+  var SAZ = (window.GNSazonal && GNSazonal.tema()) || null;
+  function ciclo() { return THEMES.filter(function (t) { return !t.sazonal || t.id === SAZ; }); }
   function byId(id) { for (var i = 0; i < THEMES.length; i++) if (THEMES[i].id === id) return THEMES[i]; return null; }
   function lang() {
     var l = '';
@@ -103,10 +117,17 @@
     var t = byId(id) || THEMES[0]; current = t.id;
     if (t.id === 'noite') root.removeAttribute('data-theme'); else root.setAttribute('data-theme', t.id);
     refresh(); paintButton();
+    if (window.GNSazonal) GNSazonal.decorar(t.id === 'halloween');
     if (!silent) { try { window.dispatchEvent(new CustomEvent('gn:theme', { detail: { id: t.id } })); } catch (e) {} }
   }
-  function set(id) { apply(id); try { localStorage.setItem(KEY, current); } catch (e) {} }
-  function next() { var i = 0; THEMES.forEach(function (t, k) { if (t.id === current) i = k; }); set(THEMES[(i + 1) % THEMES.length].id); }
+  function set(id) {
+    apply(id);
+    var t = byId(current);
+    if (t && t.sazonal) return;                                    // o tema do dia nao vira a escolha salva
+    if (SAZ && window.GNSazonal) GNSazonal.recusar();              // trocou no dia: respeita ate amanha
+    try { localStorage.setItem(KEY, current); } catch (e) {}
+  }
+  function next() { var l = ciclo(), i = 0; l.forEach(function (t, k) { if (t.id === current) i = k; }); set(l[(i + 1) % l.length].id); }
 
   function mount() {
     var nav = doc.querySelector('.topnav'); if (!nav || btn) return;
@@ -115,13 +136,15 @@
   }
 
   var saved = null; try { saved = localStorage.getItem(KEY); } catch (e) {}
+  if (saved && byId(saved) && byId(saved).sazonal) saved = null;
   if (!saved || !byId(saved)) { try { saved = (window.matchMedia && matchMedia('(prefers-color-scheme: light)').matches) ? 'claro' : 'noite'; } catch (e) { saved = 'noite'; } }
+  if (SAZ && byId(SAZ) && !(window.GNSazonal && GNSazonal.recusado())) saved = SAZ;   // data comemorativa: abre no tema do dia
   injectCss(); apply(saved, true);
   if (doc.readyState === 'loading') doc.addEventListener('DOMContentLoaded', mount); else mount();
   window.addEventListener('gn:lang', paintButton);
 
   window.GNTheme = {
-    list: function () { return THEMES.map(function (t) { return { id: t.id, name: nameOf(t) }; }); },
+    list: function () { return ciclo().map(function (t) { return { id: t.id, name: nameOf(t) }; }); },
     current: function () { return current; }, set: set, next: next,
     canvas: function (name) { if (!cache.avg) refresh(); var v = cache[name]; return v === '' ? undefined : v; }
   };
