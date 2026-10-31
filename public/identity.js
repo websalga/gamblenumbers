@@ -267,7 +267,9 @@
 
   /* --- Senha gerada no primeiro acesso: unica chave do perfil anonimo (sem e-mail/nome) --- */
   const SENHA_K = 'gn_senha';
-  function salvarSenhaLocal(senha) { try { localStorage.setItem(SENHA_K, senha); } catch (e) {} }
+  // A senha nao fica mais guardada no navegador (so' e' mostrada/baixada na hora); apaga a copia
+  // que versoes antigas gravavam.
+  try { localStorage.removeItem(SENHA_K); } catch (e) {}
   function showSenhaGerada(senha) {
     return new Promise(res => {
       injectStyles();
@@ -500,8 +502,8 @@
             idioma: currentLang(),
           });
           if(r.session_id){
-            // A senha gerada nao entra no gn_session: fica so na chave propria (gn_senha).
-            if (r.senha_gerada) { senhaNova = r.senha_gerada; delete r.senha_gerada; salvarSenhaLocal(senhaNova); }
+            // A senha gerada nao entra no gn_session nem fica guardada no navegador.
+            if (r.senha_gerada) { senhaNova = r.senha_gerada; delete r.senha_gerada; }
             saveSess(r); sessionData=r; window.GNIdentity.session=r;
           }
           return r.session_id
@@ -528,11 +530,12 @@
       const ov = document.createElement('div'); ov.id='gn-overlay';
       ov.innerHTML = `<div id="gn-modal">
         <h2>${t('ident_enderecos_titulo','[PROVISÓRIO] Seus endereços de depósito reais')}</h2>
-        <div class="gn-f"><label>BTC</label><input readonly value="${sessionData.btc_address}" onclick="this.select()"></div>
-        <div class="gn-f"><label>BCH</label><input readonly value="${sessionData.bch_address}" onclick="this.select()"></div>
+        <div class="gn-f"><label>BTC</label><input readonly value="${sessionData.btc_address}" class="gi-end"></div>
+        <div class="gn-f"><label>BCH</label><input readonly value="${sessionData.bch_address}" class="gi-end"></div>
         <div class="gn-notice">${t('ident_enderecos_aviso','Guarde estes endereços — qualquer valor real enviado a eles passa a valer como seu saldo no site. Tela de termos completos e download ainda em construção.')}</div>
         <div class="gn-btns"><button class="gn-br" id="gi-fechar">OK</button></div></div>`;
       document.body.appendChild(ov);
+      ov.querySelectorAll('.gi-end').forEach(el => el.addEventListener('click', () => el.select()));
       document.getElementById('gi-fechar').onclick = () => ov.remove();
     }
   }
