@@ -26,7 +26,7 @@ function db(): PDO {
     global $DB_SERVER, $DB_DATABASE, $DB_USER, $DB_PASSWORD, $DB_PORT;
     static $pdo = null;
     if ($pdo) return $pdo;
-    $dsn = "sqlsrv:Server={$DB_SERVER},{$DB_PORT};Database={$DB_DATABASE};Encrypt=no";
+    $dsn = "sqlsrv:Server={$DB_SERVER},{$DB_PORT};Database={$DB_DATABASE};Encrypt=yes;TrustServerCertificate=yes";
     $pdo = new PDO($dsn, $DB_USER, $DB_PASSWORD, [
         PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
         PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
@@ -173,12 +173,7 @@ function tempo_medido(float $rate): ?array {
 /* ---------- Fulcrum (protocolo Electrum) ---------- */
 function electrum_query(array $req, int $timeout = 6): ?array {
     $sock = @stream_socket_client('tcp://' . APP_FULCRUM_HOST . ':' . APP_FULCRUM_PORT, $en, $es, $timeout);
-    if (!$sock) {
-        // porta 50002 pode ser TLS: tenta ssl sem verificar o certificado interno
-        $ctx = stream_context_create(['ssl' => ['verify_peer' => false, 'verify_peer_name' => false]]);
-        $sock = @stream_socket_client('ssl://' . APP_FULCRUM_HOST . ':' . APP_FULCRUM_PORT, $en, $es, $timeout, STREAM_CLIENT_CONNECT, $ctx);
-        if (!$sock) return null;
-    }
+    if (!$sock) return null;   // o Fulcrum interno fala TCP puro; sem fallback TLS sem verificacao de certificado
     stream_set_timeout($sock, $timeout);
     fwrite($sock, json_encode($req) . "\n");
     $resp = '';
