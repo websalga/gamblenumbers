@@ -900,8 +900,9 @@ try {
             if ($senha === '') { echo json_encode(['matched'=>false]); return; }
 
             // Sem usuario/e-mail a senha e' testada contra todos os perfis: limita as falhas por IP.
+            // e um teto geral do site: varias origens (IPs diferentes) tentando senhas ao mesmo tempo
             $chave = gn_chave_tentativa('login');
-            if (gn_bloqueado($chave, 10, 15)) {
+            if (gn_bloqueado($chave, 10, 15) || gn_bloqueado('login:geral', 150, 15)) {
                 echo json_encode(['matched'=>false, 'bloqueado'=>true, 'error'=>'Muitas tentativas de senha. Aguarde 15 minutos e tente de novo.']); return;
             }
 
@@ -940,6 +941,7 @@ try {
                 }
             }
             gn_registrar_falha($chave);
+            gn_registrar_falha('login:geral');
             echo json_encode(['matched'=>false]);
         })(),
 
