@@ -55,7 +55,7 @@
       '--tag-buy-fg': '#9cc9ff', '--tag-sell-fg': '#e6b3ff', '--shadow': 'rgba(0,0,0,.8)',
       '--grid': 'rgba(255,255,255,0.22)', '--now': 'rgba(255,255,255,0.75)', '--now-text': '#ffffff', '--trail': 'rgba(255,255,255,0.55)',
       '--proj-bg': 'rgba(255,230,0,0.05)', '--muted-line': 'rgba(207,207,207,0.5)', 'color-scheme': 'dark' } },
-    /* tema sazonal: so' entra no ciclo no dia (sazonal.js decide; hoje: 31/10) */
+    /* temas sazonais: so' entram no ciclo na data (sazonal.js decide: 31/10 e 30/11 a 01/01) */
     { id: 'halloween', names: { pt: 'Dia das Bruxas', en: 'Halloween' }, swatch: ['#0d0716', '#ff7a1a'], sazonal: true, vars: {
       '--panel3': '#140a1d', '--muted2': '#7f6898', '--dim': '#43295a', '--edge': '#a990c0', '--line3': '#5e3a7d', '--txt2': '#e3d4f3', '--bg': '#0d0716', '--panel': '#1a0f24', '--panel2': '#22132e', '--border': '#3d2352', '--txt': '#f6ecff', '--muted': '#a990c0',
       '--accent': '#ff7a1a', '--accent-rgb': '255,122,26', '--accent-ink': '#1a0a00',
@@ -66,7 +66,18 @@
       '--pos-bg1': '#10261a', '--pos-bg2': '#121a24', '--neg-bg': '#4a1c24', '--neg-bd': '#8b2f3f', '--neg-bg2': '#220f18',
       '--tag-buy-fg': '#7fb4ff', '--tag-sell-fg': '#d8b4fe', '--shadow': 'rgba(0,0,0,.65)',
       '--grid': 'rgba(61,35,82,0.6)', '--now': 'rgba(246,236,255,0.55)', '--now-text': '#f6ecff', '--trail': 'rgba(246,236,255,0.40)',
-      '--proj-bg': 'rgba(255,122,26,0.04)', '--muted-line': 'rgba(169,144,192,0.4)', 'color-scheme': 'dark' } }
+      '--proj-bg': 'rgba(255,122,26,0.04)', '--muted-line': 'rgba(169,144,192,0.4)', 'color-scheme': 'dark' } },
+    { id: 'natal', names: { pt: 'Natal', en: 'Christmas' }, swatch: ['#06101f', '#f5c542'], sazonal: true, vars: {
+      '--panel3': '#081527', '--muted2': '#5f7a9c', '--dim': '#284566', '--edge': '#9fb4d0', '--line3': '#3d5f8a', '--txt2': '#d6e3f5', '--bg': '#06101f', '--panel': '#0b1a2e', '--panel2': '#10223a', '--border': '#1f3a5c', '--txt': '#eef5ff', '--muted': '#8fa7c7',
+      '--accent': '#f5c542', '--accent-rgb': '245,197,66', '--accent-ink': '#1f1600',
+      '--avg': '#eef5ff', '--binance': '#f7c948', '--kraken': '#c084fc', '--coinbase': '#60a5fa', '--morningstar': '#22d3ee',
+      '--green': '#22c55e', '--red': '#ef4444', '--yellow': '#f7c948', '--green-ink': '#04210f', '--yellow-ink': '#2a2205', '--green-soft': '#86efac',
+      '--forecast': '#fb923c', '--scenario': '#f472b6', '--badge-ink': '#04210f',
+      '--btn': '#142a45', '--btn-hover': '#1b3658', '--line2': '#2a4b73', '--deep': '#030a14',
+      '--pos-bg1': '#0f2a1a', '--pos-bg2': '#0a1f2e', '--neg-bg': '#5b1f1f', '--neg-bd': '#8b2f2f', '--neg-bg2': '#241014',
+      '--tag-buy-fg': '#7fb4ff', '--tag-sell-fg': '#c99bff', '--shadow': 'rgba(0,0,0,.6)',
+      '--grid': 'rgba(31,58,92,0.6)', '--now': 'rgba(238,245,255,0.55)', '--now-text': '#eef5ff', '--trail': 'rgba(238,245,255,0.40)',
+      '--proj-bg': 'rgba(245,197,66,0.04)', '--muted-line': 'rgba(143,167,199,0.4)', 'color-scheme': 'dark' } }
   ];
   var CANVAS = { avg: '--avg', binance: '--binance', kraken: '--kraken', coinbase: '--coinbase', morningstar: '--morningstar',
     grid: '--grid', axisText: '--muted', target: '--green', now: '--now', nowText: '--now-text', projBg: '--proj-bg',
@@ -117,7 +128,7 @@
     var t = byId(id) || THEMES[0]; current = t.id;
     if (t.id === 'noite') root.removeAttribute('data-theme'); else root.setAttribute('data-theme', t.id);
     refresh(); paintButton();
-    if (window.GNSazonal) GNSazonal.decorar(t.id === 'halloween');
+    if (window.GNSazonal) GNSazonal.decorar(t.sazonal ? t.id : null);
     if (!silent) { try { window.dispatchEvent(new CustomEvent('gn:theme', { detail: { id: t.id } })); } catch (e) {} }
   }
   function set(id) {
