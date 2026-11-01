@@ -83,7 +83,8 @@ function seg_registrar_erro(PDO $db, string $sid): void {
 
 /** Momento (UTC, timestamp) a partir do qual saques estao liberados; null = liberado. */
 function seg_saque_liberado_em(?array $r): ?int {
-    if (!$r) return null;
+    // a espera de 24 h so' vale para quem ativou o 2FA (o 2FA e' opcional)
+    if (!$r || !$r['ativo']) return null;
     $t = 0;
     foreach (['ativado_em', 'endereco_alterado_em'] as $c) {
         if (!empty($r[$c])) $t = max($t, strtotime($r[$c] . ' UTC') + SEG_ESPERA_SAQUE_H * 3600);
@@ -163,13 +164,14 @@ function seg_verificar(PDO $db, string $sid, string $codigo): bool {
 }
 
 /**
- * Exigencia para saque e encerramento com transferencia: 2FA ativo, sem bloqueio do administrador,
- * fora da espera de 24 h e codigo valido. Devolve null se pode seguir, ou a resposta de erro (array).
+ * Exigencia para saque e encerramento com transferencia. O 2FA e' opcional: sem 2FA ativo so' vale o
+ * bloqueio do administrador; com 2FA ativo, tambem a espera de 24 h e o codigo valido.
+ * Devolve null se pode seguir, ou a resposta de erro (array).
  */
 function seg_exigir_para_saque(PDO $db, string $sid, string $codigo): ?array {
     $r = seg_linha($db, $sid);
-    if (!$r || !$r['ativo']) return ['ok' => false, 'precisa_2fa' => true, 'erro_chave' => 'seg2fa_ative_para_sacar', 'error' => 'Ative a verificação em 2 etapas (⚙ Configuração) antes de sacar.'];
-    if ($r['bloqueado_admin']) return ['ok' => false, 'bloqueado_admin' => true, 'erro_chave' => 'seg2fa_e_bloqueado_admin', 'error' => 'Saques desta conta estão bloqueados. Fale com o suporte.'];
+    if ($r && $r['bloqueado_admin']) return ['ok' => false, 'bloqueado_admin' => true, 'erro_chave' => 'seg2fa_e_bloqueado_admin', 'error' => 'Saques desta conta estão bloqueados. Fale com o suporte.'];
+    if (!$r || !$r['ativo']) return null;
     $lib = seg_saque_liberado_em($r);
     if ($lib) return ['ok' => false, 'saque_liberado_em' => gmdate('c', $lib), 'erro_chave' => 'seg2fa_e_espera24', 'error' => 'Por segurança, saques ficam liberados 24 h depois de ativar a verificação em 2 etapas ou trocar o endereço de saída.'];
     if ($codigo === '') return ['ok' => false, 'precisa_codigo_2fa' => true, 'erro_chave' => 'seg2fa_e_digite', 'error' => 'Digite o código do seu app autenticador.'];

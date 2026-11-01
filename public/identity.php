@@ -924,10 +924,7 @@ try {
 
             $p = gn_perfil_seg($sid);
             if (!$p) { echo json_encode(['ok'=>false,'error'=>'sessão não encontrada']); return; }
-            // Trocar uma senha que ja existe exige a verificacao em 2 etapas (criar a primeira senha, nao).
-            if (!empty($p['senha_hash']) && !seg_status(db(), $sid)['ativo']) {
-                echo json_encode(['ok'=>false,'precisa_2fa'=>true,'erro_chave'=>'seg2fa_e_ative_senha', 'error'=>'Para trocar a senha, ative antes a verificação em 2 etapas.']); return;
-            }
+            // 2FA e' opcional: quem ativou precisa do codigo para trocar a senha; quem nao ativou troca como antes.
             if ($e = seg_exigir_se_ativo(db(), $sid, trim((string)($body['codigo_2fa'] ?? '')))) { echo json_encode($e); return; }
 
             // A senha e' a unica chave de acesso (nao existe usuario nem e-mail), entao nao pode

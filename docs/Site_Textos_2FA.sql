@@ -1,6 +1,8 @@
 -- =============================================================================
 -- Site_Textos: textos da verificacao em 2 etapas (2FA) e do "Som nas vendas", nos 11 idiomas.
 -- Banco: bitcoin (lsql2019). Idempotente: so' insere o que ainda nao existe.
+-- 01/11/2026: cfg_2fa_sub passou de "obrigatoria para sacar" para "opcional e recomendada" (2FA opcional);
+-- em bancos que ja tinham as linhas, rode o UPDATE do fim do arquivo.
 -- seg2fa_e_* = mensagens de erro do servidor (campo erro_chave devolvido por identity.php).
 -- =============================================================================
 INSERT INTO dbo.Site_Textos (chave, idioma, texto, atualizado_em)
@@ -30,17 +32,17 @@ FROM (VALUES
  ('seg2fa_titulo','tr-TR',N'İki adımlı doğrulama'),
  ('seg2fa_titulo','zh-CN',N'两步验证'),
 
- ('cfg_2fa_sub','pt-BR',N'Protege saques, o encerramento da conta e a troca de senha com um código do app autenticador do seu celular (Google Authenticator, Microsoft Authenticator, Authy...). Obrigatória para sacar.'),
- ('cfg_2fa_sub','en-US',N'Protects withdrawals, account closure and password changes with a code from the authenticator app on your phone (Google Authenticator, Microsoft Authenticator, Authy...). Required to withdraw.'),
- ('cfg_2fa_sub','es-ES',N'Protege los retiros, el cierre de la cuenta y el cambio de contraseña con un código de la app autenticadora de tu móvil (Google Authenticator, Microsoft Authenticator, Authy...). Obligatoria para retirar.'),
- ('cfg_2fa_sub','fr-FR',N'Protège les retraits, la clôture du compte et le changement de mot de passe avec un code de l''application d''authentification de votre téléphone (Google Authenticator, Microsoft Authenticator, Authy...). Obligatoire pour retirer.'),
- ('cfg_2fa_sub','de-DE',N'Schützt Auszahlungen, die Kontoschließung und Passwortänderungen mit einem Code aus der Authenticator-App auf Ihrem Handy (Google Authenticator, Microsoft Authenticator, Authy...). Für Auszahlungen erforderlich.'),
- ('cfg_2fa_sub','it-IT',N'Protegge i prelievi, la chiusura dell''account e il cambio password con un codice dell''app di autenticazione sul tuo telefono (Google Authenticator, Microsoft Authenticator, Authy...). Obbligatoria per prelevare.'),
- ('cfg_2fa_sub','ja-JP',N'出金、アカウントの解約、パスワード変更を、スマートフォンの認証アプリ（Google Authenticator、Microsoft Authenticator、Authy など）のコードで保護します。出金には必須です。'),
- ('cfg_2fa_sub','nl-NL',N'Beschermt opnames, het opheffen van het account en het wijzigen van het wachtwoord met een code uit de authenticator-app op je telefoon (Google Authenticator, Microsoft Authenticator, Authy...). Verplicht om op te nemen.'),
- ('cfg_2fa_sub','ru-RU',N'Защищает вывод средств, закрытие аккаунта и смену пароля кодом из приложения-аутентификатора на вашем телефоне (Google Authenticator, Microsoft Authenticator, Authy...). Обязательна для вывода.'),
- ('cfg_2fa_sub','tr-TR',N'Para çekme, hesap kapatma ve şifre değişikliğini telefonunuzdaki doğrulama uygulamasından (Google Authenticator, Microsoft Authenticator, Authy...) gelen bir kodla korur. Para çekmek için zorunludur.'),
- ('cfg_2fa_sub','zh-CN',N'用手机上的身份验证器应用（Google Authenticator、Microsoft Authenticator、Authy 等）生成的验证码保护提现、注销账户和修改密码。提现时必须启用。'),
+ ('cfg_2fa_sub','pt-BR',N'Protege saques, o encerramento da conta e a troca de senha com um código do app autenticador do seu celular (Google Authenticator, Microsoft Authenticator, Authy...). Opcional e recomendada.'),
+ ('cfg_2fa_sub','en-US',N'Protects withdrawals, account closure and password changes with a code from the authenticator app on your phone (Google Authenticator, Microsoft Authenticator, Authy...). Optional and recommended.'),
+ ('cfg_2fa_sub','es-ES',N'Protege los retiros, el cierre de la cuenta y el cambio de contraseña con un código de la app autenticadora de tu móvil (Google Authenticator, Microsoft Authenticator, Authy...). Opcional y recomendada.'),
+ ('cfg_2fa_sub','fr-FR',N'Protège les retraits, la clôture du compte et le changement de mot de passe avec un code de l''application d''authentification de votre téléphone (Google Authenticator, Microsoft Authenticator, Authy...). Facultative et recommandée.'),
+ ('cfg_2fa_sub','de-DE',N'Schützt Auszahlungen, die Kontoschließung und Passwortänderungen mit einem Code aus der Authenticator-App auf Ihrem Handy (Google Authenticator, Microsoft Authenticator, Authy...). Optional und empfohlen.'),
+ ('cfg_2fa_sub','it-IT',N'Protegge i prelievi, la chiusura dell''account e il cambio password con un codice dell''app di autenticazione sul tuo telefono (Google Authenticator, Microsoft Authenticator, Authy...). Facoltativa e consigliata.'),
+ ('cfg_2fa_sub','ja-JP',N'出金、アカウントの解約、パスワード変更を、スマートフォンの認証アプリ（Google Authenticator、Microsoft Authenticator、Authy など）のコードで保護します。任意ですが、有効にすることをおすすめします。'),
+ ('cfg_2fa_sub','nl-NL',N'Beschermt opnames, het opheffen van het account en het wijzigen van het wachtwoord met een code uit de authenticator-app op je telefoon (Google Authenticator, Microsoft Authenticator, Authy...). Optioneel en aanbevolen.'),
+ ('cfg_2fa_sub','ru-RU',N'Защищает вывод средств, закрытие аккаунта и смену пароля кодом из приложения-аутентификатора на вашем телефоне (Google Authenticator, Microsoft Authenticator, Authy...). Необязательна, но рекомендуется.'),
+ ('cfg_2fa_sub','tr-TR',N'Para çekme, hesap kapatma ve şifre değişikliğini telefonunuzdaki doğrulama uygulamasından (Google Authenticator, Microsoft Authenticator, Authy...) gelen bir kodla korur. İsteğe bağlıdır ve önerilir.'),
+ ('cfg_2fa_sub','zh-CN',N'用手机上的身份验证器应用（Google Authenticator、Microsoft Authenticator、Authy 等）生成的验证码保护提现、注销账户和修改密码。可选，建议启用。'),
 
  ('copiado','pt-BR',N'Copiado!'),
  ('copiado','en-US',N'Copied!'),
@@ -439,3 +441,16 @@ FROM (VALUES
  ('cfg_som_vendas','zh-CN',N'当卖出（手动或机器人）实现盈利时播放提示音')
 ) AS v(chave, idioma, texto)
 WHERE NOT EXISTS (SELECT 1 FROM dbo.Site_Textos s WHERE s.chave = v.chave AND s.idioma = v.idioma);
+
+-- 2FA opcional (01/11/2026): atualiza a descricao em bancos onde as linhas ja existiam.
+UPDATE dbo.Site_Textos SET texto = REPLACE(texto, N'Obrigatória para sacar.', N'Opcional e recomendada.'), atualizado_em = GETDATE() WHERE chave = 'cfg_2fa_sub' AND idioma = 'pt-BR';
+UPDATE dbo.Site_Textos SET texto = REPLACE(texto, N'Required to withdraw.', N'Optional and recommended.'), atualizado_em = GETDATE() WHERE chave = 'cfg_2fa_sub' AND idioma = 'en-US';
+UPDATE dbo.Site_Textos SET texto = REPLACE(texto, N'Obligatoria para retirar.', N'Opcional y recomendada.'), atualizado_em = GETDATE() WHERE chave = 'cfg_2fa_sub' AND idioma = 'es-ES';
+UPDATE dbo.Site_Textos SET texto = REPLACE(texto, N'Obligatoire pour retirer.', N'Facultative et recommandée.'), atualizado_em = GETDATE() WHERE chave = 'cfg_2fa_sub' AND idioma = 'fr-FR';
+UPDATE dbo.Site_Textos SET texto = REPLACE(texto, N'Für Auszahlungen erforderlich.', N'Optional und empfohlen.'), atualizado_em = GETDATE() WHERE chave = 'cfg_2fa_sub' AND idioma = 'de-DE';
+UPDATE dbo.Site_Textos SET texto = REPLACE(texto, N'Obbligatoria per prelevare.', N'Facoltativa e consigliata.'), atualizado_em = GETDATE() WHERE chave = 'cfg_2fa_sub' AND idioma = 'it-IT';
+UPDATE dbo.Site_Textos SET texto = REPLACE(texto, N'出金には必須です。', N'任意ですが、有効にすることをおすすめします。'), atualizado_em = GETDATE() WHERE chave = 'cfg_2fa_sub' AND idioma = 'ja-JP';
+UPDATE dbo.Site_Textos SET texto = REPLACE(texto, N'Verplicht om op te nemen.', N'Optioneel en aanbevolen.'), atualizado_em = GETDATE() WHERE chave = 'cfg_2fa_sub' AND idioma = 'nl-NL';
+UPDATE dbo.Site_Textos SET texto = REPLACE(texto, N'Обязательна для вывода.', N'Необязательна, но рекомендуется.'), atualizado_em = GETDATE() WHERE chave = 'cfg_2fa_sub' AND idioma = 'ru-RU';
+UPDATE dbo.Site_Textos SET texto = REPLACE(texto, N'Para çekmek için zorunludur.', N'İsteğe bağlıdır ve önerilir.'), atualizado_em = GETDATE() WHERE chave = 'cfg_2fa_sub' AND idioma = 'tr-TR';
+UPDATE dbo.Site_Textos SET texto = REPLACE(texto, N'提现时必须启用。', N'可选，建议启用。'), atualizado_em = GETDATE() WHERE chave = 'cfg_2fa_sub' AND idioma = 'zh-CN';

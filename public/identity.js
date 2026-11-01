@@ -792,7 +792,7 @@
       <hr style="border:none;border-top:1px solid #1e2a44;margin:22px 0">
 
       <h3 style="font-size:13px;color:#5ab0ff;margin:0 0 6px">🔐 ${t('cfg_secao_2fa','Verificação em 2 etapas')}</h3>
-      <p class="sub">${t('cfg_2fa_sub','Protege saques, o encerramento da conta e a troca de senha com um código do app autenticador do seu celular (Google Authenticator, Microsoft Authenticator, Authy...). Obrigatória para sacar.')}</p>
+      <p class="sub">${t('cfg_2fa_sub','Protege saques, o encerramento da conta e a troca de senha com um código do app autenticador do seu celular (Google Authenticator, Microsoft Authenticator, Authy...). Opcional e recomendada.')}</p>
       <div id="cfg-2fa"><div class="sub">…</div></div>
 
       <hr style="border:none;border-top:1px solid #1e2a44;margin:22px 0">
@@ -1020,19 +1020,18 @@
   async function fluxoSacarExterno() {
     const s = window.GNIdentity.session;
     if (!s || !s.session_id) { alert(t('sessao_nao_encontrada','Sessão não encontrada.')); return; }
-    // saque exige a verificacao em 2 etapas ativa e fora da espera de 24 h
+    // a verificacao em 2 etapas e' opcional: so' quem ativou digita o codigo (e respeita a espera de 24 h)
     let st2 = null; try { st2 = await window.GNIdentity._api('seg_2fa_status', { session_id: s.session_id }); } catch (e) {}
-    if (st2 && st2.ok && !st2.ativo) {
-      alert(t('seg2fa_ative_para_sacar','Para sacar, ative antes a verificação em 2 etapas em ⚙ Configuração.'));
-      showConfigSaida(s); return;
-    }
     if (st2 && st2.ok && st2.saque_liberado_em) {
       alert(t('seg2fa_espera','Por segurança, saques ficam liberados a partir de {d}.').replace('{d}', fmtData(st2.saque_liberado_em))); return;
     }
     const pedido = await showSacarExterno(s);
     if (!pedido) return;
-    const codigo2fa = await seg2faCaixaCodigo(t('seg2fa_titulo_saque','Confirmar saque'), '');
-    if (!codigo2fa) return;
+    let codigo2fa = '';
+    if (st2 && st2.ok && st2.ativo) {
+      codigo2fa = await seg2faCaixaCodigo(t('seg2fa_titulo_saque','Confirmar saque'), '');
+      if (!codigo2fa) return;
+    }
 
     function sleep(ms){ return new Promise(r=>setTimeout(r,ms)); }
     const steps = [
