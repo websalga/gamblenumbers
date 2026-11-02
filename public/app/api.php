@@ -54,6 +54,18 @@ function msg_publica(Throwable $e): string {
     return $m;
 }
 
+/*
+ * Regras de saque iguais as do site, conferidas ao criar o desafio E de novo ao confirmar: bloqueio do
+ * administrador e espera de 24 h depois de trocar o endereco de saida, de ativar o 2FA (quem ativou) ou
+ * de cadastrar uma digital nova. No app a digital faz o papel do codigo do 2FA.
+ */
+function checar_saque(string $sid): void {
+    $seg = seg_linha(db(), $sid);
+    if ($seg && $seg['bloqueado_admin']) out(['ok' => false, 'codigo' => 'bloqueado_admin', 'error' => 'Saques desta conta estão bloqueados. Fale com o suporte.'], 423);
+    if ($lib = seg_saque_liberado_em($seg, seg_ultima_passkey_em(db(), $sid))) out(['ok' => false, 'codigo' => 'espera_2fa', 'saque_liberado_em' => gmdate('c', $lib),
+        'error' => 'Por segurança, saques ficam liberados a partir de ' . gmdate('d/m H:i', $lib) . ' UTC (24 h depois de trocar o endereço de saída, ativar a verificação em 2 etapas ou cadastrar uma digital nova).'], 423);
+}
+
 function mascara(string $a): string { return strlen($a) > 18 ? substr($a, 0, 8) . '…' . substr($a, -6) : $a; }
 
 /* Valor pedido → satoshis (null = tudo) */
@@ -180,6 +192,11 @@ try {
             registrar_tentativa($chave);
             out(['ok' => false, 'error' => 'Senha incorreta.'], 403);
         }
+        // Com o 2FA ativo (opcional), cadastrar uma digital tambem pede o codigo do app autenticador:
+        // senao quem descobrisse a senha cadastraria a propria digital e sacaria pelo app sem o codigo.
+        if ($e = seg_exigir_se_ativo(db(), $sid, trim((string)($body['codigo_2fa'] ?? '')))) {
+            out(['ok' => false, 'codigo' => 'precisa_codigo_2fa', 'codigo_invalido' => !empty($e['codigo_invalido']), 'error' => $e['error']], 403);
+        }
         $ch = novo_desafio($sid, 'reg', null);
         $ex = db()->prepare('SELECT credential_id FROM dbo.GN_AppPasskeys WHERE session_id=? AND revogado_em IS NULL');
         $ex->execute([$sid]);
@@ -245,11 +262,7 @@ try {
     /* ---------- saque: cria o desafio que a digital vai assinar ---------- */
     case 'saque_desafio': {
         $u = usuario($sid);
-        // mesma regra do site: saques so' 24 h depois de ativar o 2FA ou trocar o endereco de saida
-        $seg = seg_linha(db(), $sid);
-        if ($seg && $seg['bloqueado_admin']) out(['ok' => false, 'error' => 'Saques desta conta estão bloqueados. Fale com o suporte.'], 423);
-        if ($lib = seg_saque_liberado_em($seg)) out(['ok' => false, 'codigo' => 'espera_2fa', 'saque_liberado_em' => gmdate('c', $lib),
-            'error' => 'Por segurança, saques ficam liberados a partir de ' . gmdate('d/m H:i', $lib) . ' UTC (24 h depois de ativar a verificação em 2 etapas ou trocar o endereço de saída).'], 423);
+        checar_saque($sid);
         $destino = destino_btc($u);
         $pk = db()->prepare('SELECT credential_id FROM dbo.GN_AppPasskeys WHERE session_id=? AND revogado_em IS NULL');
         $pk->execute([$sid]);
@@ -277,6 +290,8 @@ try {
         $a  = is_array($body['assertion'] ?? null) ? $body['assertion'] : [];
         $payload = consumir_desafio($ch, $sid, 'saque');
         if ($payload === null) out(['ok' => false, 'error' => 'Confirmação expirada. Refaça o saque.'], 400);
+        // o bloqueio ou a espera podem ter comecado depois do desafio: confere de novo antes de assinar
+        checar_saque($sid);
 
         $st = db()->prepare('SELECT credential_id, public_key_pem, sign_count FROM dbo.GN_AppPasskeys WHERE session_id=? AND credential_id=? AND revogado_em IS NULL');
         $st->execute([$sid, (string)($a['id'] ?? '')]);

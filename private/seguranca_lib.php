@@ -8,7 +8,10 @@
  *    que mora so' no servidor web: um vazamento do banco sozinho nao expoe as chaves.
  *  - Cada codigo vale uma vez (guarda o ultimo passo aceito); 5 erros em 15 min bloqueiam a sessao.
  *  - 8 codigos de recuperacao de uso unico, guardados so' como hash.
- *  - Saques ficam bloqueados por 24 h depois de ativar o 2FA ou trocar o endereco de saida.
+ *  - O 2FA e' opcional. Para todas as contas: saques so' para o endereco de saida salvo, bloqueados por
+ *    24 h depois de troca-lo (e, no app, depois de cadastrar uma digital nova); quem ativou o 2FA tambem
+ *    espera 24 h depois da ativacao e digita o codigo.
+ *  - Etiqueta PBKDF2 da senha para o login achar a conta direto (seg_senha_tag).
  *  - Tabela: dbo.GN_2FA (ver docs/GN_2FA.sql). Liberacao manual pelo administrador: ver o mesmo arquivo.
  * ============================================================ */
 declare(strict_types=1);
@@ -81,15 +84,58 @@ function seg_registrar_erro(PDO $db, string $sid): void {
     $db->prepare('INSERT INTO dbo.GN_AppTentativas (chave) VALUES (?)')->execute([seg_chave_erros($sid)]);
 }
 
-/** Momento (UTC, timestamp) a partir do qual saques estao liberados; null = liberado. */
-function seg_saque_liberado_em(?array $r): ?int {
-    // a espera de 24 h so' vale para quem ativou o 2FA (o 2FA e' opcional)
-    if (!$r || !$r['ativo']) return null;
+/**
+ * Momento (UTC, timestamp) a partir do qual saques estao liberados; null = liberado.
+ * Espera de 24 h depois de trocar o endereco de saida (todas as contas), de ativar o 2FA (quem ativou)
+ * e, no app, de cadastrar uma digital nova ($extraEm, datetime UTC do banco).
+ */
+function seg_saque_liberado_em(?array $r, ?string $extraEm = null): ?int {
+    $datas = [$extraEm];
+    if ($r) {
+        $datas[] = $r['endereco_alterado_em'] ?? null;
+        if ($r['ativo']) $datas[] = $r['ativado_em'] ?? null;
+    }
     $t = 0;
-    foreach (['ativado_em', 'endereco_alterado_em'] as $c) {
-        if (!empty($r[$c])) $t = max($t, strtotime($r[$c] . ' UTC') + SEG_ESPERA_SAQUE_H * 3600);
+    foreach ($datas as $d) {
+        if (!empty($d)) $t = max($t, strtotime($d . ' UTC') + SEG_ESPERA_SAQUE_H * 3600);
     }
     return $t > time() ? $t : null;
+}
+
+/** Data (UTC) da digital mais nova ainda valida da conta, ou null. */
+function seg_ultima_passkey_em(PDO $db, string $sid): ?string {
+    $st = $db->prepare('SELECT MAX(criado_em) FROM dbo.GN_AppPasskeys WHERE session_id=? AND revogado_em IS NULL');
+    $st->execute([$sid]);
+    $d = $st->fetchColumn();
+    return $d ? (string)$d : null;
+}
+
+/**
+ * Destino de saque/encerramento: so' o endereco de saida salvo, e da mesma moeda. Um destino diferente
+ * vindo na chamada e' recusado (senao a espera de 24 h depois de trocar o endereco nao protegeria nada).
+ * Devolve [endereco, null] ou [null, resposta de erro].
+ */
+function seg_destino_saque(array $perfil, string $moeda, string $pedido = ''): array {
+    $salvo = trim((string)($perfil['endereco_saida'] ?? ''));
+    if ($salvo === '') return [null, ['ok' => false, 'precisa_endereco_saida' => true, 'erro_chave' => 'seg_e_sem_endereco_saida', 'error' => 'Configure antes o endereço de saída em ⚙ Configuração.']];
+    if (strtoupper((string)($perfil['moeda_saida'] ?? '')) !== $moeda) return [null, ['ok' => false, 'erro_chave' => 'seg_e_moeda_saida', 'error' => 'Por segurança, os saques vão só para o endereço de saída salvo em ⚙ Configuração, e ele é de outra moeda. Para sacar esta moeda, troque o endereço de saída lá.']];
+    if ($pedido !== '' && $pedido !== $salvo) return [null, ['ok' => false, 'erro_chave' => 'seg_e_destino_diferente', 'error' => 'Por segurança, os saques vão só para o endereço de saída salvo em ⚙ Configuração. Para usar outro endereço, troque-o lá: os saques para o endereço novo ficam liberados 24 h depois.']];
+    return [$salvo, null];
+}
+
+/**
+ * Etiqueta da senha para o login achar a conta direto (F07), sem testar a senha contra todas as contas.
+ * PBKDF2 com a chave "senha_pepper" de private/seguranca_config.php: sem essa chave a etiqueta nao serve
+ * para nada, e com ela cada palpite ainda custa ~100 mil HMACs (nao vira um atalho para quebrar senhas).
+ */
+function seg_senha_tag(string $senha): string {
+    static $pepper = null;
+    if ($pepper === null) {
+        $c = include __DIR__ . '/seguranca_config.php';
+        $pepper = base64_decode((string)($c['senha_pepper'] ?? ''), true);
+        if (!is_string($pepper) || strlen($pepper) !== 32) throw new RuntimeException('seguranca_config.php sem senha_pepper valida');
+    }
+    return hash_pbkdf2('sha256', $senha, $pepper, 100000, 64);
 }
 
 function seg_status(PDO $db, string $sid): array {
@@ -164,16 +210,19 @@ function seg_verificar(PDO $db, string $sid, string $codigo): bool {
 }
 
 /**
- * Exigencia para saque e encerramento com transferencia. O 2FA e' opcional: sem 2FA ativo so' vale o
- * bloqueio do administrador; com 2FA ativo, tambem a espera de 24 h e o codigo valido.
+ * Exigencia para tudo que tira moedas da conta: saque, encerramento com transferencia e swap.
+ * Vale para todas as contas: bloqueio do administrador e espera de 24 h (ver seg_saque_liberado_em).
+ * Com o 2FA ativo (opcional), tambem o codigo valido. $esperaSem2fa=false dispensa a espera de quem nao
+ * tem 2FA (swap: as moedas ficam nos enderecos da propria conta, entao a espera so' atrapalharia).
  * Devolve null se pode seguir, ou a resposta de erro (array).
  */
-function seg_exigir_para_saque(PDO $db, string $sid, string $codigo): ?array {
+function seg_exigir_para_saque(PDO $db, string $sid, string $codigo, bool $esperaSem2fa = true): ?array {
     $r = seg_linha($db, $sid);
     if ($r && $r['bloqueado_admin']) return ['ok' => false, 'bloqueado_admin' => true, 'erro_chave' => 'seg2fa_e_bloqueado_admin', 'error' => 'Saques desta conta estão bloqueados. Fale com o suporte.'];
-    if (!$r || !$r['ativo']) return null;
-    $lib = seg_saque_liberado_em($r);
-    if ($lib) return ['ok' => false, 'saque_liberado_em' => gmdate('c', $lib), 'erro_chave' => 'seg2fa_e_espera24', 'error' => 'Por segurança, saques ficam liberados 24 h depois de ativar a verificação em 2 etapas ou trocar o endereço de saída.'];
+    $ativo = $r && $r['ativo'];
+    $lib = ($ativo || $esperaSem2fa) ? seg_saque_liberado_em($r) : null;
+    if ($lib) return ['ok' => false, 'saque_liberado_em' => gmdate('c', $lib), 'erro_chave' => 'seg2fa_e_espera24', 'error' => 'Por segurança, saques ficam liberados 24 h depois de trocar o endereço de saída ou de ativar a verificação em 2 etapas.'];
+    if (!$ativo) return null;
     if ($codigo === '') return ['ok' => false, 'precisa_codigo_2fa' => true, 'erro_chave' => 'seg2fa_e_digite', 'error' => 'Digite o código do seu app autenticador.'];
     if (seg_erros_excedidos($db, $sid)) return ['ok' => false, 'precisa_codigo_2fa' => true, 'erro_chave' => 'seg2fa_e_muitos_erros', 'error' => 'Muitos códigos errados. Aguarde 15 minutos.'];
     if (!seg_verificar($db, $sid, $codigo)) return ['ok' => false, 'precisa_codigo_2fa' => true, 'codigo_invalido' => true, 'erro_chave' => 'seg2fa_e_incorreto', 'error' => 'Código incorreto ou já usado.'];

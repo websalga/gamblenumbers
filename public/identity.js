@@ -713,11 +713,15 @@
     return r;
   }
   window.GNIdentity._com2FA = com2FA;
+  window.GNIdentity._pedirCodigo2FA = seg2faCaixaCodigo;   // usado pelo swap (swap.js)
 
   /** Secao "Verificacao em 2 etapas" do Configuracao: situacao, ativacao com QR e codigos de recuperacao. */
   async function desenhar2FA(box) {
     const s = window.GNIdentity.session;
     let st = null; try { st = await window.GNIdentity._api('seg_2fa_status', { session_id: s.session_id }); } catch (e) {}
+    // troca de senha: quem tem senha e nao ativou o 2FA confirma com a senha atual
+    const fAtual = document.getElementById('sen-atual-f');
+    if (fAtual && st && st.ok) fAtual.style.display = (st.tem_senha && !st.ativo) ? '' : 'none';
     if (!st || !st.ok) { box.innerHTML = `<div class="sub" style="color:#fca5a5">${t('seg2fa_erro_status','Não foi possível consultar a verificação em 2 etapas agora.')}</div>`; return; }
     if (st.ativo) {
       box.innerHTML = `<div class="sub" style="color:#86efac">✅ ${t('seg2fa_ativa','Ativada.')} ${t('seg2fa_restam','Códigos de recuperação restantes: {n}.').replace('{n}', st.codigos_recuperacao)}</div>`
@@ -780,6 +784,7 @@
       <div class="gn-f"><label>${t('cfg_secao_endereco','Endereço de saída')}</label>
         <input id="cfg-endereco" placeholder="${t('cfg_endereco_placeholder','seu endereço externo')}" value="${atual&&atual.endereco_saida?atual.endereco_saida:''}" autocomplete="off" spellcheck="false"></div>
       <div class="gn-warn-notice"><b>${t('aviso_label','Atenção:')}</b> ${t('cfg_endereco_aviso','o endereço informado aqui será usado para escoar (transferir pra fora) o saldo real da sua conta no site. Se você informar um endereço errado, ou não tiver certeza e domínio total sobre ele, o valor enviado pode ser')} <b>${t('perdido_para_sempre','perdido para sempre')}</b>. ${t('cfg_endereco_aviso2','O site não tem como reverter isso e não se responsabiliza por endereço incorreto ou equívoco do usuário.')}</div>
+      <p class="sub">${t('cfg_endereco_espera','Por segurança, os saques só vão para este endereço, e ficam bloqueados por 24 h depois de trocá-lo.')}</p>
       <div class="gn-btns"><button class="gn-br" id="cfg-ok">${t('cfg_salvar_endereco_btn','Salvar endereço')}</button></div>
       <div id="cfg-msg" style="font-size:12px;min-height:16px;margin-top:6px"></div>
 
@@ -799,6 +804,8 @@
 
       <h3 style="font-size:13px;color:#5ab0ff;margin:0 0 6px">🔑 ${t('cfg_secao_senha','Senha de acesso')}</h3>
       <p class="sub">${t('cfg_senha_sub','Permite acessar suas mesmas moedas de qualquer navegador ou aparelho — celular, computador do trabalho, etc. Mínimo 8 caracteres, com maiúscula, minúscula e número.')}</p>
+      <div class="gn-f" id="sen-atual-f" style="display:none"><label>${t('cfg_senha_atual_label','Senha atual')}</label>
+        <input id="sen-atual" type="password" autocomplete="current-password" spellcheck="false"></div>
       <div class="gn-f"><label>${t('cfg_senha_label','Senha')}</label>
         <input id="sen-a" type="password" placeholder="${t('cfg_senha_placeholder','Mínimo 8 caracteres')}" autocomplete="new-password" spellcheck="false"></div>
       <div class="gn-f"><label>${t('cfg_confirmar_senha_label','Confirmar senha')}</label>
@@ -854,8 +861,10 @@
       }
       const s = window.GNIdentity.session;
       try {
-        const r = await com2FA('configurar_senha', { session_id: s.session_id, senha: a }, t('seg2fa_titulo_senha','Confirmar troca de senha'));
-        if (r.ok) { msg.style.color='#86efac'; msg.textContent=t('senha_configurada','Senha configurada!'); }
+        const atual = (document.getElementById('sen-atual') || {}).value || '';
+        const r = await com2FA('configurar_senha', { session_id: s.session_id, senha: a, senha_atual: atual }, t('seg2fa_titulo_senha','Confirmar troca de senha'));
+        if (r.precisa_senha_atual) document.getElementById('sen-atual-f').style.display = '';
+        if (r.ok) { msg.style.color='#86efac'; msg.textContent=t('senha_configurada','Senha configurada!'); document.getElementById('sen-atual').value = ''; }
         else { msg.style.color='#fca5a5'; msg.textContent = t('erro_prefixo','Erro:') + ' ' + (erroTxt(r)||t('falhou','falhou')); }
       } catch (e) { msg.style.color='#fca5a5'; msg.textContent = t('erro_rede_prefixo','Erro de rede:') + ' ' + e.message; }
     };
@@ -879,6 +888,8 @@
     const opcoes = [];
     if (btcSaldo > 0) opcoes.push(['BTC', btcSaldo]);
     if (bchSaldo > 0) opcoes.push(['BCH', bchSaldo]);
+    // a moeda do endereco de saida salvo vem primeiro (e' a unica que o saque aceita)
+    if (session.moeda_saida) opcoes.sort((a, b) => (b[0] === session.moeda_saida) - (a[0] === session.moeda_saida));
     if (!opcoes.length) { alert(t('saque_sem_saldo','Sem saldo real disponível ainda.')); return null; }
 
     const moedaExib = moedaExibicaoAtual();
@@ -902,7 +913,8 @@
             }).join('')}
           </select></div>
         <div class="gn-f"><label>${t('sac_endereco_label','Endereço de destino')}</label>
-          <input id="sac-endereco" placeholder="${t('sac_endereco_placeholder','cole o endereço externo')}" value="${session.endereco_saida||''}" autocomplete="off" spellcheck="false"></div>
+          <input id="sac-endereco" readonly placeholder="${t('seg_e_sem_endereco_saida','Configure antes o endereço de saída em ⚙ Configuração.')}" value="${session.endereco_saida||''}" autocomplete="off" spellcheck="false">
+          <div style="font-size:11px;color:#7d8aa3;margin-top:4px">${t('sac_destino_nota','Os saques vão só para o endereço de saída salvo em ⚙ Configuração. Ao trocá-lo, os saques ficam bloqueados por 24 h.')}</div></div>
         <div class="gn-f"><label style="display:flex;align-items:center;gap:8px;font-weight:400;text-transform:none">
           <input type="checkbox" id="sac-tudo" checked style="width:auto"> ${t('sac_tudo_label','Sacar tudo dessa moeda')}</label></div>
         <div class="gn-f" id="sac-valor-wrap" style="display:none">

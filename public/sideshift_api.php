@@ -5,6 +5,7 @@ header('Content-Type: application/json; charset=utf-8');
 require '/usr/share/nginx/html/gamblenumbers/private/wallet_config.php';
 require '/usr/share/nginx/html/gamblenumbers/private/sideshift_config.php';
 require '/usr/share/nginx/html/gamblenumbers/private/config.php';
+require_once '/usr/share/nginx/html/gamblenumbers/private/seguranca_lib.php';   // bloqueio do admin e 2FA (opcional) no swap
 
 const SIDESHIFT_BASE = 'https://sideshift.ai/api/v2';
 const SERVER_PUBLIC_IP_CACHE = '/usr/share/nginx/html/gamblenumbers/private/cache/server_ip.txt';
@@ -161,7 +162,7 @@ function transferirDeEnderecoOrigem(string $coin, string $enderecoOrigem, string
  * troco e liquidacao do swap sempre voltem/cheguem em enderecos que o
  * usuario ja ve e rastreia no portal, nunca em enderecos novos e orfaos. */
 function enderecosDaSessao(string $sessionId): array {
-    $st = db()->prepare('SELECT btc_address, bch_address FROM dbo.GN_Usuarios WHERE session_id = ?');
+    $st = db()->prepare('SELECT btc_address, bch_address FROM dbo.GN_Usuarios WHERE session_id = ? AND ativo = 1');
     $st->execute([$sessionId]);
     $row = $st->fetch();
     if (!$row || empty($row['btc_address']) || empty($row['bch_address'])) {
@@ -231,6 +232,12 @@ function actionExecute(array $in): array {
     // Enderecos fixos/"principais" do usuario -- os mesmos ja mostrados nos
     // extratos -- nunca enderecos novos e nao rastreados.
     $enderecos = enderecosDaSessao($sessionId);
+
+    // Mesma checagem do saque: bloqueio do administrador e, com o 2FA ativo (opcional), espera de 24 h
+    // e codigo do app. Sem 2FA nao ha espera: o swap so' move moedas entre os enderecos da propria conta.
+    if ($e = seg_exigir_para_saque(db(), $sessionId, trim((string)($in['codigo_2fa'] ?? '')), false)) {
+        return $e + ['erro' => $e['error']];
+    }
     $enderecoOrigem  = $enderecos[$fromCoin];
     $enderecoDestino = $enderecos[$toCoin];
 
@@ -284,8 +291,15 @@ function actionStatus(array $in): array {
     if ($jobId === '') {
         throw new InvalidArgumentException('jobId é obrigatório');
     }
+    // So' o dono consulta: o destino do swap tem que ser um endereco da sessao informada.
+    $sessionId = (string)($in['sessionId'] ?? '');
+    if (!preg_match('/^[a-f0-9]{64}$/', $sessionId)) {
+        throw new InvalidArgumentException('Sessão inválida');
+    }
     $job = loadJob($jobId);
-    if ($job === null) {
+    $meus = null;
+    try { $meus = enderecosDaSessao($sessionId); } catch (Throwable $e) {}
+    if ($job === null || !$meus || !in_array($job['settleAddress'], $meus, true)) {
         throw new RuntimeException('Job não encontrado');
     }
     $shift = sideshiftRequest('GET', '/shifts/' . urlencode($jobId));
@@ -344,7 +358,7 @@ try {
             echo json_encode(actionExecute($input));
             break;
         case 'status':
-            echo json_encode(actionStatus($input + $_GET));
+            echo json_encode(actionStatus($input));
             break;
         default:
             throw new InvalidArgumentException('Ação desconhecida');

@@ -369,22 +369,33 @@ function cadastrarDigital() {
   return new Promise(resolve => {
     if (!window.PublicKeyCredential) { alert('Este navegador não suporta digital/biometria para confirmar saques.'); resolve(false); return; }
     const senha = h('input', { type: 'password', autocomplete: 'current-password', 'aria-label': 'Senha da conta' });
+    /* com a verificação em 2 etapas ativa, o servidor pede também o código do app autenticador */
+    const codigo = h('input', { type: 'text', inputmode: 'numeric', autocomplete: 'one-time-code', maxlength: '11', placeholder: 'Código do app autenticador', 'aria-label': 'Código do app autenticador', style: 'display:none' });
     const msg = h('div', { class: 'err', role: 'alert' });
     const ok = h('button', { class: 'btn', type: 'button' }, 'Continuar');
     const fechar = v => { modal.remove(); resolve(v); };
     let pk = null, chStr = '';
-    const recomecar = () => { pk = null; senha.disabled = false; ok.textContent = 'Continuar'; };
+    const recomecar = () => { pk = null; senha.disabled = false; codigo.disabled = false; ok.textContent = 'Continuar'; };
     ok.addEventListener('click', async () => {
       ok.disabled = true; msg.textContent = '';
       try {
         if (!pk) {
           /* 1º toque confere a senha; a digital abre só no 2º toque, porque o Safari do iPhone
            * exige que navigator.credentials.create() venha direto de um toque do usuário. */
-          const o = await api('passkey_reg_opcoes', { senha: senha.value });
+          let o;
+          try { o = await api('passkey_reg_opcoes', { senha: senha.value, codigo_2fa: codigo.value.trim() }); }
+          catch (e) {
+            if (e.codigo === 'precisa_codigo_2fa') {
+              codigo.style.display = ''; codigo.focus();
+              msg.textContent = codigo.value ? e.message : 'Digite também o código de 6 dígitos do seu app autenticador.';
+              codigo.value = ''; ok.disabled = false; return;
+            }
+            throw e;
+          }
           pk = o.publicKey; chStr = pk.challenge;
           pk.challenge = b64uToBuf(pk.challenge); pk.user.id = b64uToBuf(pk.user.id);
           pk.excludeCredentials = (pk.excludeCredentials || []).map(c => ({ ...c, id: b64uToBuf(c.id) }));
-          senha.value = ''; senha.disabled = true; ok.textContent = 'Usar a digital'; ok.disabled = false;
+          senha.value = ''; senha.disabled = true; codigo.value = ''; codigo.disabled = true; ok.textContent = 'Usar a digital'; ok.disabled = false;
           msg.textContent = '';
           return;
         }
@@ -399,8 +410,8 @@ function cadastrarDigital() {
     });
     const modal = h('div', { class: 'modal', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Cadastrar digital' },
       h('div', { class: 'sheet' }, h('h1', {}, 'Cadastrar a digital deste aparelho'),
-        h('div', { class: 'mut sm', style: 'line-height:20px' }, 'Para proteger seus saques, vamos vincular a digital (ou o desbloqueio) deste celular à sua conta. Confirme com a senha da conta.'),
-        senha, msg, ok, h('button', { class: 'btn ghost', type: 'button', onclick: () => fechar(false) }, 'Agora não')));
+        h('div', { class: 'mut sm', style: 'line-height:20px' }, 'Para proteger seus saques, vamos vincular a digital (ou o desbloqueio) deste celular à sua conta. Confirme com a senha da conta. Por segurança, os saques pelo app ficam liberados 24 h depois de cadastrar uma digital nova.'),
+        senha, codigo, msg, ok, h('button', { class: 'btn ghost', type: 'button', onclick: () => fechar(false) }, 'Agora não')));
     document.body.append(modal);
   });
 }

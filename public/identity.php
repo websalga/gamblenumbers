@@ -564,9 +564,9 @@ try {
             $ins = db()->prepare('INSERT INTO dbo.GN_Usuarios
                 (session_id, fingerprint_hash, btc_address, bch_address,
                  btc_habilitado, bch_habilitado, btc_saldo_visto, bch_saldo_visto,
-                 ip_primeiro, user_agent, idioma_preferido, senha_hash)
-                VALUES (?,?,?,?,1,1,0,0,?,?,?,?)');
-            $ins->execute([$sid, $fp, $btcAddr, $bchAddr, $ip, $ua, $idioma, password_hash($senha, PASSWORD_DEFAULT)]);
+                 ip_primeiro, user_agent, idioma_preferido, senha_hash, senha_tag)
+                VALUES (?,?,?,?,1,1,0,0,?,?,?,?,?)');
+            $ins->execute([$sid, $fp, $btcAddr, $bchAddr, $ip, $ua, $idioma, password_hash($senha, PASSWORD_DEFAULT), seg_senha_tag($senha)]);
 
             // Saldo virtual inicial de todo perfil novo: R$ 55.000,00, gravado AQUI no servidor.
             // Antes quem gravava era a tela (saldosync), que podia mandar o saldo de outro perfil
@@ -717,15 +717,15 @@ try {
             $perfil = $st->fetch();
             if (!$perfil) { echo json_encode(['ok'=>false,'error'=>'sessão não encontrada']); return; }
 
-            // Saque exige a verificacao em 2 etapas (fora da espera de 24 h) e o codigo atual do app autenticador.
+            // Destino: so' o endereco de saida salvo (trocar o endereco abre a espera de 24 h).
+            [$destino, $e] = seg_destino_saque($perfil, $moeda, trim((string)($body['endereco_destino'] ?? '')));
+            if ($e) { debug_log('sacar_externa:destino', ['recusado' => $e['erro_chave']]); echo json_encode($e); return; }
+
+            // Bloqueio do administrador, espera de 24 h e, com o 2FA ativo, o codigo do app autenticador.
             if ($e = seg_exigir_para_saque(db(), $sid, trim((string)($body['codigo_2fa'] ?? '')))) {
                 debug_log('sacar_externa:2fa', ['recusado' => array_keys(array_diff_key($e, ['ok'=>1, 'error'=>1]))]);
                 echo json_encode($e); return;
             }
-
-            // Endereço de destino: usa o informado na chamada, ou cai pro endereço configurado previamente.
-            $destino = trim($body['endereco_destino'] ?? '') ?: ($perfil['endereco_saida'] ?? '');
-            if (!$destino) { echo json_encode(['ok'=>false,'error'=>'endereço de destino obrigatório (informe ou configure um antes em Configuração)']); return; }
 
             $enderecoOrigem = $moeda === 'BTC' ? $perfil['btc_address'] : $perfil['bch_address'];
             if (!$enderecoOrigem) { echo json_encode(['ok'=>false,'error'=>'endereço de origem inexistente']); return; }
@@ -924,25 +924,44 @@ try {
 
             $p = gn_perfil_seg($sid);
             if (!$p) { echo json_encode(['ok'=>false,'error'=>'sessão não encontrada']); return; }
-            // 2FA e' opcional: quem ativou precisa do codigo para trocar a senha; quem nao ativou troca como antes.
-            if ($e = seg_exigir_se_ativo(db(), $sid, trim((string)($body['codigo_2fa'] ?? '')))) { echo json_encode($e); return; }
+            // Quem ativou o 2FA (opcional) confirma com o codigo; quem nao ativou e ja tem senha confirma
+            // com a senha atual. Assim, quem so' tem a sessao nao toma a conta trocando a senha.
+            if (seg_status(db(), $sid)['ativo']) {
+                if ($e = seg_exigir_se_ativo(db(), $sid, trim((string)($body['codigo_2fa'] ?? '')))) { echo json_encode($e); return; }
+            } elseif (!empty($p['senha_hash'])) {
+                $atual = (string)($body['senha_atual'] ?? '');
+                if ($atual === '') { echo json_encode(['ok'=>false,'precisa_senha_atual'=>true,'erro_chave'=>'seg_e_senha_atual','error'=>'Digite a sua senha atual para trocar a senha.']); return; }
+                if (seg_erros_excedidos(db(), $sid)) { echo json_encode(['ok'=>false,'erro_chave'=>'seg2fa_e_muitos_erros','error'=>'Muitas tentativas erradas. Aguarde 15 minutos.']); return; }
+                if (!password_verify($atual, $p['senha_hash'])) {
+                    seg_registrar_erro(db(), $sid);
+                    echo json_encode(['ok'=>false,'precisa_senha_atual'=>true,'erro_chave'=>'seg_e_senha_atual_incorreta','error'=>'Senha atual incorreta.']); return;
+                }
+            }
 
             // A senha e' a unica chave de acesso (nao existe usuario nem e-mail), entao nao pode
             // repetir a de outra conta: o login_senha entraria no perfil errado.
             $chave = gn_chave_tentativa('senha');
             if (gn_bloqueado($chave, 5, 15)) { echo json_encode(['ok'=>false,'error'=>'Muitas tentativas. Aguarde 15 minutos e tente de novo.']); return; }
-            $st = db()->prepare('SELECT senha_hash FROM dbo.GN_Usuarios WHERE senha_hash IS NOT NULL AND session_id<>?');
-            $st->execute([$sid]);
-            foreach ($st->fetchAll(PDO::FETCH_COLUMN) as $outro) {
-                if (password_verify($senha, (string)$outro)) {
-                    gn_registrar_falha($chave);
-                    echo json_encode(['ok'=>false,'error'=>'Esta senha não pode ser usada. Escolha outra.']); return;
+            $tag = seg_senha_tag($senha);
+            $st = db()->prepare('SELECT COUNT(*) FROM dbo.GN_Usuarios WHERE senha_tag=? AND session_id<>?');
+            $st->execute([$tag, $sid]);
+            $repetida = (int)$st->fetchColumn() > 0;
+            if (!$repetida) {
+                // contas que ainda nao ganharam etiqueta (so' ganham no proximo login) sao conferidas uma a uma
+                $st = db()->prepare('SELECT senha_hash FROM dbo.GN_Usuarios WHERE senha_hash IS NOT NULL AND senha_tag IS NULL AND session_id<>?');
+                $st->execute([$sid]);
+                foreach ($st->fetchAll(PDO::FETCH_COLUMN) as $outro) {
+                    if (password_verify($senha, (string)$outro)) { $repetida = true; break; }
                 }
+            }
+            if ($repetida) {
+                gn_registrar_falha($chave);
+                echo json_encode(['ok'=>false,'error'=>'Esta senha não pode ser usada. Escolha outra.']); return;
             }
 
             $hash = password_hash($senha, PASSWORD_DEFAULT);
-            db()->prepare('UPDATE dbo.GN_Usuarios SET senha_hash=?, ultimo_acesso=GETUTCDATE() WHERE session_id=?')
-                ->execute([$hash, $sid]);
+            db()->prepare('UPDATE dbo.GN_Usuarios SET senha_hash=?, senha_tag=?, ultimo_acesso=GETUTCDATE() WHERE session_id=?')
+                ->execute([$hash, $tag, $sid]);
 
             echo json_encode(['ok'=>true]);
         })(),
@@ -961,16 +980,23 @@ try {
                 echo json_encode(['matched'=>false, 'bloqueado'=>true, 'error'=>'Muitas tentativas de senha. Aguarde 15 minutos e tente de novo.']); return;
             }
 
-            $st = db()->query("SELECT session_id, btc_address, bch_address, btc_saldo_visto, bch_saldo_visto,
-                modo_real, moeda_saida, endereco_saida, senha_hash, idioma_preferido,
-                CASE WHEN criado_em > DATEADD(HOUR,-24,GETUTCDATE()) THEN 1 ELSE 0 END AS nova
-                FROM dbo.GN_Usuarios WHERE senha_hash IS NOT NULL AND ativo=1");
+            // F07: a etiqueta da senha acha a conta direto. Contas antigas ainda sem etiqueta sao conferidas
+            // uma a uma e ganham a etiqueta no primeiro login certo (com o tempo essa lista some).
+            $tag = seg_senha_tag($senha);
+            $campos = "session_id, btc_address, bch_address, btc_saldo_visto, bch_saldo_visto,
+                modo_real, moeda_saida, endereco_saida, senha_hash, senha_tag, idioma_preferido,
+                CASE WHEN criado_em > DATEADD(HOUR,-24,GETUTCDATE()) THEN 1 ELSE 0 END AS nova";
+            $st = db()->prepare("SELECT $campos FROM dbo.GN_Usuarios WHERE senha_tag=? AND ativo=1");
+            $st->execute([$tag]);
             $candidatos = $st->fetchAll();
+            if (!$candidatos) {
+                $candidatos = db()->query("SELECT $campos FROM dbo.GN_Usuarios WHERE senha_hash IS NOT NULL AND senha_tag IS NULL AND ativo=1")->fetchAll();
+            }
 
             foreach ($candidatos as $row) {
                 if (password_verify($senha, $row['senha_hash'])) {
-                    db()->prepare('UPDATE dbo.GN_Usuarios SET ultimo_acesso=GETUTCDATE() WHERE session_id=?')
-                        ->execute([$row['session_id']]);
+                    db()->prepare('UPDATE dbo.GN_Usuarios SET ultimo_acesso=GETUTCDATE(), senha_tag=? WHERE session_id=?')
+                        ->execute([$tag, $row['session_id']]);
 
                     $btcPendente = 0.0; $bchPendente = 0.0;
                     try { if ($row['btc_address']) $btcPendente = saldo_pendente('BTC', $row['btc_address']); } catch (Throwable $e) {}
@@ -1018,6 +1044,9 @@ try {
             $st->execute([$sid]);
             $perfil = $st->fetch();
 
+            // com o 2FA ativo (opcional), encerrar a conta sempre pede o codigo, com ou sem saldo
+            if ($perfil && ($e = seg_exigir_se_ativo(db(), $sid, trim((string)($body['codigo_2fa'] ?? ''))))) { echo json_encode($e); return; }
+
             if ($perfil && $perfil['modo_real']) {
                 $saldoBtc = 0; $saldoBch = 0;
                 try { $saldoBtc = saldo_recebido('BTC', $perfil['btc_address']); } catch (Throwable $e) {}
@@ -1037,14 +1066,14 @@ try {
 
                 $moedaComSaldo = $saldoBtc > 0 ? 'BTC' : ($saldoBch > 0 ? 'BCH' : null);
                 if ($moedaComSaldo) {
-                    // encerrar transferindo o saldo exige a verificacao em 2 etapas, como um saque
-                    if ($e = seg_exigir_para_saque(db(), $sid, trim((string)($body['codigo_2fa'] ?? '')))) { echo json_encode($e); return; }
-                    $destino = trim($body['endereco_saida'] ?? '') ?: ($perfil['endereco_saida'] ?? '');
-                    if (!$destino) {
-                        echo json_encode(['ok'=>false, 'precisa_endereco_saida'=>true, 'moeda'=>$moedaComSaldo,
-                            'saldo'=>$moedaComSaldo==='BTC'?$saldoBtc:$saldoBch]);
-                        return;
-                    }
+                    // encerrar transferindo o saldo segue as regras de um saque: so' para o endereco de saida
+                    // salvo (nunca um enviado na chamada), bloqueio do administrador e espera de 24 h. O codigo
+                    // do 2FA ja foi conferido acima.
+                    [$destino, $e] = seg_destino_saque($perfil, $moedaComSaldo);
+                    if ($e) { echo json_encode($e + ['moeda'=>$moedaComSaldo, 'saldo'=>$moedaComSaldo==='BTC'?$saldoBtc:$saldoBch]); return; }
+                    $r2 = seg_linha(db(), $sid);
+                    if ($r2 && $r2['bloqueado_admin']) { echo json_encode(['ok'=>false,'bloqueado_admin'=>true,'erro_chave'=>'seg2fa_e_bloqueado_admin','error'=>'Saques desta conta estão bloqueados. Fale com o suporte.']); return; }
+                    if ($lib = seg_saque_liberado_em($r2)) { echo json_encode(['ok'=>false,'saque_liberado_em'=>gmdate('c',$lib),'erro_chave'=>'seg2fa_e_espera24','error'=>'Por segurança, saques ficam liberados 24 h depois de trocar o endereço de saída ou de ativar a verificação em 2 etapas.']); return; }
                     $enderecoOrigem = $moedaComSaldo === 'BTC' ? $perfil['btc_address'] : $perfil['bch_address'];
                     try {
                         $txids = [strtolower($moedaComSaldo) => varrer_saldo_para($moedaComSaldo, $enderecoOrigem, $destino)];

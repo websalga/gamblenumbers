@@ -42,7 +42,21 @@
       body: JSON.stringify(Object.assign({action}, params)),
     });
     const j = await r.json();
-    if(j.erro) throw new Error(j.erro);
+    if(j.precisa_codigo_2fa) return j;   // quem chama pede o codigo do 2FA e repete
+    if(j.erro) throw new Error(j.erro_chave ? t(j.erro_chave, j.erro) : j.erro);
+    return j;
+  }
+  /* execute com a verificacao em 2 etapas (opcional): se a conta ativou, pede o codigo (ate 3 vezes) */
+  async function executarSwap(params){
+    let j = await chamarApi('execute', params);
+    for(let i = 0; i < 3 && j.precisa_codigo_2fa; i++){
+      const pedir = window.GNIdentity && window.GNIdentity._pedirCodigo2FA;
+      if(!pedir) throw new Error(t(j.erro_chave, j.erro));
+      const cod = await pedir(t('seg2fa_titulo_swap','Confirmar transferência'), (j.codigo_invalido || i) ? t(j.erro_chave, j.erro) : '');
+      if(!cod) throw new Error(t('swap_cancelado','Cancelado.'));
+      j = await chamarApi('execute', Object.assign({}, params, { codigo_2fa: cod }));
+    }
+    if(j.precisa_codigo_2fa) throw new Error(t(j.erro_chave, j.erro));
     return j;
   }
 
@@ -78,7 +92,7 @@
         id: 'envio', label: 'Enviando fundos', ms: 1200,
         fn: async () => {
           try {
-            const job = await chamarApi('execute', { fromCoin, toCoin, quoteId: quote.id, amount: quote.depositAmount, sessionId: sessionId() });
+            const job = await executarSwap({ fromCoin, toCoin, quoteId: quote.id, amount: quote.depositAmount, sessionId: sessionId() });
             window._lastSwapJob = job;
             return { ok: true, text: 'ENVIADO', detail: abbr(job.depositTxid) };
           } catch(e) {
@@ -106,7 +120,7 @@
           const MAX_TENTATIVAS = 240;
           for(let i = 0; i < MAX_TENTATIVAS; i++){
             try {
-              const st = await chamarApi('status', { jobId: job.jobId });
+              const st = await chamarApi('status', { jobId: job.jobId, sessionId: sessionId() });
               if(st.status === 'settled' && st.settleTxid){
                 window._lastSwapStatus = st;
                 return { ok: true, text: 'CONFIRMADO', detail: abbr(st.settleTxid) };
