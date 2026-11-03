@@ -102,6 +102,69 @@ function seg_saque_liberado_em(?array $r, ?string $extraEm = null): ?int {
     return $t > time() ? $t : null;
 }
 
+/**
+ * S04: operacoes criticas (saque, swap, encerramento de conta) so' com o no da moeda operacional:
+ * RPC respondendo pelo tunel, fora do initialblockdownload, sincronizado (blocks = headers) e com a
+ * carteira carregada. Qualquer falha ou timeout = false. Nunca tratar falha do no como saldo zero.
+ * Usa as credenciais de private/wallet_config.php (globais). Resultado guardado por requisicao.
+ */
+function seg_no_operacional(string $coin): bool {
+    static $cache = [];
+    if (isset($cache[$coin])) return $cache[$coin];
+    global $RPC_BTC_HOST, $RPC_BTC_PORT, $RPC_BTC_USER, $RPC_BTC_PASS, $RPC_BCH_HOST, $RPC_BCH_PORT, $RPC_BCH_USER, $RPC_BCH_PASS;
+    if ($coin === 'BTC') { [$h, $p, $u, $s, $w] = [$RPC_BTC_HOST, $RPC_BTC_PORT, $RPC_BTC_USER, $RPC_BTC_PASS, 'wallet/gamblenumbers']; }
+    elseif ($coin === 'BCH') { [$h, $p, $u, $s, $w] = [$RPC_BCH_HOST, $RPC_BCH_PORT, $RPC_BCH_USER, $RPC_BCH_PASS, '']; }
+    else return $cache[$coin] = false;
+    $rpc = function (string $m, array $params, string $caminho) use ($h, $p, $u, $s) {
+        $ch = curl_init("http://$h:$p/$caminho");
+        curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_POST => true, CURLOPT_USERPWD => "$u:$s",
+            CURLOPT_POSTFIELDS => json_encode(['jsonrpc' => '1.0', 'id' => 'seg', 'method' => $m, 'params' => $params]),
+            CURLOPT_HTTPHEADER => ['Content-Type: text/plain'], CURLOPT_CONNECTTIMEOUT => 4, CURLOPT_TIMEOUT => 8]);
+        $r = curl_exec($ch); $c = curl_getinfo($ch, CURLINFO_HTTP_CODE); curl_close($ch);
+        $j = is_string($r) ? json_decode($r, true) : null;
+        return ($c === 200 && is_array($j) && ($j['error'] ?? null) === null) ? $j['result'] : null;
+    };
+    $bi = $rpc('getblockchaininfo', [], '');
+    $ok = is_array($bi) && empty($bi['initialblockdownload']) && isset($bi['blocks'], $bi['headers'])
+        && $bi['blocks'] > 0 && ($bi['headers'] - $bi['blocks']) <= 1 && (float)($bi['verificationprogress'] ?? 0) > 0.999;
+    // carteira carregada: listunspent responde (falha com -18 se a carteira nao estiver carregada)
+    if ($ok) $ok = is_array($rpc('listunspent', [9999999, 9999999], $w));
+    return $cache[$coin] = $ok;
+}
+
+/**
+ * S05: log das operacoes criticas (saque no site e no app, swap, encerramento) no SQL Server, tabela
+ * dbo.GN_LogOperacoes (docs/GN_LogOperacoes.sql). Nunca em arquivo.
+ * So' grava a lista fixa de campos abaixo: NUNCA sessao, codigo do 2FA, codigo de recuperacao, senha ou o
+ * corpo do pedido. O perfil e o IP entram como hash HMAC (chave senha_pepper), para ligar registros sem expor.
+ * Devolve false se nao conseguiu gravar: antes de mover moedas, o chamador deve recusar (regra do S04).
+ */
+function seg_log(PDO $db, string $operacao, string $etapa, array $c = [], ?string $sid = null): bool {
+    static $pepper = null;
+    try {
+        if ($pepper === null) { $cfg = include __DIR__ . '/seguranca_config.php'; $pepper = base64_decode((string)($cfg['senha_pepper'] ?? ''), true) ?: ''; }
+        $h = fn(?string $v) => ($v === null || $v === '' || $pepper === '') ? null : substr(hash_hmac('sha256', $v, $pepper), 0, 16);
+        $ip = '';
+        foreach (['HTTP_CF_CONNECTING_IP', 'HTTP_X_REAL_IP', 'REMOTE_ADDR'] as $k) { if (!empty($_SERVER[$k])) { $ip = trim(explode(',', $_SERVER[$k])[0]); break; } }
+        $num = fn($v) => ($v === null || $v === '' || !is_numeric($v)) ? null : sprintf('%.8f', (float)$v);
+        $txt = fn($v, int $n) => ($v === null || $v === '') ? null : mb_substr(is_scalar($v) ? (string)$v : json_encode($v, JSON_UNESCAPED_UNICODE), 0, $n);
+        $txid = isset($c['txid']) && preg_match('/^[0-9a-f]{64}$/', (string)$c['txid']) ? (string)$c['txid'] : null;
+        $st = $db->prepare('INSERT INTO dbo.GN_LogOperacoes (origem, operacao, etapa, perfil_hash, moeda, valor, taxa, destino, txid, resultado, motivo, ip_hash)
+                            VALUES (?,?,?,?,?,?,?,?,?,?,?,?)');
+        return $st->execute([$txt($c['origem'] ?? 'site', 20), $txt($operacao, 40), $txt($etapa, 60), $h($sid),
+            $txt(isset($c['moeda']) ? strtoupper((string)$c['moeda']) : null, 5), $num($c['valor'] ?? null), $num($c['taxa'] ?? null),
+            $txt($c['destino'] ?? null, 120), $txid, $txt($c['resultado'] ?? null, 20), $txt($c['motivo'] ?? null, 400), $h($ip ?: null)]);
+    } catch (Throwable $e) {
+        return false;
+    }
+}
+
+/** Resposta padrao quando o no (ou o saldo) nao pode ser confirmado: nada foi feito. */
+function seg_resposta_indisponivel(): array {
+    return ['ok' => false, 'servico_indisponivel' => true, 'erro_chave' => 'seg_e_servico_indisponivel',
+            'error' => 'Serviço temporariamente indisponível. Nenhuma operação foi feita; tente novamente mais tarde.'];
+}
+
 /** Data (UTC) da digital mais nova ainda valida da conta, ou null. */
 function seg_ultima_passkey_em(PDO $db, string $sid): ?string {
     $st = $db->prepare('SELECT MAX(criado_em) FROM dbo.GN_AppPasskeys WHERE session_id=? AND revogado_em IS NULL');

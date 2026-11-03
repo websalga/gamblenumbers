@@ -60,6 +60,8 @@ function msg_publica(Throwable $e): string {
  * de cadastrar uma digital nova. No app a digital faz o papel do codigo do 2FA.
  */
 function checar_saque(string $sid): void {
+    // S04: com o no BTC fora do ar, dessincronizado ou sem carteira, nenhum saque e' aceito
+    if (!seg_no_operacional('BTC')) out(['ok' => false, 'codigo' => 'servico_indisponivel', 'error' => seg_resposta_indisponivel()['error']], 503);
     $seg = seg_linha(db(), $sid);
     if ($seg && $seg['bloqueado_admin']) out(['ok' => false, 'codigo' => 'bloqueado_admin', 'error' => 'Saques desta conta estão bloqueados. Fale com o suporte.'], 423);
     if ($lib = seg_saque_liberado_em($seg, seg_ultima_passkey_em(db(), $sid))) out(['ok' => false, 'codigo' => 'espera_2fa', 'saque_liberado_em' => gmdate('c', $lib),
@@ -300,7 +302,7 @@ try {
         try {
             $novoCnt = webauthn_verificar($a, $ch, $pk['public_key_pem'], (int)$pk['sign_count']);
         } catch (Throwable $e) {
-            app_log('saque:digital_recusada', ['sid' => substr($sid, 0, 8), 'motivo' => $e->getMessage()]);
+            seg_log(db(), 'saque_app', 'recusado', ['origem' => 'app', 'moeda' => 'BTC', 'resultado' => 'recusado', 'motivo' => 'digital: ' . $e->getMessage()], $sid);
             out(['ok' => false, 'error' => $e->getMessage()], 403);
         }
         db()->prepare('UPDATE dbo.GN_AppPasskeys SET sign_count=?, ultimo_uso=SYSUTCDATETIME() WHERE credential_id=?')->execute([$novoCnt, $pk['credential_id']]);
@@ -312,23 +314,28 @@ try {
         if (abs($t['fee_sats'] - $payload['fee_sats']) > max(50, (int)($payload['fee_sats'] * 0.1)) || ($t['recebido_sats'] !== $payload['recebido_sats'] && !$t['total'])) {
             out(['ok' => false, 'error' => 'As condições mudaram (saldo ou taxa). Refaça o saque.'], 409);
         }
-        app_log('saque:transmitindo', ['sid' => substr($sid, 0, 8), 'recebido' => $t['recebido_sats'], 'fee' => $t['fee_sats'], 'rate' => $payload['rate']]);
+        // S05 + S04: registrar no SQL antes de transmitir; se nao gravar, nada e' enviado (nunca cai para arquivo)
+        $LA = fn(string $etapa, array $c) => seg_log(db(), 'saque_app', $etapa, $c + ['origem' => 'app', 'moeda' => 'BTC', 'destino' => $payload['destino']], $sid);
+        if (!$LA('aprovado', ['valor' => btc_str($t['recebido_sats']), 'taxa' => $payload['rate'], 'resultado' => 'em_andamento'])) {
+            out(['ok' => false, 'codigo' => 'servico_indisponivel', 'error' => seg_resposta_indisponivel()['error']], 503);
+        }
         $txid = btc_rpc('sendrawtransaction', [$t['hex']]);
+        $LA('enviado', ['valor' => btc_str($t['recebido_sats']), 'taxa' => $payload['rate'], 'txid' => $txid, 'resultado' => 'ok']);
 
         // A partir daqui o dinheiro saiu: falhas de registro não podem virar "erro de saque".
         try {
             db()->prepare('INSERT INTO dbo.GN_Saques (txid, session_id, moeda, valor, destino, foi_total, confirmado) VALUES (?,?,?,?,?,?,0)')
                 ->execute([$txid, $sid, 'BTC', btc_str($t['recebido_sats']), $payload['destino'], $t['total'] ? 1 : 0]);
-        } catch (Throwable $e) { app_log('saque:erro_pos_envio', ['etapa' => 'GN_Saques', 'msg' => $e->getMessage(), 'txid' => $txid]); }
+        } catch (Throwable $e) { $LA('erro_pos_envio', ['txid' => $txid, 'resultado' => 'erro_pos_envio', 'motivo' => 'GN_Saques: ' . $e->getMessage()]); }
         try {
             db()->prepare('INSERT INTO dbo.GN_AppSaqueMeta (txid, session_id, fee_rate_satvb, fee_sats, vsize, nivel, credential_id, valor_brl, preco_brl) VALUES (?,?,?,?,?,?,?,?,?)')
                 ->execute([$txid, $sid, $payload['rate'], $t['fee_sats'], $t['vsize'], $payload['nivel'], $pk['credential_id'],
                     round($t['recebido_sats'] / 1e8 * $payload['preco_brl'], 2), $payload['preco_brl']]);
-        } catch (Throwable $e) { app_log('saque:erro_pos_envio', ['etapa' => 'AppSaqueMeta', 'msg' => $e->getMessage(), 'txid' => $txid]); }
+        } catch (Throwable $e) { $LA('erro_pos_envio', ['txid' => $txid, 'resultado' => 'erro_pos_envio', 'motivo' => 'AppSaqueMeta: ' . $e->getMessage()]); }
         try {
             $novo = saldo_sats($u['btc_address'], 1);
             db()->prepare('UPDATE dbo.GN_Usuarios SET btc_saldo_visto=?, ultimo_acesso=GETUTCDATE() WHERE session_id=?')->execute([btc_str($novo), $sid]);
-        } catch (Throwable $e) { app_log('saque:erro_pos_envio', ['etapa' => 'saldo', 'msg' => $e->getMessage(), 'txid' => $txid]); }
+        } catch (Throwable $e) { $LA('erro_pos_envio', ['txid' => $txid, 'resultado' => 'erro_pos_envio', 'motivo' => 'saldo: ' . $e->getMessage()]); }
 
         out(['ok' => true, 'txid' => $txid, 'recebido_sats' => $t['recebido_sats'], 'fee_sats' => $t['fee_sats'], 'taxa_satvb' => $payload['rate'],
             'destino' => mascara($payload['destino']), 'preco_brl' => $payload['preco_brl']]);

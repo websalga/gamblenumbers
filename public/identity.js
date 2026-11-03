@@ -612,8 +612,9 @@
             const r = window.GNIdentity._com2FA
               ? await window.GNIdentity._com2FA('wipe_profile', { session_id: sid }, t('seg2fa_titulo_encerrar','Confirmar encerramento'))
               : await api('wipe_profile', { session_id: sid });
-            return (r && r.ok) ? {ok:true} : {ok:false, text:t('term_falhou_status','FALHOU'), detail: (r && r.erro_chave ? t(r.erro_chave, r.error) : (r && r.error)) || ''};
-          } catch (e) { return {ok:false, text:t('term_falhou_status','FALHOU')}; }
+            // recusado pelo servidor (ex.: no fora do ar): para aqui, sem apagar nada deste navegador
+            return (r && r.ok) ? {ok:true} : {ok:false, fatal:true, text:t('term_falhou_status','FALHOU'), detail: (r && r.erro_chave ? t(r.erro_chave, r.error) : (r && r.error)) || ''};
+          } catch (e) { return {ok:false, fatal:true, text:t('term_falhou_status','FALHOU')}; }
         }});
     }
     steps.push(

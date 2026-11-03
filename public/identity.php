@@ -122,13 +122,11 @@ function ler_saque(string $txid): ?array {
 }
 
 function transferir_de_endereco(string $coin, string $enderecoOrigem, string $enderecoDestino, ?float $valor = null, ?float $feeRate = null): array {
-    debug_log('transferir_de_endereco:inicio', [
-        'coin'=>$coin, 'origem'=>$enderecoOrigem, 'destino'=>$enderecoDestino, 'valor_pedido'=>$valor,
-    ]);
+    // S05: so' os eventos que importam vao para o SQL (dbo.GN_LogOperacoes); nada em arquivo
+    $L = fn(string $etapa, array $c = []) => seg_log(db(), 'transferencia', $etapa, $c + ['moeda' => $coin, 'destino' => $enderecoDestino]);
 
     $utxos = wallet_rpc($coin, 'listunspent', [1, 9999999, [$enderecoOrigem]]);
-    debug_log('transferir_de_endereco:utxos', ['coin'=>$coin, 'qtd'=>count($utxos), 'utxos'=>$utxos]);
-    if (empty($utxos)) { debug_log('transferir_de_endereco:erro', ['motivo'=>'sem_utxo']); throw new RuntimeException('Sem saldo confirmado nesse endereço'); }
+    if (empty($utxos)) { $L('erro', ['resultado'=>'erro', 'motivo'=>'sem_utxo', 'valor'=>$valor]); throw new RuntimeException('Sem saldo confirmado nesse endereço'); }
 
     $totalDisponivel = 0.0;
     $inputs = [];
@@ -139,14 +137,10 @@ function transferir_de_endereco(string $coin, string $enderecoOrigem, string $en
 
     $ehTotal = ($valor === null) || (abs($valor - $totalDisponivel) < 0.00000001);
     $valorSaque = $ehTotal ? $totalDisponivel : $valor;
-    debug_log('transferir_de_endereco:calculo', [
-        'total_disponivel'=>$totalDisponivel, 'eh_total'=>$ehTotal, 'valor_saque'=>$valorSaque,
-    ]);
-    if ($valorSaque <= 0) { debug_log('transferir_de_endereco:erro', ['motivo'=>'valor_zero_ou_negativo', 'valor_saque'=>$valorSaque]); throw new RuntimeException('Nada a transferir'); }
-    if ($valorSaque > $totalDisponivel) { debug_log('transferir_de_endereco:erro', ['motivo'=>'saldo_insuficiente', 'valor_saque'=>$valorSaque, 'total_disponivel'=>$totalDisponivel]); throw new RuntimeException('Saldo insuficiente para esse valor'); }
+    if ($valorSaque <= 0) { $L('erro', ['resultado'=>'erro', 'motivo'=>'valor_zero_ou_negativo', 'valor'=>$valorSaque]); throw new RuntimeException('Nada a transferir'); }
+    if ($valorSaque > $totalDisponivel) { $L('erro', ['resultado'=>'erro', 'motivo'=>'saldo_insuficiente', 'valor'=>$valorSaque]); throw new RuntimeException('Saldo insuficiente para esse valor'); }
 
     $rawtx = wallet_rpc($coin, 'createrawtransaction', [$inputs, [$enderecoDestino => $valorSaque]]);
-    debug_log('transferir_de_endereco:rawtx_criada', ['rawtx_len'=>strlen($rawtx)]);
 
     $fundOpts = ['add_inputs' => false];
     if ($feeRate !== null) $fundOpts['fee_rate'] = sprintf('%.3f', $feeRate);   // sat/vB escolhido pelo usuário (só BTC)
@@ -156,16 +150,13 @@ function transferir_de_endereco(string $coin, string $enderecoOrigem, string $en
         // Troco volta pro MESMO endereço de origem (mantém a segregação por usuário).
         $fundOpts['changeAddress'] = $enderecoOrigem;
     }
-    debug_log('transferir_de_endereco:fundopts', $fundOpts);
     $funded = wallet_rpc($coin, 'fundrawtransaction', [$rawtx, $fundOpts]);
-    debug_log('transferir_de_endereco:funded', ['fee'=>$funded['fee'] ?? null]);
 
     $signed = wallet_rpc($coin, 'signrawtransactionwithwallet', [$funded['hex']]);
-    debug_log('transferir_de_endereco:assinada', ['complete'=>$signed['complete'] ?? null]);
-    if (empty($signed['complete'])) { debug_log('transferir_de_endereco:erro', ['motivo'=>'assinatura_incompleta', 'errors'=>$signed['errors'] ?? null]); throw new RuntimeException('Falha ao assinar a transação de saída'); }
+    if (empty($signed['complete'])) { $L('erro', ['resultado'=>'erro', 'motivo'=>'assinatura_incompleta', 'valor'=>$valorSaque]); throw new RuntimeException('Falha ao assinar a transação de saída'); }
 
     $txid = wallet_rpc($coin, 'sendrawtransaction', [$signed['hex']]);
-    debug_log('transferir_de_endereco:transmitida', ['txid'=>$txid, 'valor'=>$valorSaque, 'eh_total'=>$ehTotal]);
+    $L('transmitida', ['txid'=>$txid, 'valor'=>$valorSaque, 'taxa'=>$feeRate, 'resultado'=>'ok', 'motivo'=>$ehTotal ? 'total' : 'parcial']);
 
     return ['txid' => $txid, 'valor' => $valorSaque, 'total' => $ehTotal];
 }
@@ -234,13 +225,11 @@ function saque_niveis_btc(array $faixas): array {
     return ['piso' => $piso, 'economica' => $r2($econ), 'normal' => $r2($normal), 'rapida' => $r2($rapida)];
 }
 
-function varrer_saldo_para(string $coin, string $enderecoOrigem, string $enderecoDestino) {
-    try {
-        $r = transferir_de_endereco($coin, $enderecoOrigem, $enderecoDestino, null);
-        return $r['txid'];
-    } catch (Throwable $e) {
-        return null;
-    }
+/* S04: a falha NAO e' engolida (antes devolvia null e o encerramento apagava a conta com o saldo ainda nela). */
+function varrer_saldo_para(string $coin, string $enderecoOrigem, string $enderecoDestino): string {
+    $r = transferir_de_endereco($coin, $enderecoOrigem, $enderecoDestino, null);
+    if (empty($r['txid'])) throw new RuntimeException('transferencia sem txid');
+    return $r['txid'];
 }
 
 /* --- DB connection --- */
@@ -693,13 +682,14 @@ try {
         })(),
 
         'sacar_externa' => (function() use ($body) {
-            debug_log('sacar_externa:requisicao', array_diff_key($body, ['session_id' => 1]));   // nunca grava a sessao no log
+            // S05: o log do saque vai para o SQL (dbo.GN_LogOperacoes), so' com campos permitidos; nunca o corpo do pedido.
             $sid    = trim($body['session_id'] ?? '');
             $moeda  = strtoupper($body['moeda'] ?? '');
             $valor  = isset($body['valor']) && $body['valor'] !== '' ? (float)$body['valor'] : null; // null = tudo
+            $L = fn(string $etapa, array $c = []) => seg_log(db(), 'sacar_externa', $etapa, $c + ['moeda' => $moeda, 'valor' => $valor], strlen($sid) === 64 ? $sid : null);
 
-            if (strlen($sid) !== 64) { debug_log('sacar_externa:erro', ['motivo'=>'session_id_invalido']); echo json_encode(['ok'=>false,'error'=>'session_id inválido']); return; }
-            if (!in_array($moeda, ['BTC','BCH'], true)) { debug_log('sacar_externa:erro', ['motivo'=>'moeda_invalida', 'moeda'=>$moeda]); echo json_encode(['ok'=>false,'error'=>'moeda inválida']); return; }
+            if (strlen($sid) !== 64) { $L('recusado', ['resultado'=>'recusado', 'motivo'=>'session_id_invalido']); echo json_encode(['ok'=>false,'error'=>'session_id inválido']); return; }
+            if (!in_array($moeda, ['BTC','BCH'], true)) { $L('recusado', ['resultado'=>'recusado', 'motivo'=>'moeda_invalida']); echo json_encode(['ok'=>false,'error'=>'moeda inválida']); return; }
 
             // Taxa escolhida pelo usuário (sat/vB), só no BTC; sem ela a carteira usa a própria estimativa.
             $taxaSatVb = null;
@@ -707,7 +697,7 @@ try {
                 $taxaSatVb = round((float)$body['taxa_satvb'], 2);
                 $piso = saque_piso_btc();
                 if ($taxaSatVb < $piso || $taxaSatVb > SAQUE_TAXA_MAX_SATVB) {
-                    debug_log('sacar_externa:erro', ['motivo'=>'taxa_fora_da_faixa', 'taxa_satvb'=>$taxaSatVb, 'piso'=>$piso]);
+                    $L('recusado', ['resultado'=>'recusado', 'motivo'=>'taxa_fora_da_faixa', 'taxa'=>$taxaSatVb]);
                     echo json_encode(['ok'=>false,'error'=>'taxa fora da faixa permitida (' . $piso . ' a ' . SAQUE_TAXA_MAX_SATVB . ' sat/vB)']); return;
                 }
             }
@@ -717,18 +707,25 @@ try {
             $perfil = $st->fetch();
             if (!$perfil) { echo json_encode(['ok'=>false,'error'=>'sessão não encontrada']); return; }
 
+            // S04: com o no da moeda fora do ar, dessincronizado ou sem carteira, nenhum saque e' aceito.
+            if (!seg_no_operacional($moeda)) { $L('recusado', ['resultado'=>'recusado', 'motivo'=>'no_indisponivel']); echo json_encode(seg_resposta_indisponivel()); return; }
+
             // Destino: so' o endereco de saida salvo (trocar o endereco abre a espera de 24 h).
             [$destino, $e] = seg_destino_saque($perfil, $moeda, trim((string)($body['endereco_destino'] ?? '')));
-            if ($e) { debug_log('sacar_externa:destino', ['recusado' => $e['erro_chave']]); echo json_encode($e); return; }
+            if ($e) { $L('recusado', ['resultado'=>'recusado', 'motivo'=>$e['erro_chave']]); echo json_encode($e); return; }
 
             // Bloqueio do administrador, espera de 24 h e, com o 2FA ativo, o codigo do app autenticador.
             if ($e = seg_exigir_para_saque(db(), $sid, trim((string)($body['codigo_2fa'] ?? '')))) {
-                debug_log('sacar_externa:2fa', ['recusado' => array_keys(array_diff_key($e, ['ok'=>1, 'error'=>1]))]);
+                $L('recusado', ['resultado'=>'recusado', 'destino'=>$destino, 'motivo'=>$e['erro_chave'] ?? 'seguranca']);
                 echo json_encode($e); return;
             }
 
             $enderecoOrigem = $moeda === 'BTC' ? $perfil['btc_address'] : $perfil['bch_address'];
             if (!$enderecoOrigem) { echo json_encode(['ok'=>false,'error'=>'endereço de origem inexistente']); return; }
+
+            // S05 + S04: o pedido aprovado precisa ficar registrado no SQL ANTES de mover moedas; se o SQL
+            // nao gravar, nada e' enviado (nunca cai para arquivo).
+            if (!$L('aprovado', ['destino'=>$destino, 'taxa'=>$taxaSatVb, 'resultado'=>'em_andamento'])) { echo json_encode(seg_resposta_indisponivel()); return; }
 
             // Sacar 100% de UMA moeda (valor=null) não exige nada da outra moeda —
             // o usuário continua no site, a sessão continua existindo, nada fica órfão.
@@ -737,11 +734,11 @@ try {
             try {
                 $r = transferir_de_endereco($moeda, $enderecoOrigem, $destino, $valor, $taxaSatVb);
             } catch (Throwable $e) {
-                debug_log('sacar_externa:excecao', ['mensagem'=>$e->getMessage(), 'trace'=>$e->getTraceAsString()]);
+                $L('erro', ['destino'=>$destino, 'resultado'=>'erro', 'motivo'=>$e->getMessage()]);
                 echo json_encode(['ok'=>false, 'error'=>$e->getMessage()]);
                 return;
             }
-            debug_log('sacar_externa:sucesso', $r);
+            $L('enviado', ['destino'=>$destino, 'valor'=>$r['valor'] ?? $valor, 'txid'=>$r['txid'] ?? null, 'resultado'=>'ok', 'motivo'=>!empty($r['total']) ? 'total' : 'parcial']);
 
             // A PARTIR DAQUI o dinheiro JÁ SAIU DE VERDADE — nenhuma falha
             // depois deste ponto pode fazer a resposta parecer um erro geral.
@@ -754,15 +751,15 @@ try {
                     'criado_em' => date('c'), 'confirmado' => false,
                 ]);
             } catch (Throwable $e) {
-                debug_log('sacar_externa:erro_pos_envio', ['etapa'=>'salvar_saque', 'mensagem'=>$e->getMessage(), 'txid'=>$r['txid']]);
+                $L('erro_pos_envio', ['txid'=>$r['txid'], 'resultado'=>'erro_pos_envio', 'motivo'=>'salvar_saque: ' . $e->getMessage()]);
             }
 
             $btcAtual = null; $bchAtual = null;
             try { $btcAtual = saldo_recebido('BTC', $perfil['btc_address']); } catch (Throwable $e) {
-                debug_log('sacar_externa:erro_pos_envio', ['etapa'=>'saldo_recebido_btc', 'mensagem'=>$e->getMessage(), 'txid'=>$r['txid']]);
+                $L('erro_pos_envio', ['txid'=>$r['txid'], 'resultado'=>'erro_pos_envio', 'motivo'=>'saldo_recebido_btc: ' . $e->getMessage()]);
             }
             try { $bchAtual = saldo_recebido('BCH', $perfil['bch_address']); } catch (Throwable $e) {
-                debug_log('sacar_externa:erro_pos_envio', ['etapa'=>'saldo_recebido_bch', 'mensagem'=>$e->getMessage(), 'txid'=>$r['txid']]);
+                $L('erro_pos_envio', ['txid'=>$r['txid'], 'resultado'=>'erro_pos_envio', 'motivo'=>'saldo_recebido_bch: ' . $e->getMessage()]);
             }
 
             $aindaReal = ($btcAtual > 0) || ($bchAtual > 0);
@@ -776,7 +773,7 @@ try {
                     db()->prepare('UPDATE dbo.GN_Usuarios SET '.implode(', ', $sets).' WHERE session_id=?')->execute($params);
                 }
             } catch (Throwable $e) {
-                debug_log('sacar_externa:erro_pos_envio', ['etapa'=>'update_saldo', 'mensagem'=>$e->getMessage(), 'txid'=>$r['txid']]);
+                $L('erro_pos_envio', ['txid'=>$r['txid'], 'resultado'=>'erro_pos_envio', 'motivo'=>'update_saldo: ' . $e->getMessage()]);
             }
 
             // Sempre reporta sucesso do ENVIO em si — o que falhar depois fica só no log.
@@ -818,7 +815,7 @@ try {
                     'registro' => $publico,
                 ]);
             } catch (Throwable $e) {
-                debug_log('status_saque:excecao', ['txid'=>$txid, 'mensagem'=>$e->getMessage()]);
+                seg_log(db(), 'status_saque', 'erro', ['moeda'=>$moeda, 'txid'=>$txid, 'resultado'=>'erro', 'motivo'=>$e->getMessage()], $sid);
                 echo json_encode(['ok'=>false, 'error'=>'não foi possível consultar a rede agora', 'registro'=>$publico]);
             }
         })(),
@@ -1044,13 +1041,28 @@ try {
             $st->execute([$sid]);
             $perfil = $st->fetch();
 
+            // S04: antes de apagar, o saldo real de TODOS os enderecos da conta tem que ser confirmado no no
+            // (operacional, sincronizado e com a carteira carregada), independente de modo_real. Falha do no,
+            // saldo ilegivel ou saldo ainda nao confirmado = recusa, sem apagar nada. Nunca tratar falha como zero.
+            $saldoBtc = 0.0; $saldoBch = 0.0;
+            $L = fn(string $etapa, array $c = []) => seg_log(db(), 'encerramento', $etapa, $c, $sid);
+            if ($perfil) {
+                foreach (['BTC' => 'btc_address', 'BCH' => 'bch_address'] as $moedaW => $colW) {
+                    if (empty($perfil[$colW])) continue;
+                    if (!seg_no_operacional($moedaW)) { $L('recusado', ['moeda'=>$moedaW, 'resultado'=>'recusado', 'motivo'=>'no_indisponivel']); echo json_encode(seg_resposta_indisponivel()); return; }
+                    try {
+                        $conf = saldo_recebido($moedaW, $perfil[$colW]);
+                        $pend = saldo_pendente($moedaW, $perfil[$colW]);
+                    } catch (Throwable $e) { $L('recusado', ['moeda'=>$moedaW, 'resultado'=>'recusado', 'motivo'=>'saldo_ilegivel']); echo json_encode(seg_resposta_indisponivel()); return; }
+                    if ($pend > 0) { $L('recusado', ['moeda'=>$moedaW, 'resultado'=>'recusado', 'motivo'=>'saldo_pendente']); echo json_encode(seg_resposta_indisponivel()); return; }
+                    if ($moedaW === 'BTC') $saldoBtc = $conf; else $saldoBch = $conf;
+                }
+            }
+
             // com o 2FA ativo (opcional), encerrar a conta sempre pede o codigo, com ou sem saldo
             if ($perfil && ($e = seg_exigir_se_ativo(db(), $sid, trim((string)($body['codigo_2fa'] ?? ''))))) { echo json_encode($e); return; }
 
-            if ($perfil && $perfil['modo_real']) {
-                $saldoBtc = 0; $saldoBch = 0;
-                try { $saldoBtc = saldo_recebido('BTC', $perfil['btc_address']); } catch (Throwable $e) {}
-                try { $saldoBch = saldo_recebido('BCH', $perfil['bch_address']); } catch (Throwable $e) {}
+            if ($perfil && ($saldoBtc > 0 || $saldoBch > 0)) {
 
                 // Wipe completo exige saldo concentrado numa moeda só.
                 if ($saldoBtc > 0 && $saldoBch > 0) {
@@ -1075,11 +1087,15 @@ try {
                     if ($r2 && $r2['bloqueado_admin']) { echo json_encode(['ok'=>false,'bloqueado_admin'=>true,'erro_chave'=>'seg2fa_e_bloqueado_admin','error'=>'Saques desta conta estão bloqueados. Fale com o suporte.']); return; }
                     if ($lib = seg_saque_liberado_em($r2)) { echo json_encode(['ok'=>false,'saque_liberado_em'=>gmdate('c',$lib),'erro_chave'=>'seg2fa_e_espera24','error'=>'Por segurança, saques ficam liberados 24 h depois de trocar o endereço de saída ou de ativar a verificação em 2 etapas.']); return; }
                     $enderecoOrigem = $moedaComSaldo === 'BTC' ? $perfil['btc_address'] : $perfil['bch_address'];
+                    $saldoW = $moedaComSaldo === 'BTC' ? $saldoBtc : $saldoBch;
+                    // S05 + S04: registrar no SQL antes de mover moedas; se nao gravar, nada e' enviado nem apagado
+                    if (!$L('aprovado', ['moeda'=>$moedaComSaldo, 'valor'=>$saldoW, 'destino'=>$destino, 'resultado'=>'em_andamento'])) { echo json_encode(seg_resposta_indisponivel()); return; }
                     try {
                         $txids = [strtolower($moedaComSaldo) => varrer_saldo_para($moedaComSaldo, $enderecoOrigem, $destino)];
                     } catch (Throwable $e) {
-                        http_response_code(500);
-                        echo json_encode(['ok'=>false, 'error'=>'Falha ao transferir saldo antes de sair: '.$e->getMessage()]);
+                        // a transferencia falhou: a conta NAO e' apagada (o saldo continua nela)
+                        $L('erro', ['moeda'=>$moedaComSaldo, 'valor'=>$saldoW, 'destino'=>$destino, 'resultado'=>'erro', 'motivo'=>'transferencia_falhou: ' . $e->getMessage()]);
+                        echo json_encode(seg_resposta_indisponivel());
                         return;
                     }
                 }
@@ -1097,6 +1113,7 @@ try {
                 $st->execute([$sid]);
                 $apagado = $st->rowCount() > 0;
                 $pdo->commit();
+                $L('apagado', ['resultado'=>$apagado ? 'ok' : 'sem_perfil', 'txid'=>!empty($txids) ? reset($txids) : null]);
                 echo json_encode(['ok'=>true, 'apagado'=>$apagado, 'txids'=>$txids ?? []]);
             } catch (Throwable $e) {
                 $pdo->rollBack();

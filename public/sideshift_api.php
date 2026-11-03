@@ -233,6 +233,12 @@ function actionExecute(array $in): array {
     // extratos -- nunca enderecos novos e nao rastreados.
     $enderecos = enderecosDaSessao($sessionId);
 
+    // S04: os dois nos (origem e destino) precisam estar operacionais; senao nada e' feito.
+    if (!seg_no_operacional($fromCoin) || !seg_no_operacional($toCoin)) {
+        $e = seg_resposta_indisponivel();
+        return $e + ['erro' => $e['error']];
+    }
+
     // Mesma checagem do saque: bloqueio do administrador e, com o 2FA ativo (opcional), espera de 24 h
     // e codigo do app. Sem 2FA nao ha espera: o swap so' move moedas entre os enderecos da propria conta.
     if ($e = seg_exigir_para_saque(db(), $sessionId, trim((string)($in['codigo_2fa'] ?? '')), false)) {
@@ -268,8 +274,20 @@ function actionExecute(array $in): array {
     // Envia o valor exato a partir do ENDEREÇO REGISTRADO do usuário (não da
     // wallet inteira) pro endereço de depósito do shift -- o troco volta
     // garantidamente pro mesmo endereço de origem.
-    $envio = transferirDeEnderecoOrigem($fromCoin, $enderecoOrigem, $shift['depositAddress'], (float)$shift['depositAmount']);
+    // S05 + S04: registrar no SQL (dbo.GN_LogOperacoes) antes de mover moedas; se nao gravar, nada e' enviado
+    $L = fn(string $etapa, array $c) => seg_log(db(), 'swap', $etapa, $c + ['moeda' => $fromCoin, 'valor' => $shift['depositAmount'] ?? null, 'destino' => $shift['depositAddress'] ?? null], $sessionId);
+    if (!$L('aprovado', ['resultado' => 'em_andamento', 'motivo' => "$fromCoin->$toCoin job " . ($shift['id'] ?? '?')])) {
+        $e = seg_resposta_indisponivel();
+        return $e + ['erro' => $e['error']];
+    }
+    try {
+        $envio = transferirDeEnderecoOrigem($fromCoin, $enderecoOrigem, $shift['depositAddress'], (float)$shift['depositAmount']);
+    } catch (Throwable $e) {
+        $L('erro', ['resultado' => 'erro', 'motivo' => $e->getMessage()]);
+        throw $e;
+    }
     $depositTxid = $envio['txid'];
+    $L('enviado', ['txid' => $depositTxid, 'resultado' => 'ok', 'motivo' => "$fromCoin->$toCoin job " . ($shift['id'] ?? '?')]);
 
     $job = [
         'jobId' => $shift['id'],
