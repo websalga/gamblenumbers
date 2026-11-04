@@ -44,7 +44,7 @@
   async function carregarRobos() {
     const sid = sessionId();
     if (!sid) return { ok: false, robos: [] };
-    const r = await fetch('robos_load.php?session_id=' + encodeURIComponent(sid), { cache: 'no-store' });
+    const r = await fetch('robos_load.php', { cache: 'no-store', headers: { 'X-GN-Session': sid } });
     return r.json();
   }
 

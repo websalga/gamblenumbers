@@ -369,8 +369,8 @@
         if (!sid) return false;
         const ob = this.opsOutbox;
         const marca0 = ob ? ob.marca : 0;
-        const url = 'sim_load.php?session_id=' + encodeURIComponent(sid) + '&moeda=' + encodeURIComponent(this.moeda);
-        const resp = await fetch(url, { cache: 'no-store' });
+        const url = 'sim_load.php?moeda=' + encodeURIComponent(this.moeda);
+        const resp = await fetch(url, { cache: 'no-store', headers: { 'X-GN-Session': sid } }); // sessao no cabecalho, fora da URL
         const j = await resp.json();
         if (!j || !j.ok) return false;
         // Algo foi enviado/confirmado enquanto a leitura viajava: ela pode estar velha; a proxima leitura corrige.

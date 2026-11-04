@@ -11,7 +11,7 @@
   function explorerUrl(asset, txid){ if(!txid) return null; return asset === 'BTC' ? `https://mempool.space/tx/${txid}` : `https://bchmempool.cash/tx/${txid}`; }
   function txCell(asset, txid){ if(!txid) return '—'; const url = explorerUrl(asset, txid); const curto = txid.slice(0,8) + '…' + txid.slice(-6); return `<a class="tx-link" href="${url}" target="_blank" rel="noopener noreferrer" title="${esc(txid)}">${curto}</a>`; }
   function sessionId(){ try { return JSON.parse(localStorage.getItem('gn_session') || '{}').session_id || ''; } catch(_) { return ''; } }
-  async function load(){ const sid = sessionId(); if(!sid) return {ok:false, summary:[], events:[]}; const r = await fetch(`api.php?acao=extratos&session_id=${encodeURIComponent(sid)}&moeda_exibicao=${encodeURIComponent(MOEDA_EXIBICAO)}`, {cache:'no-store'}); return r.json(); }
+  async function load(){ const sid = sessionId(); if(!sid) return {ok:false, summary:[], events:[]}; const r = await fetch(`api.php?acao=extratos&moeda_exibicao=${encodeURIComponent(MOEDA_EXIBICAO)}`, {cache:'no-store', headers:{'X-GN-Session': sid}}); return r.json(); }
   function renderAsset(root, asset, summary, events, moeda){
     const s = summary.find(x => x.asset === asset) || {asset,total_coin:0,value_brl:0,status:'new'};
     const rows = events.filter(x => x.asset === asset).slice(0, 25);

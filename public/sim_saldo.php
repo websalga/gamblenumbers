@@ -66,7 +66,7 @@ $metodo = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 try {
     /* ---------------- leitura ---------------- */
     if ($metodo === 'GET') {
-        $sid = trim((string)($_GET['session_id'] ?? ''));
+        $sid = trim((string)($_SERVER['HTTP_X_GN_SESSION'] ?? $_GET['session_id'] ?? ''));
         if (strlen($sid) !== 64 || !ctype_xdigit($sid)) fail(400, 'session_id invalido');
 
         $st = db()->prepare('SELECT saldo_brl, versao, origem, atualizado_em FROM dbo.GN_SimSaldo WHERE session_id = ?');

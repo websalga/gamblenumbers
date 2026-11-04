@@ -18,7 +18,7 @@ header('Cache-Control: no-store');
 
 require_once __DIR__ . '/sim_common.php';
 
-$sid   = trim((string)($_GET['session_id'] ?? ''));
+$sid   = trim((string)($_SERVER['HTTP_X_GN_SESSION'] ?? $_GET['session_id'] ?? ''));
 $moeda = strtoupper(trim((string)($_GET['moeda'] ?? '')));
 
 if (strlen($sid) !== 64 || !ctype_xdigit($sid) || !in_array($moeda, ['BTC', 'BCH'], true)) {

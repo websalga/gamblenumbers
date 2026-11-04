@@ -676,7 +676,7 @@ try {
             }
             db()->prepare('UPDATE dbo.GN_Usuarios SET moeda_saida=?, endereco_saida=?, ultimo_acesso=GETUTCDATE() WHERE session_id=? AND ativo=1')
                 ->execute([$moeda, $endereco, $sid]);
-            if ($mudou && !empty($p['endereco_saida'])) seg_marcar_endereco_alterado(db(), $sid);
+            if ($mudou) seg_marcar_endereco_alterado(db(), $sid); // espera de 24 h tambem no primeiro endereco (04/11/2026)
 
             echo json_encode(['ok'=>true, 'moeda_saida'=>$moeda, 'endereco_saida'=>$endereco]);
         })(),

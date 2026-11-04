@@ -132,7 +132,7 @@ class SaldoSync {
   async _ler() {
     const sid = this._getSessionId();
     if (!sid) return null;
-    const resp = await this._fetch(this._url + '?session_id=' + encodeURIComponent(sid), { cache: 'no-store' });
+    const resp = await this._fetch(this._url, { cache: 'no-store', headers: { 'X-GN-Session': sid } });
     const j = await resp.json();
     return (j && j.ok) ? j : null;
   }

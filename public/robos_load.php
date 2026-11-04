@@ -62,7 +62,7 @@ function tetoSaldoPctDeConfig(?string $configJson): float {
     return array_key_exists('teto_saldo_pct', $j) ? (float)$j['teto_saldo_pct'] : TETO_SALDO_PCT_PADRAO;
 }
 
-$sid = trim((string)($_GET['session_id'] ?? ''));
+$sid = trim((string)($_SERVER['HTTP_X_GN_SESSION'] ?? $_GET['session_id'] ?? ''));
 
 if (strlen($sid) !== 64 || !ctype_xdigit($sid)) {
     http_response_code(400);

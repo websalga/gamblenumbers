@@ -368,7 +368,7 @@ try {
 
   // ── Endpoint de extratos BTC/BCH por sessão ───────────────────────────
   if ($acao === 'extratos') {
-    $sessionId = $_GET['session_id'] ?? '';
+    $sessionId = (string)($_SERVER['HTTP_X_GN_SESSION'] ?? $_GET['session_id'] ?? ''); // sessao no cabecalho (fora da URL e dos logs); GET legado por enquanto
     if (!preg_match('/^[a-f0-9]{64}$/', $sessionId)) {
       http_response_code(400);
       echo json_encode(['ok'=>false,'error'=>'Sessão inválida.']);
