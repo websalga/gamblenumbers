@@ -110,7 +110,7 @@ try {
     } else {
         $st = $pdo->prepare('DECLARE @sd DECIMAL(18,2), @v BIGINT;
             EXEC dbo.GN_SaldoAjustar @session_id = ?, @delta_brl = ?, @origem = ?, @ref = ?,
-                 @permitir_zerar = 1, @saldo_inicial_brl = ?,
+                 @permitir_zerar = 0, @saldo_inicial_brl = ?,
                  @saldo_depois = @sd OUTPUT, @versao = @v OUTPUT;
             SELECT @sd AS saldo_brl, @v AS versao;');
         $st->execute([$sid, sprintf('%.2f', $delta), $origem, $ref, sprintf('%.2f', $saldo)]);
@@ -122,6 +122,19 @@ try {
 
     echo json_encode(['ok' => true, 'saldo_brl' => (float)$r['saldo_brl'], 'versao' => (int)$r['versao']]);
 } catch (Throwable $e) {
+    // Debito maior que o saldo (GN_SaldoAjustar THROW 50012): recusa e devolve
+    // o saldo atual do banco, para a tela adotar em vez de regravar o dela.
+    if (isset($sid) && stripos($e->getMessage(), 'saldo insuficiente') !== false) {
+        try {
+            $q = db()->prepare('SELECT saldo_brl, versao FROM dbo.GN_SimSaldo WHERE session_id = ?');
+            $q->execute([$sid]);
+            $a = $q->fetch();
+            http_response_code(409);
+            echo json_encode(['ok' => false, 'error' => 'saldo_insuficiente',
+                'saldo_brl' => $a ? (float)$a['saldo_brl'] : null, 'versao' => $a ? (int)$a['versao'] : null]);
+            exit;
+        } catch (Throwable $e2) { /* cai no erro generico abaixo */ }
+    }
     log_erro('sim_saldo:excecao', ['metodo' => $metodo, 'mensagem' => $e->getMessage()]);
     fail(500, 'erro ao acessar o saldo');
 }

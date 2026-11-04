@@ -99,6 +99,18 @@ class SaldoSync {
       headers: { 'Content-Type': 'application/json' },
     });
     const j = await resp.json();
+    if (j && j.error === 'saldo_insuficiente') {
+      // O banco recusou o debito (saldo mudou, ex.: robo gastou antes). Nao
+      // regrava o valor da tela: adota o saldo do banco e avisa.
+      this._sujo = false;
+      if (j.versao != null) this._versao = j.versao;
+      if (j.saldo_brl != null) this._adotar(j.saldo_brl);
+      if (this._ops && typeof this._ops._toast === 'function') {
+        const t = (window.I18N ? I18N.t('toast_saldo_recusado_banco') : 'toast_saldo_recusado_banco');
+        this._ops._toast('err', t);
+      }
+      return;
+    }
     if (!j || !j.ok) throw new Error('sim_saldo recusou');
     this._sujo = false;
     this._versao = j.versao;

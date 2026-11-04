@@ -240,6 +240,15 @@ class OperationsController {
     const _buyTime = atTime || this._now();
     const _feerate = this._getFee(_buyTime);
     const _feeBrl  = this._calcFeeBrl(_feerate, price);
+    // Compra manual (botao Comprar ou clique direito no grafico) so com saldo
+    // suficiente para o valor + taxa de rede. Antes o lote era criado e o
+    // saldo apenas zerava, sem aviso.
+    const _saldo = (this._panel && isFinite(+this._panel.saldo)) ? +this._panel.saldo : 0;
+    const _necessario = value + _feeBrl;
+    if (_necessario > _saldo + 0.005) {
+      this._toast('err', this._t('toast_saldo_insuficiente', { disponivel: this._fmt.brl(_saldo), necessario: this._fmt.brl(_necessario) }));
+      return null;
+    }
     const lot = {
       id: 'LT' + seq, seq, time: _buyTime, price, brl: value,
       qty, remaining: qty, sold: 0, realized: 0, status: 'open',
