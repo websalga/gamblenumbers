@@ -893,9 +893,33 @@ try {
             ]);
         })(),
 
-        /* ---- log_cliente: recebe eventos/erros do navegador para o mesmo log de depuração ---- */
+        /* ---- log_cliente: erros do navegador (07/11/2026) ----
+         * Vai so' para dbo.GN_LogOperacoes (operacao='log_cliente'), com campos fixos: etapa de uma lista,
+         * mensagem curta (200) sem sessao/endereco/hash, e o IP so' como HMAC (seg_log). Nunca o corpo do pedido.
+         * Limite: corpo de ate 8 KB e 20 registros por minuto por IP. Se o SQL falhar, descarta em silencio. */
         'log_cliente' => (function() use ($body) {
-            debug_log('cliente:' . ($body['etapa'] ?? 'desconhecida'), $body['dados'] ?? []);
+            if ((int)($_SERVER['CONTENT_LENGTH'] ?? 0) > 8192) { http_response_code(413); echo json_encode(['ok'=>false]); return; }
+            $etapa = (string)($body['etapa'] ?? '');
+            if (!in_array($etapa, ['terminal_step_falhou'], true)) { http_response_code(400); echo json_encode(['ok'=>false]); return; }
+            try {
+                $cfg = include __DIR__ . '/../private/seguranca_config.php';
+                $pep = base64_decode((string)($cfg['senha_pepper'] ?? ''), true) ?: '';
+                $ip = '';
+                foreach (['HTTP_CF_CONNECTING_IP', 'HTTP_X_REAL_IP', 'REMOTE_ADDR'] as $k) { if (!empty($_SERVER[$k])) { $ip = trim(explode(',', $_SERVER[$k])[0]); break; } }
+                if ($pep !== '' && $ip !== '') {
+                    $q = db()->prepare("SELECT COUNT(*) FROM dbo.GN_LogOperacoes WHERE criado_em >= DATEADD(minute,-1,SYSUTCDATETIME()) AND operacao='log_cliente' AND ip_hash=?");
+                    $q->execute([substr(hash_hmac('sha256', $ip, $pep), 0, 16)]);
+                    if ((int)$q->fetchColumn() >= 20) { http_response_code(429); echo json_encode(['ok'=>false]); return; }
+                }
+                $d = is_array($body['dados'] ?? null) ? $body['dados'] : [];
+                $r = is_array($d['resultado'] ?? null) ? $d['resultado'] : [];
+                $esc = fn($v) => is_scalar($v) ? (string)$v : '';
+                $msg = '[' . mb_substr($esc($d['step_id'] ?? ''), 0, 30) . '] ' . $esc($r['detail'] ?? ($r['text'] ?? '')) . (isset($d['excecao_js']) ? ' | js: ' . $esc($d['excecao_js']) : '');
+                // tira o que pode identificar alguem: hex longo (sessao/hash/txid), enderecos BTC/BCH
+                $msg = preg_replace(['/[0-9a-fA-F]{32,}/', '/\b(bc1|tb1)[02-9ac-hj-np-z]{20,}\b/i', '/\b(bitcoincash:)?[qp][02-9ac-hj-np-z]{40,}\b/i', '/\b[13mn2][1-9A-HJ-NP-Za-km-z]{25,40}\b/'], '…', $msg);
+                $msg = mb_substr(preg_replace('/[\x00-\x1F\x7F]+/u', ' ', $msg), 0, 200);
+                seg_log(db(), 'log_cliente', $etapa, ['resultado' => 'erro', 'motivo' => $msg]);
+            } catch (Throwable $e) { /* nao e' operacao critica: descarta */ }
             echo json_encode(['ok'=>true]);
         })(),
 

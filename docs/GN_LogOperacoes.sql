@@ -39,3 +39,9 @@ GO
 GRANT INSERT, SELECT ON dbo.GN_LogOperacoes TO gamblenumbers;
 DENY UPDATE, DELETE ON dbo.GN_LogOperacoes TO gamblenumbers;
 GO
+
+-- 07/11/2026: operacao 'log_cliente' (erros do navegador, antes iam para private/logs/debug.log).
+--   Sem DDL novo: usa esta mesma tabela. Campos gravados: etapa (lista fixa: terminal_step_falhou),
+--   resultado='erro', motivo (ate 200 caracteres, sem hex longo nem enderecos BTC/BCH), ip_hash.
+--   Nunca sessao (perfil_hash fica NULL) nem o corpo do pedido. Limite: corpo de ate 8 KB e 20 por minuto por IP.
+--   Retencao: para sempre, como o resto da tabela.
