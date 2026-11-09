@@ -27,7 +27,8 @@ require __DIR__ . '/../private/config.php';
 
 function db() {
   global $DB_SERVER, $DB_DATABASE, $DB_USER, $DB_PASSWORD, $DB_PORT;
-  $dsn = "sqlsrv:Server={$DB_SERVER},{$DB_PORT};Database={$DB_DATABASE};Encrypt=1;TrustServerCertificate=1";
+  require_once __DIR__ . '/../private/sql_dsn.php';
+  $dsn = gn_sql_dsn($DB_SERVER, $DB_PORT, $DB_DATABASE);
   return new PDO($dsn, $DB_USER, $DB_PASSWORD, [
     PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
   ]);
@@ -52,7 +53,8 @@ function syncDb(string $asset): ?PDO {
   require_once $cfgFile;
   [$user, $pass] = $asset === 'BTC' ? [$SYNC_BTC_USER, $SYNC_BTC_PASS] : [$SYNC_BCH_USER, $SYNC_BCH_PASS];
   try {
-    $dsn = "sqlsrv:Server={$SYNC_SQL_SERVER},{$SYNC_SQL_PORT};Database={$SYNC_SQL_DATABASE};Encrypt=1;TrustServerCertificate=1";
+    require_once __DIR__ . '/../private/sql_dsn.php';
+    $dsn = gn_sql_dsn($SYNC_SQL_SERVER, $SYNC_SQL_PORT, $SYNC_SQL_DATABASE);
     $conns[$asset] = new PDO($dsn, $user, $pass, [
       PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
       PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
@@ -80,7 +82,8 @@ function forecastDb(): ?PDO {
   if (!file_exists($cfgFile)) return null;
   require_once $cfgFile;
   try {
-    $dsn = "sqlsrv:Server={$FORECAST_SQL_SERVER},{$FORECAST_SQL_PORT};Database={$FORECAST_SQL_DATABASE};Encrypt=1;TrustServerCertificate=1";
+    require_once __DIR__ . '/../private/sql_dsn.php';
+    $dsn = gn_sql_dsn($FORECAST_SQL_SERVER, $FORECAST_SQL_PORT, $FORECAST_SQL_DATABASE);
     $conn = new PDO($dsn, $FORECAST_READER_USER, $FORECAST_READER_PASS, [
       PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
       PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,

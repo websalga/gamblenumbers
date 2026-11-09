@@ -10,7 +10,8 @@ require __DIR__ . '/../private/config.php';
 
 function db() {
   global $DB_SERVER, $DB_DATABASE, $DB_USER, $DB_PASSWORD, $DB_PORT;
-  $dsn = "sqlsrv:Server={$DB_SERVER},{$DB_PORT};Database={$DB_DATABASE};Encrypt=1;TrustServerCertificate=1";
+  require_once __DIR__ . '/../private/sql_dsn.php';
+  $dsn = gn_sql_dsn($DB_SERVER, $DB_PORT, $DB_DATABASE);
   return new PDO($dsn, $DB_USER, $DB_PASSWORD, [
     PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
   ]);

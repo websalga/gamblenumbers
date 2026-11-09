@@ -26,7 +26,8 @@ function db(): PDO {
     global $DB_SERVER, $DB_DATABASE, $DB_USER, $DB_PASSWORD, $DB_PORT;
     static $pdo = null;
     if ($pdo) return $pdo;
-    $dsn = "sqlsrv:Server={$DB_SERVER},{$DB_PORT};Database={$DB_DATABASE};Encrypt=yes;TrustServerCertificate=yes";
+    require_once __DIR__ . '/../private/sql_dsn.php';
+    $dsn = gn_sql_dsn($DB_SERVER, $DB_PORT, $DB_DATABASE);
     $pdo = new PDO($dsn, $DB_USER, $DB_PASSWORD, [
         PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
         PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
