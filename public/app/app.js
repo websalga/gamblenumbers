@@ -456,7 +456,7 @@ function telaSaque(txid) {
         !s.sync_ok && !feito ? h('div', { class: 'warn' }, 'O acompanhamento está atrasado no servidor. O saque continua válido na rede; o número abaixo pode estar desatualizado.') : null,
         s.estado === 'desconhecida' ? h('div', { class: 'warn' }, 'Não foi possível consultar a transação agora. Tente novamente em instantes.') : null,
         h('div', { class: 'card', style: 'gap:14px' },
-          h('div', { class: 'row' }, h('span', { style: 'font-size:15px;font-weight:600' }, 'Confirmações'), h('span', { class: 'mono', style: 'font-size:15px;color:var(--ok)' }, Math.min(s.confirmacoes, s.alvo) + ' de ' + s.alvo)),
+          h('div', { class: 'row' }, h('span', { style: 'font-size:15px;font-weight:600' }, 'Confirmações'), h('span', { class: 'mono', style: 'font-size:15px;color:var(--ok)' }, (s.confirmacoes < s.alvo ? s.confirmacoes + ' de ' + s.alvo : s.confirmacoes.toLocaleString('pt-BR')))),
           barra, h('div', { class: 'steps' }, ...passos),
           !feito && s.eta_alvo_min != null ? h('div', { class: 'mut xs' }, 'Previsão para a ' + s.alvo + 'ª confirmação: ' + mins(s.eta_alvo_min) + '. O tempo de cada bloco varia; é uma estimativa.') : null),
         h('div', { class: 'card' }, h('div', { class: 'mut sm' }, 'TXID da transação'),

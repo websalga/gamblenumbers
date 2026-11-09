@@ -373,8 +373,12 @@ try {
         if ($conf < APP_CONF_ALVO && $estado !== 'substituida') {
             if ($conf >= 1) { $eta1 = 10; $etaAlvo = 10 + (APP_CONF_ALVO - $conf - 1) * 10; }
         }
-        $sync = db()->query("SELECT DATEDIFF(SECOND, ultimo_ciclo, SYSUTCDATETIME()) AS seg FROM dbo.GN_AppSyncEstado WHERE nome='saque_status'")->fetch();
+        $sync = db()->query("SELECT DATEDIFF(SECOND, ultimo_ciclo, SYSUTCDATETIME()) AS seg, altura_tip FROM dbo.GN_AppSyncEstado WHERE nome='saque_status'")->fetch();
         $seg = $sync ? (int)$sync['seg'] : null;
+        // 09/11/2026: contagem real. O gn-saque-sync para de consultar o no ao chegar no alvo (3 = concluido, regra
+        // inalterada); depois disso a contagem vem do topo da rede que ele grava a cada ciclo: topo - bloco + 1.
+        $tip = $sync && $sync['altura_tip'] !== null ? (int)$sync['altura_tip'] : null;
+        if ($bloco && $tip && $tip >= $bloco && $estado !== 'substituida') $conf = max($conf, $tip - $bloco + 1);
         out(['ok' => true, 'txid' => $txid, 'estado' => $estado, 'confirmacoes' => max(0, $conf), 'alvo' => APP_CONF_ALVO,
             'bloco' => $bloco,
             'visto_no_destino' => $visto, 'recebido_sats' => $recebido,
@@ -389,12 +393,13 @@ try {
 
     case 'saques_lista': {
         usuario($sid);
-        $st = db()->prepare("SELECT TOP 20 s.txid, s.valor, s.destino, s.criado_em, COALESCE(a.confirmacoes, s.confirmacoes, 0) AS conf, a.estado
+        $st = db()->prepare("SELECT TOP 20 s.txid, s.valor, s.destino, s.criado_em, COALESCE(a.confirmacoes, s.confirmacoes, 0) AS conf, a.estado, a.bloco,
+                   (SELECT altura_tip FROM dbo.GN_AppSyncEstado WHERE nome='saque_status') AS tip
             FROM dbo.GN_Saques s LEFT JOIN dbo.GN_AppSaqueStatus a ON a.txid=s.txid
             WHERE s.session_id=? AND s.moeda='BTC' ORDER BY s.criado_em DESC");
         $st->execute([$sid]);
         $o = [];
-        foreach ($st->fetchAll() as $r) $o[] = ['txid' => $r['txid'], 'valor_sats' => sats($r['valor']), 'destino' => mascara($r['destino']), 'criado_em' => $r['criado_em'], 'confirmacoes' => (int)$r['conf'], 'estado' => $r['estado']];
+        foreach ($st->fetchAll() as $r) $o[] = ['txid' => $r['txid'], 'valor_sats' => sats($r['valor']), 'destino' => mascara($r['destino']), 'criado_em' => $r['criado_em'], 'confirmacoes' => ($r['bloco'] && $r['tip'] && (int)$r['tip'] >= (int)$r['bloco'] && $r['estado'] !== 'substituida') ? max((int)$r['conf'], (int)$r['tip'] - (int)$r['bloco'] + 1) : (int)$r['conf'], 'estado' => $r['estado']];
         out(['ok' => true, 'saques' => $o]);
     }
 

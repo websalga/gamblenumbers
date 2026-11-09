@@ -113,7 +113,7 @@ def conectar_sql():
         "DRIVER={ODBC Driver 18 for SQL Server};"
         f"SERVER={DB_SERVER},{DB_PORT};DATABASE={DB_DATABASE};"
         f"UID={DB_USER};PWD={DB_PASSWORD};"
-        "Encrypt=no;TrustServerCertificate=yes;Connection Timeout=10"
+        "Encrypt=yes;TrustServerCertificate=no;HostNameInCertificate=lsql2019;Connection Timeout=10"  # 09/11/2026: cifrado e validando o certificado do lsql2019 (CA em /etc/ssl/certs)
     )
     return pyodbc.connect(conn_str, autocommit=True)
 
