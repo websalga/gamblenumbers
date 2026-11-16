@@ -253,7 +253,7 @@ $reason    = trim((string)($body['reason'] ?? ''));
 $subject   = $body['subject'] ?? null;
 $force     = !empty($body['force']);
 
-if (strlen($sid) !== 64 || !ctype_xdigit($sid) || !in_array($moeda, ['BTC','BCH'], true) || $reason === '' || !is_array($subject)) {
+if (strlen($sid) !== 64 || !ctype_xdigit($sid) || !in_array($moeda, ['BTC','BCH','ETH','USDC','USDT'], true) || $reason === '' || !is_array($subject)) {
     responder(400, ['ok' => false, 'permanente' => true, 'error' => 'payload invalido']);
 }
 

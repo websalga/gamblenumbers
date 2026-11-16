@@ -178,10 +178,16 @@ function seg_ultima_passkey_em(PDO $db, string $sid): ?string {
  * vindo na chamada e' recusado (senao a espera de 24 h depois de trocar o endereco nao protegeria nada).
  * Devolve [endereco, null] ou [null, resposta de erro].
  */
+/* Endereco de saida da moeda (15/11/2026: cada moeda tem o seu campo). BTC = endereco_saida (moeda_saida 'BTC');
+ * BCH = endereco_saida_bch, ou o legado endereco_saida quando moeda_saida = 'BCH' (antes era um combo so). */
+function seg_endereco_saida(array $perfil, string $moeda): string {
+    $legado = trim((string)($perfil['endereco_saida'] ?? '')); $m = strtoupper((string)($perfil['moeda_saida'] ?? ''));
+    if ($moeda === 'BCH') { $bch = trim((string)($perfil['endereco_saida_bch'] ?? '')); return $bch !== '' ? $bch : ($m === 'BCH' ? $legado : ''); }
+    return ($moeda === 'BTC' && $m !== 'BCH') ? $legado : '';
+}
 function seg_destino_saque(array $perfil, string $moeda, string $pedido = ''): array {
-    $salvo = trim((string)($perfil['endereco_saida'] ?? ''));
-    if ($salvo === '') return [null, ['ok' => false, 'precisa_endereco_saida' => true, 'erro_chave' => 'seg_e_sem_endereco_saida', 'error' => 'Configure antes o endereço de saída em ⚙ Configuração.']];
-    if (strtoupper((string)($perfil['moeda_saida'] ?? '')) !== $moeda) return [null, ['ok' => false, 'erro_chave' => 'seg_e_moeda_saida', 'error' => 'Por segurança, os saques vão só para o endereço de saída salvo em ⚙ Configuração, e ele é de outra moeda. Para sacar esta moeda, troque o endereço de saída lá.']];
+    $salvo = seg_endereco_saida($perfil, $moeda);
+    if ($salvo === '') return [null, ['ok' => false, 'precisa_endereco_saida' => true, 'erro_chave' => 'seg_e_sem_endereco_saida_moeda', 'error' => 'Configure antes o endereço de saída ' . $moeda . ' em ⚙ Configuração.']];
     if ($pedido !== '' && $pedido !== $salvo) return [null, ['ok' => false, 'erro_chave' => 'seg_e_destino_diferente', 'error' => 'Por segurança, os saques vão só para o endereço de saída salvo em ⚙ Configuração. Para usar outro endereço, troque-o lá: os saques para o endereço novo ficam liberados 24 h depois.']];
     return [$salvo, null];
 }

@@ -404,6 +404,47 @@ function bch_balance(string $address): array {
     return ['valid'=>true, 'balance'=>$bch];
 }
 
+/* --- Carteira Ethereum do perfil (USDC/USDT/ETH): so leitura do cache que o lxbch01 atualiza a cada minuto --- */
+function eth_carteira(string $sid): array {
+    try {
+        $st = db()->prepare('SELECT u.eth_address, c.balance_usdc, c.balance_usdt, CAST(c.balance_eth_wei / 1e18 AS float) AS eth
+            FROM dbo.GN_Usuarios u LEFT JOIN dbo.GN_ETH_AddressCache c ON c.address = u.eth_address WHERE u.session_id=?');
+        $st->execute([$sid]); $r = $st->fetch();
+        if (!$r || !$r['eth_address']) return [];
+        $px = db()->query("SELECT TOP 1 media_exchanges_usd FROM dbo.ETH_Snapshots WHERE ok=1 ORDER BY id DESC")->fetch();
+        return ['eth_address' => $r['eth_address'], 'eth_saldo' => (float)($r['eth'] ?? 0), 'usdc_saldo' => (float)($r['balance_usdc'] ?? 0),
+                'usdt_saldo' => (float)($r['balance_usdt'] ?? 0), 'eth_usd' => (float)($px['media_exchanges_usd'] ?? 0)];
+    } catch (Throwable $e) { return []; }
+}
+
+/* ---------- limites de pagamento do app (ver private/pagar_lib.php, que usa as mesmas colunas) ---------- */
+const PAG_LIM_UNIT_PAD = 500.0; const PAG_LIM_DIA_PAD = 2000.0;
+function pag_limites_site(string $sid): array {
+    $st = db()->prepare('SELECT pag_limite_unit_brl u, pag_limite_dia_brl d, pag_limite_unit_pend up, pag_limite_dia_pend dp, pag_limite_pend_vale_em ve,
+        CASE WHEN pag_limite_pend_vale_em <= SYSUTCDATETIME() THEN 1 ELSE 0 END ja FROM dbo.GN_Usuarios WHERE session_id=? AND ativo=1');
+    $st->execute([$sid]); $r = $st->fetch() ?: [];
+    if (!empty($r['ve']) && (int)$r['ja'] === 1) {   // aumento pendente que ja venceu: passa a valer
+        db()->prepare('UPDATE dbo.GN_Usuarios SET pag_limite_unit_brl=COALESCE(pag_limite_unit_pend, pag_limite_unit_brl), pag_limite_dia_brl=COALESCE(pag_limite_dia_pend, pag_limite_dia_brl),
+            pag_limite_unit_pend=NULL, pag_limite_dia_pend=NULL, pag_limite_pend_vale_em=NULL WHERE session_id=? AND pag_limite_pend_vale_em <= SYSUTCDATETIME()')->execute([$sid]);
+        $r['u'] = $r['up'] ?? $r['u']; $r['d'] = $r['dp'] ?? $r['d']; $r['up'] = $r['dp'] = $r['ve'] = null;
+    }
+    return ['por_pagamento' => isset($r['u']) ? (float)$r['u'] : PAG_LIM_UNIT_PAD, 'por_dia' => isset($r['d']) ? (float)$r['d'] : PAG_LIM_DIA_PAD,
+        'pendente' => !empty($r['ve']) ? ['por_pagamento' => isset($r['up']) ? (float)$r['up'] : null, 'por_dia' => isset($r['dp']) ? (float)$r['dp'] : null,
+            'vale_em' => gmdate('c', strtotime((string)$r['ve'] . ' UTC'))] : null];
+}
+/* Maior saldo, em R$, de uma unica moeda do perfil (BTC, BCH, ETH sem a reserva de gas, USDC) */
+function pag_maior_saldo_brl(string $sid): float {
+    $st = db()->prepare('SELECT btc_address, bch_address FROM dbo.GN_Usuarios WHERE session_id=? AND ativo=1'); $st->execute([$sid]); $u = $st->fetch() ?: [];
+    $px = fn(string $sql) => (float)((db()->query($sql)->fetch() ?: [])['v'] ?? 0);
+    $usd = $px('SELECT TOP 1 CASE WHEN usd_brl_24h>0 THEN usd_brl_24h ELSE usd_brl END v FROM dbo.FX_Snapshots WHERE ok=1 AND (usd_brl_24h>0 OR usd_brl>0) ORDER BY ts_utc DESC');   // dolar 24 h
+    $m = [];
+    try { if (!empty($u['btc_address'])) $m[] = saldo_recebido('BTC', $u['btc_address']) * $px('SELECT TOP 1 media_exchanges_brl v FROM dbo.snapshots WHERE media_exchanges_brl>0 ORDER BY ts_utc DESC'); } catch (Throwable $e) {}
+    try { if (!empty($u['bch_address'])) $m[] = saldo_recebido('BCH', $u['bch_address']) * $px('SELECT TOP 1 media_exchanges_brl v FROM dbo.BCH_Snapshots WHERE ok=1 AND media_exchanges_brl>0 ORDER BY ts_utc DESC'); } catch (Throwable $e) {}
+    $e = eth_carteira($sid);
+    if ($e) { $m[] = max(0.0, ($e['eth_saldo'] ?? 0) - 0.0002) * ($e['eth_usd'] ?? 0) * $usd; $m[] = ($e['usdc_saldo'] ?? 0) * $usd; }
+    return round($m ? max($m) : 0.0, 2);
+}
+
 /* --- session_id = SHA256(fingerprint + btc + bch + ip) --- */
 function make_session_id(string $fp, string $btc, string $bch, string $ip): string {
     return hash('sha256', $fp . '|' . $btc . '|' . $bch . '|' . $ip);
@@ -451,7 +492,7 @@ function client_ip(): string {
  *     e as linhas somem depois de 2 dias. --- */
 /* Perfil ativo com o que a verificacao em 2 etapas precisa (senha e endereco de saida). */
 function gn_perfil_seg(string $sid): ?array {
-    $st = db()->prepare('SELECT senha_hash, moeda_saida, endereco_saida FROM dbo.GN_Usuarios WHERE session_id=? AND ativo=1');
+    $st = db()->prepare('SELECT senha_hash, moeda_saida, endereco_saida, endereco_saida_bch FROM dbo.GN_Usuarios WHERE session_id=? AND ativo=1');
     $st->execute([$sid]);
     $r = $st->fetch();
     return $r ?: null;
@@ -475,6 +516,31 @@ function gn_registrar_falha(string $chave): void {
     db()->exec("DELETE FROM dbo.GN_AppTentativas WHERE criado_em < DATEADD(DAY,-2,SYSUTCDATETIME())");
 }
 
+/* Salva (ou remove, se vazio) a saida BCH. Aceita so cashaddr (bitcoincash:q.../p...), conferido no no BCH. */
+function gn_salvar_saida_bch(string $sid, string $end, string $codigo2fa): void {
+    $end = strtolower(trim($end));
+    if ($end !== '') {
+        if (!str_starts_with($end, 'bitcoincash:')) $end = 'bitcoincash:' . $end;
+        if (!preg_match('/^bitcoincash:[qp][02-9ac-hj-np-z]{41}$/', $end)) { echo json_encode(['ok'=>false,'erro_chave'=>'cfg_bch_invalido','error'=>'Endereço Bitcoin Cash inválido. Use o formato bitcoincash:q… (cashaddr).']); return; }
+        try { $v = wallet_rpc('BCH', 'validateaddress', [$end]); }
+        catch (Throwable $e) { echo json_encode(['ok'=>false,'erro_chave'=>'seg_e_indisponivel','error'=>'Não foi possível conferir o endereço agora. Tente de novo em instantes.']); return; }
+        if (empty($v['isvalid'])) { echo json_encode(['ok'=>false,'erro_chave'=>'cfg_bch_invalido','error'=>'Endereço Bitcoin Cash inválido. Use o formato bitcoincash:q… (cashaddr).']); return; }
+    }
+    $st = db()->prepare('SELECT endereco_saida_bch, bch_address FROM dbo.GN_Usuarios WHERE session_id=? AND ativo=1');
+    $st->execute([$sid]); $p = $st->fetch();
+    if (!$p) { echo json_encode(['ok'=>false,'error'=>'sessão não encontrada']); return; }
+    if ($end !== '' && $p['bch_address'] && strtolower(preg_replace('/^bitcoincash:/i', '', $end)) === strtolower(preg_replace('/^bitcoincash:/i', '', (string)$p['bch_address']))) {
+        echo json_encode(['ok'=>false,'erro_chave'=>'cfg_bch_proprio','error'=>'Esse é o endereço BCH do próprio perfil. Informe o endereço da sua carteira ou corretora.']); return;
+    }
+    if (strtolower((string)($p['endereco_saida_bch'] ?? '')) !== $end) {
+        if ($e = seg_exigir_se_ativo(db(), $sid, $codigo2fa)) { echo json_encode($e); return; }
+        db()->prepare('UPDATE dbo.GN_Usuarios SET endereco_saida_bch=?, ultimo_acesso=GETUTCDATE() WHERE session_id=? AND ativo=1')
+            ->execute([$end === '' ? null : $end, $sid]);
+        seg_marcar_endereco_alterado(db(), $sid);   // saques ficam 24 h bloqueados
+    }
+    echo json_encode(['ok'=>true, 'endereco_saida_bch'=>$end === '' ? null : $end]);
+}
+
 /* ============================================================
  * Roteador de ações
  * ============================================================ */
@@ -489,7 +555,7 @@ try {
             $sid = $body['session_id'] ?? '';
             if (strlen($sid) !== 64) { echo json_encode(['valid'=>false]); return; }
             $st = db()->prepare('SELECT session_id, btc_address, bch_address,
-                btc_saldo_visto, bch_saldo_visto, modo_real, moeda_saida, endereco_saida, senha_hash,
+                btc_saldo_visto, bch_saldo_visto, modo_real, moeda_saida, endereco_saida, endereco_saida_eth, endereco_saida_bch, senha_hash,
                 CASE WHEN criado_em > DATEADD(HOUR,-24,GETUTCDATE()) THEN 1 ELSE 0 END AS nova
                 FROM dbo.GN_Usuarios WHERE session_id=? AND ativo=1');
             $st->execute([$sid]);
@@ -511,10 +577,12 @@ try {
                 'modo_real'      => (bool)$row['modo_real'],
                 'moeda_saida'    => $row['moeda_saida'],
                 'endereco_saida' => $row['endereco_saida'],
+                'endereco_saida_eth' => $row['endereco_saida_eth'],
+                'endereco_saida_bch' => $row['endereco_saida_bch'],
                 'tem_senha'      => !empty($row['senha_hash']),
                 'codigo'         => gn_codigo_sessao($sid),
                 'nova'           => (bool)$row['nova'],
-            ]);
+            ] + eth_carteira($sid));
         })(),
 
         /* ---- validate_address: valida endereço e retorna saldo ---- */
@@ -624,7 +692,7 @@ try {
                 'btc_pendente'    => $btcPendente,
                 'bch_pendente'    => $bchPendente,
                 'modo_real'       => (bool)$cur['modo_real'],
-            ]);
+            ] + eth_carteira($sid));
         })(),
 
         /* ---- sacar_externa: envia parte ou todo o saldo de UM endereço pra fora, sem apagar o perfil ---- */
@@ -666,6 +734,7 @@ try {
 
             if (strlen($sid) !== 64) { echo json_encode(['ok'=>false,'error'=>'session_id inválido']); return; }
             if (!in_array($moeda, ['BTC','BCH'], true)) { echo json_encode(['ok'=>false,'error'=>'moeda inválida']); return; }
+            if ($moeda === 'BCH') { gn_salvar_saida_bch($sid, $endereco, trim((string)($body['codigo_2fa'] ?? ''))); return; }   // pagina antiga em cache
             if (!$endereco) { echo json_encode(['ok'=>false,'error'=>'endereço obrigatório']); return; }
 
             $p = gn_perfil_seg($sid);
@@ -680,6 +749,74 @@ try {
             if ($mudou) seg_marcar_endereco_alterado(db(), $sid); // espera de 24 h tambem no primeiro endereco (04/11/2026)
 
             echo json_encode(['ok'=>true, 'moeda_saida'=>$moeda, 'endereco_saida'=>$endereco]);
+        })(),
+
+        /* ---- configurar_saida_bch (15/11/2026): saida propria do BCH, separada da BTC. Mesmas regras: 2FA se
+         *      ativo e espera de 24 h nos saques depois de trocar. Vazio = remover. ---- */
+        'configurar_saida_bch' => (function() use ($body) {
+            $sid = trim($body['session_id'] ?? '');
+            if (strlen($sid) !== 64) { echo json_encode(['ok'=>false,'error'=>'session_id inválido']); return; }
+            gn_salvar_saida_bch($sid, trim((string)($body['endereco'] ?? '')), trim((string)($body['codigo_2fa'] ?? '')));
+        })(),
+
+        /* ---- configurar_saida_eth: 2a porta de saida (so ETH puro, rede Ethereum). Mesmas regras da saida BTC:
+         *      com 2FA ativo pede o codigo, e qualquer troca bloqueia os saques por 24 h. Vazio = remover. ---- */
+        'configurar_saida_eth' => (function() use ($body) {
+            $sid = trim($body['session_id'] ?? '');
+            $end = trim((string)($body['endereco'] ?? ''));
+            if (strlen($sid) !== 64) { echo json_encode(['ok'=>false,'error'=>'session_id inválido']); return; }
+            if ($end !== '' && !preg_match('/^0x[0-9a-fA-F]{40}$/', $end)) { echo json_encode(['ok'=>false,'error'=>'Endereço Ethereum inválido (formato 0x + 40 caracteres).']); return; }
+            $st = db()->prepare('SELECT endereco_saida_eth, eth_address FROM dbo.GN_Usuarios WHERE session_id=? AND ativo=1');
+            $st->execute([$sid]); $p = $st->fetch();
+            if (!$p) { echo json_encode(['ok'=>false,'error'=>'sessão não encontrada']); return; }
+            if ($end !== '' && $p['eth_address'] && strtolower($end) === strtolower($p['eth_address'])) { echo json_encode(['ok'=>false,'error'=>'Esse é o endereço Ethereum do próprio perfil. Informe o endereço do seu banco ou carteira externa.']); return; }
+            $mudou = strtolower((string)($p['endereco_saida_eth'] ?? '')) !== strtolower($end);
+            if ($mudou) {
+                if ($e = seg_exigir_se_ativo(db(), $sid, trim((string)($body['codigo_2fa'] ?? '')))) { echo json_encode($e); return; }
+                db()->prepare('UPDATE dbo.GN_Usuarios SET endereco_saida_eth=?, ultimo_acesso=GETUTCDATE() WHERE session_id=? AND ativo=1')
+                    ->execute([$end === '' ? null : $end, $sid]);
+                seg_marcar_endereco_alterado(db(), $sid);   // saques (BTC e ETH) ficam 24 h bloqueados
+            }
+            echo json_encode(['ok'=>true, 'endereco_saida_eth'=>$end === '' ? null : $end]);
+        })(),
+
+        /* ---- limites de pagamento do app (opcao "Pagar"). Padrao R$ 500 por pagamento / R$ 2.000 por 24 h.
+         *      Teto = maior saldo, em R$, de UMA moeda do perfil. Diminuir vale na hora; aumentar pede o 2FA
+         *      (se ativo) e so vale 24 h depois (fica em pag_limite_*_pend). ---- */
+        'limites_pagamento' => (function() use ($body) {
+            $sid = trim($body['session_id'] ?? '');
+            if (strlen($sid) !== 64) { echo json_encode(['ok'=>false,'error'=>'session_id inválido']); return; }
+            echo json_encode(['ok'=>true] + pag_limites_site($sid) + ['teto' => pag_maior_saldo_brl($sid)]);
+        })(),
+
+        'configurar_limites_pagamento' => (function() use ($body) {
+            $sid = trim($body['session_id'] ?? '');
+            if (strlen($sid) !== 64) { echo json_encode(['ok'=>false,'error'=>'session_id inválido']); return; }
+            $num = function ($v): ?float { $t = preg_replace('/\s+/', '', (string)$v); if (str_contains($t, ',')) $t = str_replace(',', '.', str_replace('.', '', $t)); return is_numeric($t) ? round((float)$t, 2) : null; };
+            $nu = $num($body['por_pagamento'] ?? ''); $nd = $num($body['por_dia'] ?? '');
+            if ($nu === null || $nd === null || $nu <= 0 || $nd <= 0) { echo json_encode(['ok'=>false,'error'=>'Informe os dois limites em reais (maiores que zero).']); return; }
+            if ($nu > $nd) { echo json_encode(['ok'=>false,'error'=>'O limite por pagamento não pode ser maior que o limite de 24 h.']); return; }
+            $at = pag_limites_site($sid);
+            $sobeU = $nu > $at['por_pagamento'] + 0.004; $sobeD = $nd > $at['por_dia'] + 0.004;
+            if ($sobeU || $sobeD) {
+                $teto = pag_maior_saldo_brl($sid);
+                if (($sobeU && $nu > $teto + 0.004) || ($sobeD && $nd > $teto + 0.004)) {
+                    echo json_encode(['ok'=>false,'codigo'=>'acima_teto','teto'=>$teto,'error'=>'Os limites não podem passar do seu maior saldo em uma moeda (R$ ' . number_format($teto, 2, ',', '.') . ').']); return;
+                }
+                if ($e = seg_exigir_se_ativo(db(), $sid, trim((string)($body['codigo_2fa'] ?? '')))) { echo json_encode($e); return; }
+            }
+            // reducao: grava ja (e cancela um aumento pendente do mesmo limite); aumento: fica pendente por 24 h
+            db()->prepare('UPDATE dbo.GN_Usuarios SET
+                    pag_limite_unit_brl  = CASE WHEN ? = 1 THEN pag_limite_unit_brl ELSE CAST(? AS decimal(18,2)) END,
+                    pag_limite_dia_brl   = CASE WHEN ? = 1 THEN pag_limite_dia_brl  ELSE CAST(? AS decimal(18,2)) END,
+                    pag_limite_unit_pend = CASE WHEN ? = 1 THEN CAST(? AS decimal(18,2)) ELSE NULL END,
+                    pag_limite_dia_pend  = CASE WHEN ? = 1 THEN CAST(? AS decimal(18,2)) ELSE NULL END,
+                    pag_limite_pend_vale_em = CASE WHEN ? = 1 OR ? = 1 THEN DATEADD(HOUR, 24, SYSUTCDATETIME()) ELSE NULL END,
+                    ultimo_acesso = GETUTCDATE()
+                WHERE session_id=? AND ativo=1')
+                ->execute([$sobeU ? 1 : 0, sprintf('%.2f', $nu), $sobeD ? 1 : 0, sprintf('%.2f', $nd), $sobeU ? 1 : 0, sprintf('%.2f', $nu), $sobeD ? 1 : 0, sprintf('%.2f', $nd), $sobeU ? 1 : 0, $sobeD ? 1 : 0, $sid]);
+            seg_log(db(), 'limites_pagamento', ($sobeU || $sobeD) ? 'aumento_pendente' : 'reducao', ['origem'=>'site', 'valor'=>$nu, 'taxa'=>$nd, 'resultado'=>'ok'], $sid);
+            echo json_encode(['ok'=>true, 'aumento_pendente' => $sobeU || $sobeD] + pag_limites_site($sid));
         })(),
 
         'sacar_externa' => (function() use ($body) {
@@ -703,7 +840,7 @@ try {
                 }
             }
 
-            $st = db()->prepare('SELECT btc_address, bch_address, moeda_saida, endereco_saida FROM dbo.GN_Usuarios WHERE session_id=? AND ativo=1');
+            $st = db()->prepare('SELECT btc_address, bch_address, moeda_saida, endereco_saida, endereco_saida_bch FROM dbo.GN_Usuarios WHERE session_id=? AND ativo=1');
             $st->execute([$sid]);
             $perfil = $st->fetch();
             if (!$perfil) { echo json_encode(['ok'=>false,'error'=>'sessão não encontrada']); return; }
@@ -1006,7 +1143,7 @@ try {
             // uma a uma e ganham a etiqueta no primeiro login certo (com o tempo essa lista some).
             $tag = seg_senha_tag($senha);
             $campos = "session_id, btc_address, bch_address, btc_saldo_visto, bch_saldo_visto,
-                modo_real, moeda_saida, endereco_saida, senha_hash, senha_tag, idioma_preferido,
+                modo_real, moeda_saida, endereco_saida, endereco_saida_eth, endereco_saida_bch, senha_hash, senha_tag, idioma_preferido,
                 CASE WHEN criado_em > DATEADD(HOUR,-24,GETUTCDATE()) THEN 1 ELSE 0 END AS nova";
             $st = db()->prepare("SELECT $campos FROM dbo.GN_Usuarios WHERE senha_tag=? AND ativo=1");
             $st->execute([$tag]);
@@ -1036,6 +1173,9 @@ try {
                         'modo_real'        => (bool)$row['modo_real'],
                         'moeda_saida'      => $row['moeda_saida'],
                         'endereco_saida'   => $row['endereco_saida'],
+                        'endereco_saida_eth' => $row['endereco_saida_eth'],
+                        'endereco_saida_bch' => $row['endereco_saida_bch'],
+                        'tem_senha'        => true,
                         'idioma_preferido' => $row['idioma_preferido'],
                         'codigo'           => gn_codigo_sessao($row['session_id']),
                         'nova'             => (bool)$row['nova'],
@@ -1062,9 +1202,20 @@ try {
             $sid = trim($body['session_id'] ?? '');
             if (strlen($sid) !== 64) { echo json_encode(['error'=>'session_id invalido']); return; }
 
-            $st = db()->prepare('SELECT btc_address, bch_address, modo_real, moeda_saida, endereco_saida FROM dbo.GN_Usuarios WHERE session_id=?');
+            $st = db()->prepare('SELECT btc_address, bch_address, modo_real, moeda_saida, endereco_saida, endereco_saida_bch, senha_hash FROM dbo.GN_Usuarios WHERE session_id=?');
             $st->execute([$sid]);
             $perfil = $st->fetch();
+
+            // 15/11/2026: encerrar exige a frase digitada e, se a conta tem senha, a senha (com limite de tentativas)
+            if (($body['confirmacao'] ?? '') !== 'APAGAR') { echo json_encode(['ok'=>false,'erro_chave'=>'wipe_e_confirmacao','error'=>'Confirmação de encerramento ausente.']); return; }
+            if ($perfil && !empty($perfil['senha_hash'])) {
+                $ch = gn_chave_tentativa('wipe');
+                if (gn_bloqueado($ch, 5, 30)) { echo json_encode(['ok'=>false,'erro_chave'=>'wipe_e_tentativas','error'=>'Muitas tentativas. Aguarde 30 minutos.']); return; }
+                if (!password_verify((string)($body['senha'] ?? ''), (string)$perfil['senha_hash'])) {
+                    gn_registrar_falha($ch);
+                    echo json_encode(['ok'=>false,'erro_chave'=>'wipe_e_senha','error'=>'Senha incorreta. Nada foi apagado.']); return;
+                }
+            }
 
             // S04: antes de apagar, o saldo real de TODOS os enderecos da conta tem que ser confirmado no no
             // (operacional, sincronizado e com a carteira carregada), independente de modo_real. Falha do no,

@@ -560,20 +560,35 @@
   }
 
   /* --- Confirmacao (laranja) antes de apagar tudo --- */
-  function showWipeConfirm() {
+  function showWipeConfirm(temSenha) {
     return new Promise(res => {
       injectStyles();
       const ov = document.createElement('div'); ov.id='gn-overlay';
       ov.innerHTML=`<div id="gn-modal">
         <h2>${t('wipe_titulo','⚠️ Sair e apagar todos os meus dados')}</h2>
         <div class="gn-danger-notice">${t('wipe_aviso','<b>Essa ação é irreversível.</b> Ao prosseguir, suas informações que você usou no site, incluindo as que você informou; todo o histórico de sessão, ordens e saldos vinculados a este perfil no servidor; e os dados salvos neste navegador (identificação, simulações e preferências) serão esquecidos para sempre.<br><br>Depois disso não restará nenhum registro de que você já usou o gamblenumbers, nem mesmo em modo simulação. Você pode voltar a usar o site normalmente depois, mas começando do zero, como um visitante novo.<br><br><b>IMPORTANTE:</b> Seus endereços informados são seus e permanecem da mesma forma como estão agora, mas não estarão mais registrados aqui no site.')}</div>
+        <div class="gn-f"><label>${t('wipe_frase_label','Para confirmar, digite APAGAR')}</label>
+          <input id="gi-wipe-frase" autocomplete="off" spellcheck="false" placeholder="APAGAR"></div>
+        ${temSenha ? `<div class="gn-f"><label>${t('wipe_senha_label','Senha da conta')}</label>
+          <input id="gi-wipe-senha" type="password" autocomplete="current-password"></div>` : ''}
         <div class="gn-btns">
-          <button class="gn-btn-danger" id="gi-wipe-ok">${t('wipe_btn_ok','Sim, Limpar informações e Sair')}</button>
-          <button class="gn-bs" id="gi-wipe-cancel">${t('wipe_btn_cancel','Cancelar')}</button>
+          <button class="gn-btn-danger" id="gi-wipe-ok" disabled style="opacity:.45">${t('wipe_btn_ok','Sim, Limpar informações e Sair')}</button>
+          <button class="gn-br" id="gi-wipe-cancel">${t('wipe_btn_cancel','Cancelar')}</button>
         </div></div>`;
       document.body.appendChild(ov);
-      document.getElementById('gi-wipe-cancel').onclick = () => { ov.remove(); res(false); };
-      document.getElementById('gi-wipe-ok').onclick     = () => { ov.remove(); res(true);  };
+      const ok = document.getElementById('gi-wipe-ok'), frase = document.getElementById('gi-wipe-frase'), senha = document.getElementById('gi-wipe-senha');
+      let espera = 5;   // o botao so libera depois de 5 s, com a frase certa e a senha preenchida
+      const rot = ok.textContent;
+      const avaliar = () => {
+        const pronto = espera <= 0 && frase.value.trim().toUpperCase() === 'APAGAR' && (!senha || senha.value.length > 0);
+        ok.disabled = !pronto; ok.style.opacity = pronto ? '1' : '.45';
+        ok.textContent = espera > 0 ? rot + ' (' + espera + ')' : rot;
+      };
+      const tm = setInterval(() => { espera--; avaliar(); if (espera <= 0) clearInterval(tm); }, 1000);
+      frase.oninput = avaliar; if (senha) senha.oninput = avaliar; avaliar();
+      document.getElementById('gi-wipe-cancel').focus();
+      document.getElementById('gi-wipe-cancel').onclick = () => { clearInterval(tm); ov.remove(); res(false); };
+      ok.onclick = () => { if (ok.disabled) return; clearInterval(tm); const v = senha ? senha.value : ''; ov.remove(); res({ senha: v }); };
     });
   }
 
@@ -597,10 +612,9 @@
 
   /* --- Sair e apagar tudo: confirmacao -> terminal vermelho -> reload --- */
   async function wipe() {
-    const confirmado = await showWipeConfirm();
-    if (!confirmado) return;
-
     const s = window.GNIdentity.session || {};
+    const confirmado = await showWipeConfirm(!!(s.session_id && s.tem_senha));
+    if (!confirmado) return;
     const sid = s.session_id || null;
 
     const steps = [];
@@ -610,8 +624,8 @@
           try {
             // com saldo real, encerrar transfere o saldo: o servidor pede o codigo do 2FA
             const r = window.GNIdentity._com2FA
-              ? await window.GNIdentity._com2FA('wipe_profile', { session_id: sid }, t('seg2fa_titulo_encerrar','Confirmar encerramento'))
-              : await api('wipe_profile', { session_id: sid });
+              ? await window.GNIdentity._com2FA('wipe_profile', { session_id: sid, confirmacao: 'APAGAR', senha: confirmado.senha }, t('seg2fa_titulo_encerrar','Confirmar encerramento'))
+              : await api('wipe_profile', { session_id: sid, confirmacao: 'APAGAR', senha: confirmado.senha });
             // recusado pelo servidor (ex.: no fora do ar): para aqui, sem apagar nada deste navegador
             return (r && r.ok) ? {ok:true} : {ok:false, fatal:true, text:t('term_falhou_status','FALHOU'), detail: (r && r.erro_chave ? t(r.erro_chave, r.error) : (r && r.error)) || ''};
           } catch (e) { return {ok:false, fatal:true, text:t('term_falhou_status','FALHOU')}; }
@@ -652,6 +666,37 @@
     location.reload();
   }
 
+  /* Versao do site no topo, entre o titulo "BTC Simulador" e o codigo da sessao (GN-XXXXXX). */
+  function mostrarVersao() {
+    const h = document.querySelector('.brand h1');
+    if (!h) return;
+    if (!document.getElementById('gn-versao-css')) {
+      const st = document.createElement('style'); st.id = 'gn-versao-css';
+      st.textContent = '#gn-versao-topo{margin-left:10px;padding:2px 8px;border-radius:999px;border:1px solid rgba(147,197,253,.35);' +
+        'color:#93c5fd;background:rgba(147,197,253,.08);font:600 11px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;' +
+        'letter-spacing:.6px;vertical-align:middle;white-space:nowrap;cursor:default}';
+      document.head.appendChild(st);
+    }
+    // o app.js reescreve o titulo (h1.textContent) ao trocar idioma/moeda e apaga os selos;
+    // por isso o selo da versao se recoloca sozinho sempre que o h1 muda
+    const colocar = () => {
+      const badge = document.getElementById('gn-sess-badge');
+      let el = document.getElementById('gn-versao-topo');
+      if (el && el.parentNode === h && (!badge || el.nextSibling === badge)) return;
+      if (!el) {
+        el = document.createElement('span');
+        el.id = 'gn-versao-topo'; el.textContent = 'v' + APP_VERSION;
+        el.title = t('versao_site_tip', 'Versão do site');
+      }
+      h.insertBefore(el, badge && badge.parentNode === h ? badge : null);   // antes do codigo da sessao
+    };
+    colocar();
+    if (!h._gnVersaoObs && window.MutationObserver) {
+      h._gnVersaoObs = new MutationObserver(colocar);
+      h._gnVersaoObs.observe(h, { childList: true });
+    }
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mostrarVersao); else mostrarVersao();
   window.GNIdentity = { session: null, init, refresh, wipe, showTerminal, _api: api, _saveSess: saveSess, _injectStyles: injectStyles, logoutSimples };
   if (document.readyState==='loading') {
     document.addEventListener('DOMContentLoaded', init);
@@ -775,19 +820,45 @@
     ov.innerHTML = `<div id="gn-modal" class="gn-modal-blue" style="max-height:88vh;overflow-y:auto">
       <h2>⚙️ ${t('cfg_titulo','Configuração')}</h2>
 
-      <h3 style="font-size:13px;color:#5ab0ff;margin:18px 0 6px">${t('cfg_secao_endereco','Endereço de saída')}</h3>
-      <p class="sub">${t('cfg_endereco_sub','Escolha a moeda e o endereço externo pra onde você vai querer transferir tudo, ou usar ao encerrar sua conta. Pode alterar depois, mas só antes de sacar tudo ou fazer o wipe.')}</p>
-      <div class="gn-f"><label>${t('cfg_moeda_label','Moeda de saída')}</label>
-        <select id="cfg-moeda">
-          <option value="BTC" ${atual&&atual.moeda_saida==='BTC'?'selected':''}>BTC</option>
-          <option value="BCH" ${atual&&atual.moeda_saida==='BCH'?'selected':''}>BCH</option>
-        </select></div>
-      <div class="gn-f"><label>${t('cfg_secao_endereco','Endereço de saída')}</label>
-        <input id="cfg-endereco" placeholder="${t('cfg_endereco_placeholder','seu endereço externo')}" value="${atual&&atual.endereco_saida?atual.endereco_saida:''}" autocomplete="off" spellcheck="false"></div>
+      <h3 style="font-size:13px;color:#5ab0ff;margin:18px 0 6px">${t('cfg_secao_saida_btc','Carteira de saída Bitcoin (BTC)')}</h3>
+      <p class="sub">${t('cfg_saida_btc_sub','Endereço externo (sua carteira ou corretora) pra onde vão os saques de BTC e o saldo em BTC ao encerrar a conta.')}</p>
+      <div class="gn-f"><label>${t('cfg_saida_btc_label','Endereço BTC')}</label>
+        <input id="cfg-endereco" placeholder="bc1…" value="${atual&&atual.endereco_saida&&atual.moeda_saida!=='BCH'?atual.endereco_saida:''}" autocomplete="off" spellcheck="false"></div>
       <div class="gn-warn-notice"><b>${t('aviso_label','Atenção:')}</b> ${t('cfg_endereco_aviso','o endereço informado aqui será usado para escoar (transferir pra fora) o saldo real da sua conta no site. Se você informar um endereço errado, ou não tiver certeza e domínio total sobre ele, o valor enviado pode ser')} <b>${t('perdido_para_sempre','perdido para sempre')}</b>. ${t('cfg_endereco_aviso2','O site não tem como reverter isso e não se responsabiliza por endereço incorreto ou equívoco do usuário.')}</div>
       <p class="sub">${t('cfg_endereco_espera','Por segurança, os saques só vão para este endereço, e ficam bloqueados por 24 h depois de trocá-lo.')}</p>
-      <div class="gn-btns"><button class="gn-br" id="cfg-ok">${t('cfg_salvar_endereco_btn','Salvar endereço')}</button></div>
+      <div class="gn-btns"><button class="gn-br" id="cfg-ok">${t('cfg_salvar_saida_btc_btn','Salvar carteira BTC')}</button></div>
       <div id="cfg-msg" style="font-size:12px;min-height:16px;margin-top:6px"></div>
+
+      <h3 style="font-size:13px;color:#5ab0ff;margin:18px 0 6px">${t('cfg_secao_saida_bch','Carteira de saída Bitcoin Cash (BCH)')}</h3>
+      <p class="sub">${t('cfg_saida_bch_sub','Endereço externo pra onde vão os saques de BCH e o saldo em BCH ao encerrar a conta. Pode ficar vazio até você precisar.')}</p>
+      <div class="gn-f"><label>${t('cfg_saida_bch_label','Endereço BCH (bitcoincash:…)')}</label>
+        <input id="cfg-bch" placeholder="bitcoincash:q…" value="${atual&&(atual.endereco_saida_bch||(atual.moeda_saida==='BCH'&&atual.endereco_saida))?(atual.endereco_saida_bch||atual.endereco_saida):''}" autocomplete="off" spellcheck="false"></div>
+      <div class="gn-warn-notice"><b>${t('aviso_label','Atenção:')}</b> ${t('cfg_saida_bch_aviso','use um endereço de Bitcoin Cash (BCH), nunca de Bitcoin (BTC). Moeda ou endereço errados podem fazer o valor ser')} <b>${t('perdido_para_sempre','perdido para sempre')}</b>.</div>
+      <p class="sub">${t('cfg_saida_bch_espera','Trocar este endereço também bloqueia todos os saques por 24 h. Deixe vazio e salve para remover.')}</p>
+      <div class="gn-btns"><button class="gn-br" id="cfg-bch-ok">${t('cfg_salvar_saida_bch_btn','Salvar carteira BCH')}</button></div>
+      <div id="cfg-bch-msg" style="font-size:12px;min-height:16px;margin-top:6px"></div>
+
+      <h3 style="font-size:13px;color:#5ab0ff;margin:18px 0 6px">${t('cfg_secao_saida_eth','Carteira de saída Ethereum (ETH)')}</h3>
+      <p class="sub">${t('cfg_saida_eth_sub','Segunda porta de saída, para quando o BTC estiver indisponível. Recebe só ETH puro, na rede Ethereum — nunca USDC/USDT. Use o endereço de depósito de ETH (rede Ethereum/ERC-20) do seu banco ou corretora.')}</p>
+      <div class="gn-f"><label>${t('cfg_saida_eth_label','Endereço ETH (0x…)')}</label>
+        <input id="cfg-eth" placeholder="0x…" value="${atual&&atual.endereco_saida_eth?atual.endereco_saida_eth:''}" autocomplete="off" spellcheck="false"></div>
+      <div class="gn-warn-notice"><b>${t('aviso_label','Atenção:')}</b> ${t('cfg_saida_eth_aviso','confira no seu banco que o endereço é de ETH na rede Ethereum (não Base, Arbitrum, Polygon ou BSC). Envie primeiro um valor pequeno de teste. Endereço ou rede errados podem fazer o valor ser')} <b>${t('perdido_para_sempre','perdido para sempre')}</b>.</div>
+      <p class="sub">${t('cfg_saida_eth_espera','Trocar este endereço também bloqueia todos os saques por 24 h. Deixe vazio e salve para remover.')}</p>
+      <div class="gn-btns"><button class="gn-br" id="cfg-eth-ok">${t('cfg_salvar_saida_eth_btn','Salvar carteira ETH')}</button></div>
+      <div id="cfg-eth-msg" style="font-size:12px;min-height:16px;margin-top:6px"></div>
+
+      <h3 style="font-size:13px;color:#5ab0ff;margin:18px 0 6px">${t('cfg_secao_pag_lim','Limites de pagamento (app)')}</h3>
+      <p class="sub">${t('cfg_pag_lim_sub','Valem para a opção "Pagar" do app (envio para qualquer endereço). Padrão: R$ 500 por pagamento e R$ 2.000 a cada 24 h. O máximo é o seu maior saldo em uma única moeda.')}</p>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <div class="gn-f"><label>${t('cfg_pag_lim_unit','Limite de valor para pagamentos (R$)')}</label>
+          <input id="cfg-pag-unit" inputmode="decimal" autocomplete="off" placeholder="500,00"></div>
+        <div class="gn-f"><label>${t('cfg_pag_lim_dia','Limite de valor diário para pagamentos (R$)')}</label>
+          <input id="cfg-pag-dia" inputmode="decimal" autocomplete="off" placeholder="2.000,00"></div>
+      </div>
+      <div id="cfg-pag-info" class="sub"></div>
+      <p class="sub">${t('cfg_pag_lim_espera','Diminuir vale na hora. Aumentar pede o código da verificação em 2 etapas (se ativa) e só vale 24 h depois.')}</p>
+      <div class="gn-btns"><button class="gn-br" id="cfg-pag-ok">${t('cfg_pag_lim_btn','Salvar limites')}</button></div>
+      <div id="cfg-pag-msg" style="font-size:12px;min-height:16px;margin-top:6px"></div>
 
       <hr style="border:none;border-top:1px solid #1e2a44;margin:22px 0">
 
@@ -817,17 +888,26 @@
       <div class="gn-btns"><button class="gn-br" id="sen-ok">${t('cfg_salvar_senha_btn','Salvar senha')}</button></div>
       <div id="sen-msg" style="font-size:12px;min-height:16px;margin-top:6px"></div>
 
-      <hr style="border:none;border-top:1px solid #1e2a44;margin:22px 0">
+      <div class="gn-btns" style="margin-top:22px"><button class="gn-br" id="cfg-fechar">${t('fechar_btn','Fechar')}</button></div>
+
+      <div style="margin-top:34px;text-align:right"><a href="#" id="cfg-avancado" style="font-size:10px;color:#2b3955;text-decoration:none;letter-spacing:.3px">${t('cfg_avancado_link','opções avançadas da conta')}</a></div>
+      <div id="cfg-avancado-box" style="display:none">
+      <hr style="border:none;border-top:1px solid #1e2a44;margin:14px 0 18px">
 
       <h3 style="font-size:13px;color:#ef4444;margin:0 0 6px">🗑️ ${t('cfg_secao_encerrar','Encerrar conta')}</h3>
       <p class="sub">${t('cfg_encerrar_sub','Apaga todo o seu perfil e histórico deste site permanentemente. Se você tiver saldo real, primeiro transfere tudo pro endereço de saída configurado acima — e só funciona se o saldo estiver concentrado numa moeda só.')}</p>
       <div class="gn-btns"><button class="gn-bs" id="cfg-encerrar" style="border-color:#7c1d1d;color:#fca5a5">${t('cfg_encerrar_btn','Sair e apagar todos os meus dados')}</button></div>
-
-      <div class="gn-btns" style="margin-top:18px"><button class="gn-bs" id="cfg-fechar">${t('fechar_btn','Fechar')}</button></div>
+      </div>
     </div>`;
     document.body.appendChild(ov);
     document.getElementById('cfg-fechar').onclick = () => ov.remove();
     desenhar2FA(document.getElementById('cfg-2fa'));
+    document.getElementById('cfg-avancado').onclick = (e) => {
+      e.preventDefault();
+      const box = document.getElementById('cfg-avancado-box');
+      box.style.display = box.style.display === 'none' ? '' : 'none';
+      if (box.style.display === '') box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    };
     document.getElementById('cfg-encerrar').onclick = () => { ov.remove(); window.GNIdentity.wipe(); };
     document.getElementById('sen-ver').onchange = (e) => {
       const t = e.target.checked ? 'text' : 'password';
@@ -836,8 +916,62 @@
     };
 
     document.getElementById('cfg-som').onchange = e => { if (window.GNVendaSom) window.GNVendaSom.definir(e.target.checked); };
+    // ---- limites de pagamento do app ----
+    const brl = v => Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const pagInfo = r => {
+      document.getElementById('cfg-pag-unit').value = brl(r.por_pagamento);
+      document.getElementById('cfg-pag-dia').value = brl(r.por_dia);
+      let h = t('cfg_pag_lim_teto','Máximo permitido agora: R$ {v} (seu maior saldo em uma moeda).').replace('{v}', brl(r.teto));
+      if (r.pendente) h += '<br><span style="color:#fcd34d">' + t('cfg_pag_lim_pend','Aumento pendente: R$ {u} por pagamento / R$ {d} por 24 h, vale a partir de {q}.')
+        .replace('{u}', brl(r.pendente.por_pagamento ?? r.por_pagamento)).replace('{d}', brl(r.pendente.por_dia ?? r.por_dia)).replace('{q}', fmtData(r.pendente.vale_em)) + '</span>';
+      document.getElementById('cfg-pag-info').innerHTML = h;
+    };
+    (async () => {
+      try { const r = await window.GNIdentity._api('limites_pagamento', { session_id: window.GNIdentity.session.session_id }); if (r && r.ok) pagInfo(r); } catch (e) {}
+    })();
+    document.getElementById('cfg-pag-ok').onclick = async () => {
+      const msg = document.getElementById('cfg-pag-msg');
+      const por_pagamento = document.getElementById('cfg-pag-unit').value.trim(), por_dia = document.getElementById('cfg-pag-dia').value.trim();
+      const s = window.GNIdentity.session;
+      try {
+        const r = await com2FA('configurar_limites_pagamento', { session_id: s.session_id, por_pagamento, por_dia }, t('seg2fa_titulo_limites','Confirmar aumento de limite'));
+        if (r.ok) {
+          const r2 = await window.GNIdentity._api('limites_pagamento', { session_id: s.session_id }); if (r2 && r2.ok) pagInfo(r2);
+          msg.style.color = '#86efac';
+          msg.textContent = r.aumento_pendente ? t('cfg_pag_lim_salvo_pend','Salvo. O aumento passa a valer em 24 h.') : t('cfg_pag_lim_salvo','Limites salvos.');
+        } else { msg.style.color='#fca5a5'; msg.textContent = t('erro_prefixo','Erro:') + ' ' + (erroTxt(r)||t('falhou','falhou')); }
+      } catch (e) { msg.style.color='#fca5a5'; msg.textContent = t('erro_rede_prefixo','Erro de rede:') + ' ' + e.message; }
+    };
+    document.getElementById('cfg-eth-ok').onclick = async () => {
+      const endereco = document.getElementById('cfg-eth').value.trim();
+      const msg = document.getElementById('cfg-eth-msg');
+      if (endereco && !/^0x[0-9a-fA-F]{40}$/.test(endereco)) { msg.style.color='#fca5a5'; msg.textContent=t('cfg_saida_eth_invalido','Endereço Ethereum inválido (0x + 40 caracteres).'); return; }
+      const s = window.GNIdentity.session;
+      try {
+        const r = await com2FA('configurar_saida_eth', { session_id: s.session_id, endereco }, t('seg2fa_titulo_endereco','Confirmar novo endereço'));
+        if (r.ok) {
+          const merged = Object.assign({}, s, { endereco_saida_eth: r.endereco_saida_eth });
+          window.GNIdentity.session = merged; window.GNIdentity._saveSess(merged);
+          msg.style.color = '#86efac'; msg.textContent = r.endereco_saida_eth ? t('cfg_saida_eth_salva','Carteira ETH salva. Saques liberados em 24 h.') : t('cfg_saida_eth_removida','Carteira ETH removida.');
+        } else { msg.style.color='#fca5a5'; msg.textContent = t('erro_prefixo','Erro:') + ' ' + (erroTxt(r)||t('falhou','falhou')); }
+      } catch (e) { msg.style.color='#fca5a5'; msg.textContent = t('erro_rede_prefixo','Erro de rede:') + ' ' + e.message; }
+    };
+    document.getElementById('cfg-bch-ok').onclick = async () => {
+      const endereco = document.getElementById('cfg-bch').value.trim();
+      const msg = document.getElementById('cfg-bch-msg');
+      const s = window.GNIdentity.session;
+      try {
+        const r = await com2FA('configurar_saida_bch', { session_id: s.session_id, endereco }, t('seg2fa_titulo_endereco','Confirmar novo endereço'));
+        if (r.ok) {
+          const merged = Object.assign({}, s, { endereco_saida_bch: r.endereco_saida_bch });
+          window.GNIdentity.session = merged; window.GNIdentity._saveSess(merged);
+          if (r.endereco_saida_bch) document.getElementById('cfg-bch').value = r.endereco_saida_bch;
+          msg.style.color = '#86efac'; msg.textContent = r.endereco_saida_bch ? t('cfg_saida_bch_salva','Carteira BCH salva. Saques liberados em 24 h.') : t('cfg_saida_bch_removida','Carteira BCH removida.');
+        } else { msg.style.color='#fca5a5'; msg.textContent = t('erro_prefixo','Erro:') + ' ' + (erroTxt(r)||t('falhou','falhou')); }
+      } catch (e) { msg.style.color='#fca5a5'; msg.textContent = t('erro_rede_prefixo','Erro de rede:') + ' ' + e.message; }
+    };
     document.getElementById('cfg-ok').onclick = async () => {
-      const moeda = document.getElementById('cfg-moeda').value;
+      const moeda = 'BTC';
       const endereco = document.getElementById('cfg-endereco').value.trim();
       const msg = document.getElementById('cfg-msg');
       if (!endereco) { msg.style.color='#fca5a5'; msg.textContent=t('cfg_endereco_vazio','Informe um endereço.'); return; }
@@ -890,7 +1024,10 @@
     if (btcSaldo > 0) opcoes.push(['BTC', btcSaldo]);
     if (bchSaldo > 0) opcoes.push(['BCH', bchSaldo]);
     // a moeda do endereco de saida salvo vem primeiro (e' a unica que o saque aceita)
-    if (session.moeda_saida) opcoes.sort((a, b) => (b[0] === session.moeda_saida) - (a[0] === session.moeda_saida));
+    // cada moeda tem a sua carteira de saida; as que ja tem destino salvo vem primeiro
+    const destinoDe = m => m === 'BCH' ? (session.endereco_saida_bch || (session.moeda_saida === 'BCH' ? session.endereco_saida : '') || '')
+                                       : (session.moeda_saida !== 'BCH' ? (session.endereco_saida || '') : '');
+    opcoes.sort((a, b) => (!!destinoDe(b[0])) - (!!destinoDe(a[0])));
     if (!opcoes.length) { alert(t('saque_sem_saldo','Sem saldo real disponível ainda.')); return null; }
 
     const moedaExib = moedaExibicaoAtual();
@@ -914,7 +1051,7 @@
             }).join('')}
           </select></div>
         <div class="gn-f"><label>${t('sac_endereco_label','Endereço de destino')}</label>
-          <input id="sac-endereco" readonly placeholder="${t('seg_e_sem_endereco_saida','Configure antes o endereço de saída em ⚙ Configuração.')}" value="${session.endereco_saida||''}" autocomplete="off" spellcheck="false">
+          <input id="sac-endereco" readonly placeholder="${t('seg_e_sem_endereco_saida','Configure antes o endereço de saída em ⚙ Configuração.')}" value="${destinoDe(opcoes[0][0])}" autocomplete="off" spellcheck="false">
           <div style="font-size:11px;color:#7d8aa3;margin-top:4px">${t('sac_destino_nota','Os saques vão só para o endereço de saída salvo em ⚙ Configuração. Ao trocá-lo, os saques ficam bloqueados por 24 h.')}</div></div>
         <div class="gn-f"><label style="display:flex;align-items:center;gap:8px;font-weight:400;text-transform:none">
           <input type="checkbox" id="sac-tudo" checked style="width:auto"> ${t('sac_tudo_label','Sacar tudo dessa moeda')}</label></div>
@@ -998,7 +1135,7 @@
         }
       }
       atualizarTaxa();
-      document.getElementById('sac-moeda').onchange = atualizarTaxa;
+      document.getElementById('sac-moeda').onchange = () => { document.getElementById('sac-endereco').value = destinoDe(document.getElementById('sac-moeda').value); atualizarTaxa(); };
 
       document.getElementById('sac-tudo').onchange = (e) => {
         document.getElementById('sac-valor-wrap').style.display = e.target.checked ? 'none' : 'block';

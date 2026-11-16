@@ -67,7 +67,7 @@
       const qs = new URLSearchParams(location.search);
       // Whitelists espelham as do backend (api.php / textos.php) — evitam
       // valores arbitrários chegando ao DataStore e ao I18N sem validação.
-      const _MOEDAS_OK    = ['BTC', 'BCH', 'BRL', 'USD', 'EUR', 'GBP', 'JPY', 'CNY', 'TRY', 'RUB'];
+      const _MOEDAS_OK    = ['BTC', 'BCH', 'ETH', 'USDC', 'USDT', 'BRL', 'USD', 'EUR', 'GBP', 'JPY', 'CNY', 'TRY', 'RUB'];
       const _EXIB_OK      = ['BRL', 'USD', 'EUR', 'GBP', 'JPY', 'CNY', 'TRY', 'RUB'];
       const _IDIOMAS_OK   = ['pt-BR', 'en-US', 'es-ES', 'fr-FR', 'de-DE',
                              'it-IT', 'ja-JP', 'nl-NL', 'ru-RU', 'tr-TR', 'zh-CN'];
@@ -127,9 +127,12 @@
       // level=1 = 100% (sem zoom). Duplica a cada clique com 🔍+ ativo.
       this._zoom = { level: 1, tCenter: null, pCenter: null, baseTSpan: null, basePSpan: null };
       this._zoomToolActive = false;
+      // stablecoins (USDC/USDT) andam em centavos de centavo: cartoes com 4 casas (as demais seguem com 2 / US$ inteiro)
+      const _cardStable = ['USDC', 'USDT'].includes(this.moeda);
+      const _casas = d => ({ minimumFractionDigits: d, maximumFractionDigits: d });
       const fmtCards = {
-        brl: BRL,
-        usd: n => 'US$ ' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 }),
+        brl: _cardStable ? (n => _simboloAtivo + Number(n).toLocaleString('pt-BR', _casas(4))) : BRL,
+        usd: n => 'US$ ' + Number(n).toLocaleString('en-US', _casas(_cardStable ? 4 : 0)),
         pct: PCT,
       };
       const exchLabels = EXCH(this.idioma);
@@ -491,8 +494,9 @@
     _aplicarTraducoesTopo() {
       const h1 = this.doc.querySelector('.brand h1');
       const _tituloSim = (window.I18N ? I18N.t('simulador') : 'Simulador');
-      if (h1) h1.textContent = (this.moeda === 'BCH' ? 'BCH' : 'BTC') + ' ' + _tituloSim;
-      document.title = (this.moeda === 'BCH' ? 'BCH' : 'BTC') + ' ' + _tituloSim;
+      const _ativoTitulo = ['BCH', 'ETH', 'USDC', 'USDT'].includes(this.moeda) ? this.moeda : 'BTC';
+      if (h1) h1.textContent = _ativoTitulo + ' ' + _tituloSim;
+      document.title = _ativoTitulo + ' ' + _tituloSim;
       const lblBtcAvail = this.doc.getElementById('lblBtcAvail');
       if (lblBtcAvail) lblBtcAvail.textContent = window.I18N ? I18N.t('simulado_disponivel', { moeda: this.moeda }) : (this.moeda + ' simulado disponível');
       const thBtc = this.doc.getElementById('thBtc');
@@ -644,6 +648,7 @@
       if (btnSair) btnSair.hidden = !(session && session.session_id);
       const btcSaldo = parseFloat(session && session.btc_saldo) || 0;
       const bchSaldo = parseFloat(session && session.bch_saldo) || 0;
+      this._mostrarCarteiraEth(real ? session : null);
       if (btnSacar) btnSacar.hidden = !(real && (btcSaldo > 0 || bchSaldo > 0));
       if (!real) { if (modo) modo.textContent = 'Modo simulação'; return; }
 
@@ -668,6 +673,25 @@
           }
         }
       }
+    }
+
+    /** Carteira Ethereum do perfil (USDC/USDT/ETH): so exibicao. Fica FORA do saldo dos robos, que opera BTC/BCH.
+     *  As trocas entre essas moedas e BTC/BCH sao feitas pelo app (aba Trocar). */
+    _mostrarCarteiraEth(session) {
+      const el = this.doc.getElementById('saldoEth');
+      if (!el) return;
+      const eth = parseFloat(session && session.eth_saldo) || 0, usdc = parseFloat(session && session.usdc_saldo) || 0;
+      const usdt = parseFloat(session && session.usdt_saldo) || 0, px = parseFloat(session && session.eth_usd) || 0;
+      if (!session || !session.eth_address || (eth <= 0 && usdc <= 0 && usdt <= 0)) { el.hidden = true; el.textContent = ''; return; }
+      const f2 = v => v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      const partes = [];
+      if (usdc > 0) partes.push(f2(usdc) + ' USDC');
+      if (usdt > 0) partes.push(f2(usdt) + ' USDT');
+      if (eth > 0) partes.push(eth.toLocaleString('pt-BR', { maximumFractionDigits: 6 }) + ' ETH');
+      const exib = this.operations.converterPreco(usdc + usdt + eth * px, 'USD');
+      el.textContent = 'Carteira Ethereum: ' + partes.join(' · ') + (exib > 0 ? ' (≈ ' + this._simboloMoedaExib() + exib.toFixed(2) + ')' : '') + ' · fora do saldo dos robôs';
+      el.title = 'Endereço Ethereum do seu perfil: ' + session.eth_address + '\nPara trocar por BTC/BCH, use o app (aba Trocar).';
+      el.hidden = false;
     }
 
     _simboloMoedaExib() {

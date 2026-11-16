@@ -70,6 +70,9 @@ const LOOKBACK_MIN_PADRAO = 1440;
 const LOOKBACK_MIN_MIN = 5;
 const LOOKBACK_MIN_MAX = 43200;
 const TETO_SALDO_PCT_PADRAO = 20.0;
+const SUG_VALIDADE_MIN_MIN = 5;                    // validade das sugestoes de troca (minutos): minimo e maximo
+const SUG_VALIDADE_MIN_MAX = 1440;
+const SUG_VALIDADE_PADRAO = ['BTC' => 240, 'BCH' => 60];   // padrao por moeda (BCH muda de cenario em ~1 h; BTC em horas)
 
 function db(): PDO {
     global $DB_SERVER, $DB_DATABASE, $DB_USER, $DB_PASSWORD, $DB_PORT;
@@ -112,10 +115,15 @@ function tetoSaldoPctDeConfig(?string $configJson): float {
     return array_key_exists('teto_saldo_pct', $j) ? (float)$j['teto_saldo_pct'] : TETO_SALDO_PCT_PADRAO;
 }
 
+function sugValidadeMinDeConfig(?string $configJson, string $moeda): int {
+    $j = configDecode($configJson);
+    return array_key_exists('sug_validade_min', $j) ? (int)$j['sug_validade_min'] : (SUG_VALIDADE_PADRAO[$moeda] ?? 240);
+}
+
 /* Mescla os campos informados nesta requisição (quando presentes) com o
  * config_json já existente, preservando o que não foi mandado. Só grava no
  * json as chaves que diferem do padrão -- mantém o registro limpo. */
-function mesclarConfig(?string $configJsonAtual, ?bool $taxasReais, ?float $quedaCrashPct, ?int $lookbackMin = null, ?float $tetoPct = null): ?string {
+function mesclarConfig(?string $configJsonAtual, ?bool $taxasReais, ?float $quedaCrashPct, ?int $lookbackMin = null, ?float $tetoPct = null, ?int $sugMin = null, string $moeda = 'BTC'): ?string {
     $j = configDecode($configJsonAtual);
 
     if ($taxasReais !== null) {
@@ -136,6 +144,11 @@ function mesclarConfig(?string $configJsonAtual, ?bool $taxasReais, ?float $qued
     if ($tetoPct !== null) {
         if (abs($tetoPct - TETO_SALDO_PCT_PADRAO) < 0.0001) unset($j['teto_saldo_pct']);
         else $j['teto_saldo_pct'] = $tetoPct;
+    }
+
+    if ($sugMin !== null) {   // 0 = volta ao padrao da moeda
+        if ($sugMin === 0 || $sugMin === (SUG_VALIDADE_PADRAO[$moeda] ?? 240)) unset($j['sug_validade_min']);
+        else $j['sug_validade_min'] = $sugMin;
     }
 
     return empty($j) ? null : json_encode($j);
@@ -174,6 +187,10 @@ $lookbackInput = $temLookback ? $body['lookback_minutos'] : null;
 $temTeto   = array_key_exists('teto_saldo_pct', $body);
 $tetoInput = $temTeto ? $body['teto_saldo_pct'] : null;
 
+// validade (minutos) das sugestoes de troca deste robo; 0/omitido-na-tela = padrao da moeda; omitido = nao mexe (update)
+$temSugMin   = array_key_exists('sug_validade_min', $body);
+$sugMinInput = $temSugMin ? $body['sug_validade_min'] : null;
+
 if (strlen($sid) !== 64 || !ctype_xdigit($sid)) erro(400, 'sessao invalida');
 if ($apelido === '' || mb_strlen($apelido) > 60) erro(400, 'apelido invalido');
 if (!in_array($moeda, ['BTC', 'BCH'], true)) erro(400, 'moeda invalida');
@@ -195,6 +212,10 @@ if ($temTeto && (!is_numeric($tetoInput) || (float)$tetoInput < 1 || (float)$tet
     erro(400, 'teto por robo invalido');
 }
 $tetoPct = $temTeto ? round((float)$tetoInput, 2) : null;
+if ($temSugMin && (!is_numeric($sugMinInput) || ((int)$sugMinInput !== 0 && ((int)$sugMinInput < SUG_VALIDADE_MIN_MIN || (int)$sugMinInput > SUG_VALIDADE_MIN_MAX)))) {
+    erro(400, 'validade da sugestao invalida');
+}
+$sugMin = $temSugMin ? (int)$sugMinInput : null;
 
 try {
     $pdo = db();
@@ -213,7 +234,7 @@ try {
         $roboId = 'RB' . $seq;
 
         // config_json nasce so' com o que o cliente mandou diferente do padrao
-        $configJsonNovo = mesclarConfig(null, $taxasReais, $quedaCrashPct, $lookbackMin, $tetoPct);
+        $configJsonNovo = mesclarConfig(null, $taxasReais, $quedaCrashPct, $lookbackMin, $tetoPct, $sugMin, $moeda);
 
         // proxima_execucao so' entra ja' marcada se o robo ja' nasce ativo
         $stIns = $pdo->prepare('INSERT INTO dbo.GN_Robos
@@ -231,12 +252,12 @@ try {
         // ja' estava ativo com agenda em andamento -> mantem (nao reinicia o ciclo a
         // cada save).
         // COALESCE(?, queda_compra_pct): campo omitido (NULL) preserva o valor atual
-        if ($temTaxasReais || $temQuedaCrash || $temLookback || $temTeto) {
+        if ($temTaxasReais || $temQuedaCrash || $temLookback || $temTeto || $temSugMin) {
             // le o config_json atual pra mesclar sem perder o que nao foi mandado agora
             $stCfg = $pdo->prepare('SELECT config_json FROM dbo.GN_Robos WHERE session_id = ? AND robo_client_id = ?');
             $stCfg->execute([$sid, $roboId]);
             $configAtual = $stCfg->fetchColumn();
-            $configJsonNovo = mesclarConfig($configAtual === false ? null : $configAtual, $taxasReais, $quedaCrashPct, $lookbackMin, $tetoPct);
+            $configJsonNovo = mesclarConfig($configAtual === false ? null : $configAtual, $taxasReais, $quedaCrashPct, $lookbackMin, $tetoPct, $sugMin, $moeda);
 
             $stUpd = $pdo->prepare('UPDATE dbo.GN_Robos SET
                     apelido = ?, moeda = ?, valor_operacao = ?, retorno_desejado_pct = ?,
@@ -296,6 +317,7 @@ try {
         'quedaCrashPct'        => quedaCrashPctDeConfig($r['config_json']),
         'lookbackMinutos'      => lookbackMinDeConfig($r['config_json']),
         'tetoSaldoPct'         => tetoSaldoPctDeConfig($r['config_json']),
+        'sugValidadeMin'       => sugValidadeMinDeConfig($r['config_json'], (string)$r['moeda']),
         'criadoEm'             => $r['criado_em'],
         'atualizadoEm'         => $r['atualizado_em'],
     ]]);

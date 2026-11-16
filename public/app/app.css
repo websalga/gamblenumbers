@@ -64,3 +64,28 @@ a{color:var(--acc)}
 input[type=range]{width:100%;accent-color:var(--acc)}
 .spin{opacity:.6}
 .main>*{flex-shrink:0}
+
+/* trocas: ampulheta, contagem regressiva e etapa atual */
+.pill.wait{display:inline-flex;align-items:center;gap:5px;background:var(--accbg);color:var(--acc)}
+.ampulheta{display:inline-flex;line-height:0;animation:gnvira 1.6s ease-in-out infinite;transform-origin:50% 50%}
+.ampulheta .areia{animation:gnareia 1.6s linear infinite}
+@keyframes gnvira{0%,70%{transform:rotate(0)}85%,100%{transform:rotate(180deg)}}
+@keyframes gnareia{0%{opacity:.25}70%{opacity:1}100%{opacity:1}}
+.dot.wait{border-color:var(--acc);color:var(--acc)}
+.step.agora{color:var(--tx);font-weight:600}
+.giro{width:22px;height:22px;flex-shrink:0;border-radius:50%;border:3px solid var(--line);border-top-color:var(--acc);animation:gnspin 1s linear infinite}
+@keyframes gnspin{to{transform:rotate(360deg)}}
+.relogio-card{flex-direction:row;align-items:center;gap:12px;padding:12px 16px;border-color:var(--infoline);background:var(--infobg)}
+.contador{font-family:var(--mono);font-size:18px;font-weight:600;color:var(--info)}
+@media (prefers-reduced-motion:reduce){.ampulheta,.ampulheta .areia,.giro{animation:none}}
+
+/* selo da versao no topo */
+.versao{padding:2px 7px;border:0;border-radius:999px;background:transparent;
+  color:var(--mut);font-family:var(--mono);font-size:10px;opacity:.75;cursor:default}
+.versao.nova{background:var(--accbg);color:var(--acc);opacity:1;font-weight:600;cursor:pointer}
+
+/* espera com ampulheta grande (cotacao) e nos botoes */
+.esperando{display:flex;align-items:center;gap:14px;padding:4px 2px;color:var(--acc)}
+.esperando b{color:var(--tx);font-weight:600;font-size:15px}
+.ampulheta.grande svg{width:24px;height:32px}
+.btn .ampulheta{margin-right:6px;vertical-align:-2px}

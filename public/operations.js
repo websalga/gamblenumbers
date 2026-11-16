@@ -48,7 +48,10 @@ class OperationsController {
     this._outbox = deps.outbox || null;
     this._empurrarFalhou = new Set();
     // Tamanho típico de transação: BTC SegWit P2WPKH ~140 vB, BCH P2PKH ~225 bytes
-    this._txSize = (String(this._moeda).toUpperCase() === 'BCH') ? 225 : 140;
+    // ETH: 21.000 gas; USDC/USDT (ERC-20 na rede Ethereum): ~65.000 gas. Nessas o feerate vem em gwei (/1e9).
+    const _mFee = String(this._moeda).toUpperCase();
+    this._txSize = { BCH: 225, ETH: 21000, USDC: 65000, USDT: 65000 }[_mFee] || 140;
+    this._feeDiv = ['ETH', 'USDC', 'USDT'].includes(_mFee) ? 1e9 : 1e8;
     // Veto de clique: durante/logo após um arraste (pan), o clique não deve
     // virar uma venda marcada sem intenção.
     this._clickVetoed = deps.isClickVetoed || (() => false);
@@ -66,12 +69,15 @@ class OperationsController {
 
   /** Calcula taxa de rede em moeda de exibição para uma tx naquele preço/feerate. */
   _calcFeeBrl(feerate, price) {
-    return (feerate > 0 && price > 0) ? feerate * this._txSize * (price / 1e8) : 0;
+    return (feerate > 0 && price > 0) ? feerate * this._txSize * (price / this._feeDiv) : 0;
   }
 
   /** Rótulo de congestionamento da rede BTC/BCH. */
   _feeLabel(feerate) {
-    if (String(this._moeda).toUpperCase() === 'BCH') return feerate.toFixed(1) + ' sat/byte 🟢';
+    const _m = String(this._moeda).toUpperCase();
+    if (_m === 'BCH') return feerate.toFixed(1) + ' sat/byte 🟢';
+    if (_m === 'ETH') return feerate.toFixed(2) + ' gwei ' + (feerate >= 20 ? '🔴' : feerate >= 5 ? '🟠' : feerate >= 1 ? '🟡' : '🟢');
+    if (_m === 'USDC' || _m === 'USDT') return (feerate * this._txSize / 1e9).toFixed(4) + ' ' + _m + ' (ERC-20) 🟢';
     if (feerate >= 50)  return feerate.toFixed(0) + ' sat/vB 🔴';
     if (feerate >= 10)  return feerate.toFixed(0) + ' sat/vB 🟠';
     if (feerate >= 3)   return feerate.toFixed(1) + ' sat/vB 🟡';

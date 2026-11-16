@@ -164,12 +164,18 @@ function anexarTxHash(array &$events): void {
 
 // --- Whitelists ---
 const MOEDAS_CRYPTO = [
-  'BTC' => 'dbo.snapshots',
-  'BCH' => 'dbo.BCH_Snapshots',
+  'BTC'  => 'dbo.snapshots',
+  'BCH'  => 'dbo.BCH_Snapshots',
+  // 15/11/2026: ETH (coletor eth_sync.py no lxbch01) e stablecoins (coletor_stable.py no lxweb01).
+  // As views de USDT/USDC expoem as MESMAS colunas do BCH_Snapshots (price_xxx_binance/kraken/coinbase,
+  // media_exchanges_usd/brl, usd_brl), entao o resto da API trata todas iguais.
+  'ETH'  => 'dbo.ETH_Snapshots',
+  'USDC' => 'dbo.vw_USDC_Precos',
+  'USDT' => 'dbo.vw_USDT_Precos',
 ];
 const MOEDAS_FIAT    = ['BRL', 'USD', 'EUR', 'GBP', 'JPY', 'CNY', 'TRY', 'RUB'];
 // Legado (compatibilidade com codigo que ainda referencia MOEDAS / MOEDAS_EXIBICAO)
-const MOEDAS         = ['BTC' => 'dbo.snapshots', 'BCH' => 'dbo.BCH_Snapshots'];
+const MOEDAS         = MOEDAS_CRYPTO;
 const MOEDAS_EXIBICAO = ['BRL', 'USD', 'EUR', 'GBP', 'JPY', 'CNY', 'TRY', 'RUB'];
 // Fiat sem coluna pre-calculada em snapshots: calculado via FX_Snapshots
 const MOEDAS_FX_COMPUTED = ['JPY', 'CNY', 'TRY', 'RUB'];
@@ -321,7 +327,7 @@ function aplicarMorningstar(array &$rows, string $moeda, string $moedaExibicao):
 function fxRateFromBrl(PDO $pdo, string $moedaExibicao): ?float {
   if ($moedaExibicao === 'BRL') return 1.0;
   $row = $pdo->query(
-    "SELECT TOP 1 usd_brl,usd_eur,usd_gbp,usd_jpy,usd_cny,usd_try,usd_rub FROM dbo.FX_Snapshots WHERE ok=1 ORDER BY ts_utc DESC"
+    "SELECT TOP 1 COALESCE(usd_brl_24h,usd_brl) AS usd_brl,COALESCE(usd_eur_24h,usd_eur) AS usd_eur,COALESCE(usd_gbp_24h,usd_gbp) AS usd_gbp,COALESCE(usd_jpy_24h,usd_jpy) AS usd_jpy,COALESCE(usd_cny_24h,usd_cny) AS usd_cny,COALESCE(usd_try_24h,usd_try) AS usd_try,COALESCE(usd_rub_24h,usd_rub) AS usd_rub FROM dbo.FX_Snapshots WHERE ok=1 ORDER BY ts_utc DESC"
   )->fetch(PDO::FETCH_ASSOC);
   if (!$row || empty($row['usd_brl'])) return null;
   $usdBrl = (float)$row['usd_brl'];
@@ -436,7 +442,8 @@ try {
       // Fallback: default por categoria
       $defKey = match($tipo) {
         'crypto_crypto' => '_DEFAULT_BTC',
-        'crypto_fiat'   => ($moeda === 'BCH' ? '_DEFAULT_BCH' : '_DEFAULT_BTC'),
+        'crypto_fiat'   => match($moeda) { 'BCH' => '_DEFAULT_BCH', 'ETH' => '_DEFAULT_ETH',
+                                             'USDC', 'USDT' => '_DEFAULT_STABLE', default => '_DEFAULT_BTC' },
         default         => '_DEFAULT_FIAT',
       };
       $stmt2 = $pdo->prepare(
@@ -457,6 +464,11 @@ try {
   // client-side existente, e' so um traco informativo. Cobre no maximo
   // 24h a frente (horizonte validado por validacao cruzada rolling-origin).
   if ($acao === 'previsao') {
+    // ETH/USDC/USDT ainda nao tem modelo de previsao: nao devolve a do BTC (escala de preco errada no grafico)
+    if (in_array($moeda, ['ETH', 'USDC', 'USDT'], true)) {
+      echo json_encode(['ok' => false, 'error' => 'sem previsao disponivel para ' . $moeda]);
+      exit;
+    }
     $ativoPrev = in_array($moeda, ['BTC', 'BCH'], true) ? $moeda : 'BTC';
     $fdb = forecastDb();
     if (!$fdb) {
@@ -591,124 +603,85 @@ try {
     exit;
   }
 
-  // ── Taxas FX necessárias para queries de pares não-crypto_fiat ───────
-  // Busca uma vez; usada para montar expressões SQL literais (float do
-  // nosso banco — não input do usuário, sem risco de injeção).
-  // Colunas válidas em FX_Snapshots — jamais incluir usd_btc/usd_bch/usd_usd
-  // (crypto não existe em FX_Snapshots; USD é o pivô =1, sem coluna própria)
-  $fxRow = null;
-  if ($tipo !== 'crypto_fiat' || in_array($moedaExibicao, MOEDAS_FX_COMPUTED, true)) {
-    $fxRow = $pdo->query(
-      "SELECT TOP 1 usd_brl,usd_eur,usd_gbp,usd_jpy,usd_cny,usd_try,usd_rub
-       FROM dbo.FX_Snapshots WHERE ok=1 ORDER BY ts_utc DESC"
-    )->fetch(PDO::FETCH_ASSOC) ?: [];
-  }
-
-  // ── Rotear para a função de colunas correta ───────────────────────────
-  $fxRate = 1.0;
-  if ($tipo === 'crypto_fiat' && in_array($moedaExibicao, MOEDAS_FX_COMPUTED, true)) {
-    $fxCol  = 'usd_' . strtolower($moedaExibicao);
-    $fxRate = $fxRow ? (float)($fxRow[$fxCol] ?? 1.0) : 1.0;
-  }
-  // ── Montar $col e $selectCols de acordo com o tipo de par ──────────────
+  // ── Câmbio (15/11/2026): o site é internacional e opera 24 h. Cada ponto usa o câmbio DAQUELE momento
+  //    (OUTER APPLY na FX_Snapshots), preferindo a cotação 24 h (usd_xxx_24h: pares USDT em exchanges que
+  //    nunca fecham) e caindo na comercial (usd_xxx) quando ela não existe (BRL antes de 07/10/2026, demais
+  //    antes de 15/11/2026, CNY/RUB sem fonte 24 h confiável). Antes usava a ÚLTIMA cotação para todo o histórico.
+  $FX_MOEDAS = ['brl', 'eur', 'gbp', 'jpy', 'cny', 'try', 'rub'];
+  $fx24 = fn(string $m, string $p = '') => "COALESCE({$p}usd_{$m}_24h, {$p}usd_{$m})";
+  $fxApply = function (string $tabela) use ($FX_MOEDAS, $fx24): string {
+    $exp  = preg_replace('/^dbo\./', '', $tabela);
+    $cols = implode(', ', array_map(fn($m) => $fx24($m, 'f.') . " AS fx_{$m}", $FX_MOEDAS));
+    return "{$tabela} OUTER APPLY (SELECT TOP 1 {$cols} FROM dbo.FX_Snapshots f
+              WHERE f.ok = 1 AND f.ts_utc <= {$exp}.ts_utc ORDER BY f.ts_utc DESC) fx";
+  };
+  $fxOut = implode(",\n              ", array_map(fn($m) => "fx.fx_{$m} AS usd_{$m}", ['eur', 'gbp', 'jpy', 'cny', 'try', 'rub']));
 
   if ($tipo === 'fiat_fiat') {
-    // fiat×fiat via USD como pivo em FX_Snapshots
-    // USD é o próprio pivô (=1.0) — sem coluna usd_usd na tabela.
-    // Isso vale tanto para $moeda === 'USD' (ativo) quanto para
-    // $moedaExibicao === 'USD' (cotação) - os dois lados precisam do
-    // mesmo tratamento, senão vira 'usd_usd' (coluna inexistente).
-    $colC = ($moedaExibicao === 'USD') ? '1.0' : ('usd_' . strtolower($moedaExibicao));
-    if ($moeda === 'USD') {
-      $expr       = $colC;   // USD/JPY = usd_jpy diretamente (ou 1.0 se JPY==USD)
-      $colA_expr  = '1.0';
-      $filterExpr = ($moedaExibicao === 'USD') ? '1=1' : "{$colC} IS NOT NULL";
-    } else {
-      $colA       = 'usd_' . strtolower($moeda);
-      $expr       = "({$colC} / NULLIF({$colA}, 0))";
-      $colA_expr  = $colA;
-      $filterExpr = ($moedaExibicao === 'USD')
-        ? "{$colA} IS NOT NULL"
-        : "{$colA} IS NOT NULL AND {$colC} IS NOT NULL";
-    }
-    // Lê FX direto da tabela — sem literais extras para evitar alias duplicado
+    // fiat×fiat via USD como pivô (USD = 1.0, sem coluna própria), linha a linha da própria FX_Snapshots
+    $cx    = fn(string $m) => $m === 'USD' ? '1.0' : $fx24(strtolower($m));
+    $colC  = $cx($moedaExibicao);
+    $colA  = $cx($moeda);
+    $expr  = ($moeda === 'USD') ? $colC : "({$colC} / NULLIF({$colA}, 0))";
+    $usdCols = implode(', ', array_map(fn($m) => $fx24($m) . " AS usd_{$m}", $FX_MOEDAS));
     $selectCols = "ts_utc,
               {$expr} AS price_brl,
               {$expr} AS price_brl_binance,
               {$expr} AS price_brl_kraken,
               {$expr} AS price_brl_coinbase,
-              {$colA_expr} AS btc_usd,
-              usd_brl, usd_eur, usd_gbp, usd_jpy, usd_cny, usd_try, usd_rub";
+              {$colA} AS btc_usd,
+              {$usdCols}";
     $col = [
       'tabela'    => 'dbo.FX_Snapshots',
       'avg'       => $expr,
-      'filterCol' => $filterExpr,
+      'filterCol' => "{$colA} IS NOT NULL AND {$colC} IS NOT NULL",
     ];
 
   } elseif ($tipo === 'fiat_crypto') {
-    // fiat/BTC|BCH: quanto de crypto vale 1 unidade do fiat
-    // USD/BTC = 1/BTC_USD_price (sem coluna usd_usd em FX_Snapshots)
+    // fiat/crypto: quanto de crypto 1 unidade do fiat compra. BRL = inverso exato do gráfico crypto/BRL
+    // (mesmas colunas gravadas pelo coletor); USD = inverso do preço em USD; demais = USD × câmbio do momento.
     $tblCrypto = MOEDAS_CRYPTO[$moedaExibicao];
-    if ($moeda === 'USD') {
-      $expr    = "(1.0 / NULLIF(media_exchanges_usd, 0))";
-      $exprBin = "CASE WHEN price_usd_binance  IS NOT NULL THEN 1.0/NULLIF(price_usd_binance,0)  ELSE NULL END";
-      $exprKrk = "CASE WHEN price_usd_kraken   IS NOT NULL THEN 1.0/NULLIF(price_usd_kraken,0)   ELSE NULL END";
-      $exprCbs = "CASE WHEN price_usd_coinbase IS NOT NULL THEN 1.0/NULLIF(price_usd_coinbase,0) ELSE NULL END";
+    if ($moeda === 'BRL') {
+      $base = ['media_exchanges_brl', 'price_brl_binance', 'price_brl_kraken', 'price_brl_coinbase']; $mult = '';
     } else {
-      $colA    = 'usd_' . strtolower($moeda);
-      $fxA     = isset($fxRow[$colA]) ? number_format((float)$fxRow[$colA], 8, '.', '') : '1.0';
-      $expr    = "(1.0 / NULLIF(media_exchanges_usd * {$fxA}, 0))";
-      $exprBin = "CASE WHEN price_usd_binance  IS NOT NULL THEN 1.0/NULLIF(price_usd_binance  * {$fxA},0) ELSE NULL END";
-      $exprKrk = "CASE WHEN price_usd_kraken   IS NOT NULL THEN 1.0/NULLIF(price_usd_kraken   * {$fxA},0) ELSE NULL END";
-      $exprCbs = "CASE WHEN price_usd_coinbase IS NOT NULL THEN 1.0/NULLIF(price_usd_coinbase * {$fxA},0) ELSE NULL END";
+      $base = ['media_exchanges_usd', 'price_usd_binance', 'price_usd_kraken', 'price_usd_coinbase'];
+      $mult = ($moeda === 'USD') ? '' : ' * fx.fx_' . strtolower($moeda);
     }
-    // literais de taxa para o cliente converter entre moedas
-    $fxLits = [];
-    if ($fxRow) {
-      foreach (['brl','eur','gbp','jpy','cny','try','rub'] as $fc) {
-        $k = "usd_{$fc}";
-        if (isset($fxRow[$k]) && $fxRow[$k] !== null)
-          $fxLits[] = number_format((float)$fxRow[$k], 8, '.', '') . " AS {$k}";
-      }
-    }
-    $fxExtras = $fxLits ? (",
-              " . implode(",
-              ", $fxLits)) : '';
+    $inv = array_map(fn($c) => "CASE WHEN {$c} IS NOT NULL THEN 1.0 / NULLIF({$c}{$mult}, 0) END", $base);
+    $expr = "(1.0 / NULLIF({$base[0]}{$mult}, 0))";
     $selectCols = "ts_utc,
-              {$expr}    AS price_brl,
-              {$exprBin} AS price_brl_binance,
-              {$exprKrk} AS price_brl_kraken,
-              {$exprCbs} AS price_brl_coinbase,
+              {$expr}   AS price_brl,
+              {$inv[1]} AS price_brl_binance,
+              {$inv[2]} AS price_brl_kraken,
+              {$inv[3]} AS price_brl_coinbase,
               media_exchanges_usd AS btc_usd,
-              usd_brl{$fxExtras}";
+              usd_brl,
+              {$fxOut}";
     $col = [
-      'tabela'    => $tblCrypto,
+      'tabela'    => $fxApply($tblCrypto),
       'avg'       => $expr,
-      'filterCol' => 'media_exchanges_usd IS NOT NULL',
+      'filterCol' => "{$base[0]} IS NOT NULL" . ($mult !== '' ? ' AND fx.fx_' . strtolower($moeda) . ' IS NOT NULL' : ''),
     ];
 
   } else {
-    // crypto_fiat (lógica original) + taxas extras jpy/cny/try/rub como literais
-    // NÃO duplicar brl/eur/gbp que já vêm como expressões no SELECT
-    $col = colunas($moeda, $moedaExibicao, $fxRate);
-
-    $fxLiteralCol = '';
-    if (!empty($col['fx_literal']) && !empty($col['fx_col'])) {
-      $fxLiteralCol = ",
-              {$col['fx_literal']} AS {$col['fx_col']}";
+    // crypto_fiat. BRL e USD: colunas gravadas pelo coletor (o BRL já usa o dólar 24 h).
+    // Demais moedas (EUR, GBP, JPY, CNY, TRY, RUB): preço em USD × câmbio do momento.
+    $tabelaC = MOEDAS_CRYPTO[$moeda];
+    if (in_array($moedaExibicao, ['BRL', 'USD'], true)) {
+      $col = colunas($moeda, $moedaExibicao);
+    } else {
+      $fxc = 'fx.fx_' . strtolower($moedaExibicao);
+      $mx  = fn(string $c) => "CASE WHEN {$c} IS NOT NULL THEN {$c} * {$fxc} END";
+      $col = [
+        'avg'         => "media_exchanges_usd * {$fxc}",
+        'binance'     => $mx('price_usd_binance'),
+        'kraken'      => $mx('price_usd_kraken'),
+        'coinbase'    => $mx('price_usd_coinbase'),
+        'morningstar' => ($moeda === 'BTC') ? $mx('price_usd_morningstar') : 'NULL',
+        'usd_ref'     => 'media_exchanges_usd',
+      ];
     }
-    $fxExtras = '';
-    if ($fxRow) {
-      $lits = [];
-      foreach (['jpy','cny','try','rub'] as $fc) {
-        $k = "usd_{$fc}";
-        if (isset($fxRow[$k]) && $fxRow[$k] !== null)
-          $lits[] = number_format((float)$fxRow[$k], 8, '.', '') . " AS {$k}";
-      }
-      if ($lits) $fxExtras = ",
-              " . implode(",
-              ", $lits);
-    }
+    $col['tabela'] = $fxApply($tabelaC);
     $selectCols = "ts_utc,
               {$col['avg']}      AS price_brl,
               {$col['binance']}  AS price_brl_binance,
@@ -717,16 +690,18 @@ try {
               {$col['morningstar']} AS price_brl_morningstar,
               {$col['usd_ref']}  AS btc_usd,
               usd_brl,
-              (media_exchanges_eur / NULLIF(media_exchanges_usd,0)) AS usd_eur,
-              (media_exchanges_gbp / NULLIF(media_exchanges_usd,0)) AS usd_gbp{$fxExtras}";
-    // Nota: fxExtras já inclui usd_{moedaExibicao} para MOEDAS_FX_COMPUTED
-    // (ex: usd_cny). Não usar fxLiteralCol aqui — causaria alias duplicado no CTE.
-    $col['filterCol'] = $col['filterCol'] ?? "{$col['avg']} IS NOT NULL";
+              {$fxOut}";
+    $col['filterCol'] = "{$col['avg']} IS NOT NULL";
   }
-
   // ── Taxa de rede (fee_p50): BTC usa est_6_satvb nativo, BCH usa 1 sat/byte, outros 0 ────
   if ($tipo === 'crypto_fiat' && $moeda === 'BTC') {
     $selectCols .= ",\n              ISNULL(est_6_satvb, 1.0) AS fee_p50";
+  } elseif ($tipo === 'crypto_fiat' && $moeda === 'ETH') {
+    // ETH: preco do gas em gwei (o site multiplica por 21.000 gas / 1e9); historico sem gas = 0,25 gwei
+    $selectCols .= ",\n              ISNULL(gas_price_gwei, 0.25) AS fee_p50";
+  } elseif ($tipo === 'crypto_fiat' && in_array($moeda, ['USDC', 'USDT'], true)) {
+    // USDC/USDT (ERC-20): gas x preco do ETH / preco da stable (o site multiplica por 65.000 gas / 1e9)
+    $selectCols .= ",\n              ISNULL(fee_p50_eq, 0.25) AS fee_p50";
   } elseif ($tipo === 'crypto_fiat') {  // BCH ou outros crypto
     $selectCols .= ",\n              1.0 AS fee_p50";
   } else {
@@ -814,22 +789,11 @@ try {
       // Para crypto_fiat: inclui expressões computadas de usd_eur/gbp.
       // Para fiat_fiat/fiat_crypto: inclui usd_brl direto da tabela.
       // Sempre: adiciona usd_jpy/cny/try/rub se estiverem no selectCols.
-      $baseCols = "ts_utc, price_brl, price_brl_binance, price_brl_kraken, price_brl_coinbase, btc_usd, usd_brl";
-      if ($tipo === 'crypto_fiat') $baseCols .= ", price_brl_morningstar, usd_eur, usd_gbp";
-      elseif ($tipo === 'fiat_fiat') $baseCols .= ", usd_eur, usd_gbp, usd_jpy, usd_cny, usd_try, usd_rub";
+      // todas as consultas (menos crypto×crypto) devolvem as 7 taxas do momento; crypto×fiat também o Morningstar
+      $baseCols = "ts_utc, price_brl, price_brl_binance, price_brl_kraken, price_brl_coinbase, btc_usd, usd_brl, usd_eur, usd_gbp, usd_jpy, usd_cny, usd_try, usd_rub";
+      if ($tipo === 'crypto_fiat') $baseCols .= ", price_brl_morningstar";
       $baseCols .= ', fee_p50';  // taxa de rede (presente em todos os pares)
-      // Para crypto_fiat com MOEDAS_FX_COMPUTED: as extras vieram no fxExtras
-      $extraAlias = '';
-      if ($fxRow) {
-        $eLits = [];
-        foreach (['jpy','cny','try','rub'] as $fc) {
-          if (isset($fxRow["usd_{$fc}"]) && $fxRow["usd_{$fc}"] !== null)
-            $eLits[] = "usd_{$fc}";
-        }
-        if ($eLits && $tipo === 'crypto_fiat')
-          $extraAlias = ', ' . implode(', ', $eLits);
-      }
-      $fxAlias = $baseCols . $extraAlias;
+      $fxAlias = $baseCols;
       $sql = "
         WITH src AS (
           SELECT {$selectCols},

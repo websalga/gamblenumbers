@@ -21,6 +21,9 @@ require_once __DIR__ . '/../private/config.php';
 const QUEDA_CRASH_PCT_PADRAO = 23.0;
 const LOOKBACK_MIN_PADRAO = 1440;
 const TETO_SALDO_PCT_PADRAO = 20.0;
+const SUG_VALIDADE_MIN_MIN = 5;                    // validade das sugestoes de troca (minutos): minimo e maximo
+const SUG_VALIDADE_MIN_MAX = 1440;
+const SUG_VALIDADE_PADRAO = ['BTC' => 240, 'BCH' => 60];   // padrao por moeda (BCH muda de cenario em ~1 h; BTC em horas)
 
 function db(): PDO {
     global $DB_SERVER, $DB_DATABASE, $DB_USER, $DB_PASSWORD, $DB_PORT;
@@ -63,6 +66,11 @@ function tetoSaldoPctDeConfig(?string $configJson): float {
     return array_key_exists('teto_saldo_pct', $j) ? (float)$j['teto_saldo_pct'] : TETO_SALDO_PCT_PADRAO;
 }
 
+function sugValidadeMinDeConfig(?string $configJson, string $moeda): int {
+    $j = configDecode($configJson);
+    return array_key_exists('sug_validade_min', $j) ? (int)$j['sug_validade_min'] : (SUG_VALIDADE_PADRAO[$moeda] ?? 240);
+}
+
 $sid = trim((string)($_SERVER['HTTP_X_GN_SESSION'] ?? $_GET['session_id'] ?? ''));
 
 if (strlen($sid) !== 64 || !ctype_xdigit($sid)) {
@@ -97,6 +105,7 @@ try {
             'quedaCrashPct'          => quedaCrashPctDeConfig($r['config_json']),
             'lookbackMinutos'        => lookbackMinDeConfig($r['config_json']),
             'tetoSaldoPct'           => tetoSaldoPctDeConfig($r['config_json']),
+            'sugValidadeMin'         => sugValidadeMinDeConfig($r['config_json'], (string)$r['moeda']),
             'criadoEm'               => $r['criado_em'],
             'atualizadoEm'           => $r['atualizado_em'],
         ];
