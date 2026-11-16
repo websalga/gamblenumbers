@@ -397,6 +397,22 @@ try {
     $stmt->execute([$sessionId]);
     $events = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
+    // 16/11/2026: totais do historico COMPLETO (a tela lista so as 25 ultimas linhas; os cartoes
+    // Entradas/Saidas/Atualizacoes somavam so essas 25 e ficavam errados em endereco com mais movimento)
+    $stmt = $pdo->prepare("SELECT asset, SUM(CASE WHEN delta_sat > 0 THEN delta_sat ELSE 0 END) AS ent_sat,
+                                  SUM(CASE WHEN delta_sat < 0 THEN -delta_sat ELSE 0 END) AS sai_sat, COUNT(*) AS n
+                           FROM dbo.vw_GN_AddressStatementEvents WHERE session_id = ? GROUP BY asset");
+    $stmt->execute([$sessionId]);
+    $tot = [];
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $t) $tot[$t['asset']] = $t;
+    foreach ($summary as &$row) {
+      $t = $tot[$row['asset']] ?? null;
+      $row['entradas_coin'] = $t ? (int)$t['ent_sat'] / 1e8 : 0;
+      $row['saidas_coin']   = $t ? (int)$t['sai_sat'] / 1e8 : 0;
+      $row['eventos']       = $t ? (int)$t['n'] : 0;
+    }
+    unset($row);
+
     // Anexa o TXID de cada evento (via credenciais de sync, somente leitura)
     // para permitir rastreio no mempool.space (BTC) / bchmempool.cash (BCH).
     anexarTxHash($events);
